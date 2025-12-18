@@ -167,7 +167,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [categories, setCategories] = useState<string[]>(() => safeLoad('categories', ["General"]));
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => safeLoad('activityLogs', []));
     
-    // Fix: Explicitly handle potential null from safeLoad to avoid spread on null
     const [settings, setSettings] = useState<BusinessSettings>(() => {
         const saved = safeLoad<Partial<BusinessSettings> | null>('settings', null);
         if (saved && typeof saved === 'object') {
@@ -181,7 +180,69 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [isSyncing, setIsSyncing] = useState(false);
     
     const justPulledFromCloud = useRef(false);
+    const audioCtxRef = useRef<AudioContext | null>(null);
 
+    // --- AUDIO SYSTEM ---
+    useEffect(() => {
+        // Unlock AudioContext on first user interaction
+        const unlockAudio = () => {
+            if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+                audioCtxRef.current.resume().catch(e => console.warn("Audio resume failed", e));
+            }
+            if (!audioCtxRef.current) {
+                try {
+                    audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+                } catch (e) { console.warn("Audio not supported"); }
+            }
+        };
+        window.addEventListener('click', unlockAudio);
+        window.addEventListener('touchstart', unlockAudio);
+        return () => {
+            window.removeEventListener('click', unlockAudio);
+            window.removeEventListener('touchstart', unlockAudio);
+        };
+    }, []);
+
+    const playSound = (type: 'success' | 'error' | 'warning' | 'info') => {
+        if (!settings.notificationsEnabled && type === 'info') return;
+        
+        try {
+            if (!audioCtxRef.current) {
+                audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+            }
+            const ctx = audioCtxRef.current;
+            if (ctx.state === 'suspended') ctx.resume();
+
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            if (type === 'error') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, ctx.currentTime);
+                osc.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.2);
+            } else if (type === 'success') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(500, ctx.currentTime);
+                osc.frequency.linearRampToValueAtTime(1000, ctx.currentTime + 0.1);
+            } else {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(440, ctx.currentTime);
+            }
+
+            gain.gain.setValueAtTime(0.1, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+
+            osc.start();
+            osc.stop(ctx.currentTime + 0.3);
+        } catch (e) {
+            console.warn("Audio play failed", e);
+        }
+    };
+
+    // --- SECURITY CHECKS ---
     useEffect(() => {
         const savedUser = safeLoad<User | null>('currentUser', null);
         if (savedUser) {
@@ -226,6 +287,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         };
     }, [currentUser]); 
 
+    // --- PERSISTENCE ---
     useEffect(() => {
         safeSave('products', products);
         safeSave('transactions', transactions);
@@ -245,6 +307,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const id = crypto.randomUUID();
         setToasts(prev => [...prev, { id, title, message, type }]);
         setTimeout(() => removeToast(id), 6000);
+        
+        playSound(type);
+
         if ((settings.notificationsEnabled || forceNative) && Notification.permission === 'granted') {
             try { new Notification(title, { body: message, icon: '/pwa-192x192.png', silent: false }); } catch (error) {}
         }
@@ -281,13 +346,20 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 if (Array.isArray(safeData.userInvites)) setUserInvites(safeData.userInvites);
                 if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
                 if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
+                
+                // Smart Settings Merge
                 if (safeData.settings && typeof safeData.settings === 'object') {
                     const mergedSettings = { 
                         ...DEFAULT_SETTINGS,
                         ...safeData.settings, 
-                        googleWebAppUrl: settings.googleWebAppUrl, // Keep local config URL
-                        enableCloudSync: settings.enableCloudSync, // Keep local config flag
-                        cloudSecret: settings.cloudSecret // Keep local secret
+                        // Always preserve critical connection details from local state
+                        googleWebAppUrl: settings.googleWebAppUrl, 
+                        enableCloudSync: settings.enableCloudSync, 
+                        cloudSecret: settings.cloudSecret,
+                        // FIX FOR LOGO: If cloud logo is empty/small but local is valid, KEEP LOCAL
+                        // This prevents sync overwriting a freshly uploaded logo before it was pushed
+                        logo: (safeData.settings.logo && safeData.settings.logo.length > 50) ? safeData.settings.logo : settings.logo,
+                        receiptLogo: (safeData.settings.receiptLogo && safeData.settings.receiptLogo.length > 50) ? safeData.settings.receiptLogo : settings.receiptLogo
                     };
                     setSettings(mergedSettings);
                 }
@@ -333,7 +405,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return () => clearTimeout(timer);
     }, [products, transactions, customers, cashMovements, users, userInvites, orders, purchases, activityLogs, settings, pushToCloud]);
 
-    // ... rest of the functions (logActivity, login, logout, etc.)
     const logActivity = (action: string, details: string) => {
         if (!currentUser) return;
         const now = new Date().toISOString();

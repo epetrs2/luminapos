@@ -4,7 +4,7 @@ import { useStore } from '../components/StoreContext';
 import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Database, Download, AlertTriangle, PieChart, Bell, Volume2, Printer, Trash2, Hash, FileInput, Info, CreditCard, Percent, Cloud, CloudOff, RefreshCw, LayoutTemplate, Eye, Calendar, Phone, DollarSign, ToggleLeft, ToggleRight, Check, Lock, RotateCw, ShieldCheck } from 'lucide-react';
 
 export const Settings: React.FC = () => {
-  const { settings, updateSettings, products, categories, transactions, cashMovements, customers, suppliers, users, importData, requestNotificationPermission, notify, pullFromCloud, isSyncing } = useStore();
+  const { settings, updateSettings, products, categories, transactions, cashMovements, customers, suppliers, users, importData, requestNotificationPermission, notify, pullFromCloud, pushToCloud, isSyncing } = useStore();
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'RECEIPT' | 'PRODUCTION' | 'THEME' | 'DATA' | 'BUDGET' | 'NOTIFICATIONS' | 'SEQUENCES'>('GENERAL');
   const [formData, setFormData] = useState(settings);
   const [isSaved, setIsSaved] = useState(false);
@@ -89,7 +89,7 @@ export const Settings: React.FC = () => {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // Basic validation
     const budgetSum = formData.budgetConfig.expensesPercentage + formData.budgetConfig.investmentPercentage + formData.budgetConfig.profitPercentage;
     if (Math.abs(budgetSum - 100) > 1) { 
@@ -99,6 +99,12 @@ export const Settings: React.FC = () => {
 
     updateSettings(formData);
     setIsSaved(true);
+    
+    // Force immediate push to cloud if enabled
+    if (formData.enableCloudSync) {
+        await pushToCloud();
+    }
+    
     setTimeout(() => setIsSaved(false), 3000);
   };
 
@@ -226,10 +232,11 @@ export const Settings: React.FC = () => {
           </div>
           <button
             onClick={handleSave}
-            className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold shadow-lg transition-all ${isSaved ? 'bg-emerald-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 dark:shadow-none'}`}
+            disabled={isSaved || isSyncing}
+            className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold shadow-lg transition-all ${isSaved ? 'bg-emerald-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 dark:shadow-none disabled:opacity-70'}`}
           >
-            {isSaved ? <CheckCircle className="w-5 h-5" /> : <Save className="w-5 h-5" />}
-            {isSaved ? '¡Guardado!' : 'Guardar Cambios'}
+            {isSyncing ? <RefreshCw className="w-5 h-5 animate-spin" /> : isSaved ? <CheckCircle className="w-5 h-5" /> : <Save className="w-5 h-5" />}
+            {isSyncing ? 'Sincronizando...' : isSaved ? '¡Guardado!' : 'Guardar Cambios'}
           </button>
         </div>
 
