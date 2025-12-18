@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Store, User, Lock, AlertCircle, Loader2, ShieldCheck, ArrowLeft, Smartphone, RefreshCw, Settings, Save, Link as LinkIcon, Check, X, CloudCog, Ticket, UserPlus, HelpCircle } from 'lucide-react';
+import { Store, User, Lock, AlertCircle, Loader2, ShieldCheck, ArrowLeft, Smartphone, RefreshCw, Settings, Save, Link as LinkIcon, Check, X, CloudCog, Ticket, UserPlus, HelpCircle, KeyRound } from 'lucide-react';
 import { validatePasswordPolicy, verifyPassword } from '../utils/security';
 import { generate2FASecret, generateQRCode, verify2FAToken } from '../utils/twoFactor';
 
@@ -50,6 +50,7 @@ export const Login: React.FC = () => {
 
   // Settings State
   const [tempUrl, setTempUrl] = useState('');
+  const [tempSecret, setTempSecret] = useState('');
   
   // Validation State
   const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
@@ -99,8 +100,9 @@ export const Login: React.FC = () => {
   useEffect(() => {
       if (view === 'CONNECTION') {
           setTempUrl(settings.googleWebAppUrl || '');
+          setTempSecret(settings.cloudSecret || '');
       }
-  }, [view, settings.googleWebAppUrl]);
+  }, [view, settings.googleWebAppUrl, settings.cloudSecret]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,15 +171,15 @@ export const Login: React.FC = () => {
           setIsInitialSyncing(true);
           await pullFromCloud();
           setSuccessMsg('Datos sincronizados correctamente.');
-      } catch (e) {
-          setError('Error al sincronizar. Verifica tu conexión.');
+      } catch (e: any) {
+          setError(e.message || 'Error al sincronizar. Verifica tu conexión.');
       } finally {
           setIsInitialSyncing(false);
       }
   };
 
   const handleSaveConnection = () => {
-      updateSettings({ ...settings, googleWebAppUrl: tempUrl, enableCloudSync: true });
+      updateSettings({ ...settings, googleWebAppUrl: tempUrl, cloudSecret: tempSecret, enableCloudSync: true });
       setSuccessMsg('Conexión actualizada.');
       setView('LOGIN');
       // Trigger a pull immediately after saving settings
@@ -395,6 +397,19 @@ export const Login: React.FC = () => {
                             rows={3}
                           />
                       </div>
+                  </div>
+
+                  <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3" /> Contraseña de Conexión (Opcional)
+                      </label>
+                      <input 
+                        type="password" 
+                        value={tempSecret} 
+                        onChange={(e) => setTempSecret(e.target.value)} 
+                        className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                        placeholder="Solo si configuraste API_SECRET en el script..."
+                      />
                   </div>
 
                   <div className="flex gap-3">

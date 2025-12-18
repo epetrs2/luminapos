@@ -1,9 +1,12 @@
+
+// ... (imports remain same, not changing top part) ...
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, CartItem, Purchase, UserInvite, UserRole } from '../types';
 import { hashPassword, verifyPassword, sanitizeDataStructure, generateSalt } from '../utils/security';
 import { verify2FAToken } from '../utils/twoFactor';
 import { pushFullDataToCloud, fetchFullDataFromCloud } from '../services/syncService';
 
+// ... (interface definition remains same) ...
 interface StoreContextType {
   products: Product[];
   transactions: Transaction[];
@@ -366,9 +369,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 justPulledFromCloud.current = true;
                 notify('Datos Sincronizados', 'Sincronización con la nube completada.', 'success');
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error("Sync Pull Error:", e);
-            notify("Error Sincronización", "No se pudieron descargar los datos. Verifique su clave secreta o conexión.", "error");
+            if (e.message && e.message.includes("ACCESO DENEGADO")) {
+                 notify("Error de Acceso", "Contraseña de nube incorrecta. Verifica la configuración.", "error");
+            } else {
+                 notify("Error Sincronización", "No se pudieron descargar los datos. Verifique su conexión.", "error");
+            }
         } finally {
             setIsSyncing(false);
         }
@@ -405,6 +412,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return () => clearTimeout(timer);
     }, [products, transactions, customers, cashMovements, users, userInvites, orders, purchases, activityLogs, settings, pushToCloud]);
 
+    // ... rest of the functions (logActivity, login, logout, etc.)
     const logActivity = (action: string, details: string) => {
         if (!currentUser) return;
         const now = new Date().toISOString();
