@@ -169,7 +169,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     
     // Fix: Explicitly handle potential null from safeLoad to avoid spread on null
     const [settings, setSettings] = useState<BusinessSettings>(() => {
-        const saved = safeLoad('settings', null);
+        const saved = safeLoad<Partial<BusinessSettings> | null>('settings', null);
         if (saved && typeof saved === 'object') {
             return { ...DEFAULT_SETTINGS, ...saved };
         }

@@ -8,7 +8,7 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
-declare const process: {
+declare var process: {
   env: {
     API_KEY: string;
     [key: string]: string | undefined;
