@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, CartItem, Purchase, UserInvite, UserRole } from '../types';
 import { hashPassword, verifyPassword, sanitizeDataStructure, generateSalt } from '../utils/security';
@@ -181,7 +182,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => safeLoad('activityLogs', []));
     
     const [settings, setSettings] = useState<BusinessSettings>(() => {
-        const saved = safeLoad('settings', null);
+        // Fix for Vercel TS2698: explicitly type generic to Partial<BusinessSettings> | null
+        const saved = safeLoad<Partial<BusinessSettings> | null>('settings', null);
         return saved ? { ...DEFAULT_SETTINGS, ...saved } : DEFAULT_SETTINGS;
     });
     
