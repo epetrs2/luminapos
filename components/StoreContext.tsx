@@ -332,9 +332,26 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             settings: settingsToPush,
             ...overrides // Merge any other overrides if passed
         };
-        await pushFullDataToCloud(settingsToPush.googleWebAppUrl, settingsToPush.cloudSecret, dataToPush);
-        setIsSyncing(false);
+        try {
+            await pushFullDataToCloud(settingsToPush.googleWebAppUrl, settingsToPush.cloudSecret, dataToPush);
+        } catch (e: any) {
+            notify("Error de Sincronización", e.message || "No se pudieron subir los datos.", "error");
+        } finally {
+            setIsSyncing(false);
+        }
     }, [settings, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs]);
+
+    const validateCloudData = (data: any): boolean => {
+        if (!data || typeof data !== 'object') return false;
+        // Basic check for critical arrays to prevent state corruption
+        const criticalKeys = ['products', 'transactions', 'users'];
+        for (const key of criticalKeys) {
+            if (data[key] && !Array.isArray(data[key])) {
+                return false;
+            }
+        }
+        return true;
+    };
 
     const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string) => {
         const urlToUse = overrideUrl || settings.googleWebAppUrl;
@@ -344,46 +361,59 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setIsSyncing(true);
         try {
             const cloudData = await fetchFullDataFromCloud(urlToUse, secretToUse);
-            if (cloudData && typeof cloudData === 'object') {
-                const safeData = sanitizeDataStructure(cloudData);
-                if (Array.isArray(safeData.products)) setProducts(safeData.products);
-                if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
-                if (Array.isArray(safeData.customers)) setCustomers(safeData.customers);
-                if (Array.isArray(safeData.suppliers)) setSuppliers(safeData.suppliers);
-                if (Array.isArray(safeData.cashMovements)) setCashMovements(safeData.cashMovements);
-                if (Array.isArray(safeData.orders)) setOrders(safeData.orders);
-                if (Array.isArray(safeData.purchases)) setPurchases(safeData.purchases);
-                if (Array.isArray(safeData.users)) setUsers(safeData.users);
-                if (Array.isArray(safeData.userInvites)) setUserInvites(safeData.userInvites);
-                if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
-                if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
-                
-                // Smart Settings Merge
-                if (safeData.settings && typeof safeData.settings === 'object') {
-                    const mergedSettings = { 
-                        ...DEFAULT_SETTINGS,
-                        ...safeData.settings, 
-                        // Always preserve critical connection details from local state OR current overrides
-                        googleWebAppUrl: urlToUse, 
-                        enableCloudSync: true, // If we are pulling, it means we want it enabled
-                        cloudSecret: secretToUse,
-                        // Allow cloud values to override local visual settings if present (trust the cloud)
-                        logo: safeData.settings.logo !== undefined ? safeData.settings.logo : settings.logo,
-                        receiptLogo: safeData.settings.receiptLogo !== undefined ? safeData.settings.receiptLogo : settings.receiptLogo
-                    };
-                    setSettings(mergedSettings);
-                }
-                justPulledFromCloud.current = true;
-                notify('Datos Sincronizados', 'Sincronización con la nube completada.', 'success');
+            
+            if (!cloudData) {
+                throw new Error("No se recibieron datos o la respuesta estaba vacía.");
             }
+
+            const safeData = sanitizeDataStructure(cloudData);
+
+            // STRICT VALIDATION: Ensure we have valid arrays before wiping/updating local state
+            if (!validateCloudData(safeData)) {
+                throw new Error("Datos de la nube corruptos o con formato inválido. Sincronización abortada para proteger datos locales.");
+            }
+
+            // Only update state if keys exist and are arrays/objects of correct type
+            if (Array.isArray(safeData.products)) setProducts(safeData.products);
+            if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
+            if (Array.isArray(safeData.customers)) setCustomers(safeData.customers);
+            if (Array.isArray(safeData.suppliers)) setSuppliers(safeData.suppliers);
+            if (Array.isArray(safeData.cashMovements)) setCashMovements(safeData.cashMovements);
+            if (Array.isArray(safeData.orders)) setOrders(safeData.orders);
+            if (Array.isArray(safeData.purchases)) setPurchases(safeData.purchases);
+            if (Array.isArray(safeData.users)) setUsers(safeData.users);
+            if (Array.isArray(safeData.userInvites)) setUserInvites(safeData.userInvites);
+            if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
+            if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
+            
+            // Smart Settings Merge
+            if (safeData.settings && typeof safeData.settings === 'object') {
+                const mergedSettings = { 
+                    ...DEFAULT_SETTINGS,
+                    ...safeData.settings, 
+                    // Always preserve critical connection details from local state OR current overrides
+                    googleWebAppUrl: urlToUse, 
+                    enableCloudSync: true, // If we are pulling, it means we want it enabled
+                    cloudSecret: secretToUse,
+                    // Allow cloud values to override local visual settings if present (trust the cloud)
+                    logo: safeData.settings.logo !== undefined ? safeData.settings.logo : settings.logo,
+                    receiptLogo: safeData.settings.receiptLogo !== undefined ? safeData.settings.receiptLogo : settings.receiptLogo
+                };
+                setSettings(mergedSettings);
+            }
+            justPulledFromCloud.current = true;
+            notify('Datos Sincronizados', 'Sincronización con la nube completada.', 'success');
+            
         } catch (e: any) {
             console.error("Sync Pull Error:", e);
-            if (e.message && e.message.includes("ACCESO DENEGADO")) {
-                 notify("Error de Acceso", "Contraseña de nube incorrecta. Verifica la configuración.", "error");
-            } else {
-                 notify("Error Sincronización", "No se pudieron descargar los datos. Verifique su conexión.", "error");
+            let msg = "No se pudieron descargar los datos.";
+            if (e.message) {
+                if (e.message.includes("ACCESO DENEGADO")) msg = "Contraseña de nube incorrecta.";
+                else if (e.message.includes("corruptos")) msg = e.message;
+                else if (e.message.includes("URL")) msg = "URL de script inválida.";
             }
-            throw e; // Re-throw to handle in UI if needed
+            notify("Error de Sincronización", msg, "error");
+            throw e; // Re-throw to handle in UI if needed (e.g. Login page)
         } finally {
             setIsSyncing(false);
         }
@@ -393,7 +423,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const init = async () => {
             // Initial pull
             if (settings.enableCloudSync && settings.googleWebAppUrl) {
-                await pullFromCloud();
+                try {
+                    await pullFromCloud();
+                } catch(e) {
+                    // Silent catch on init, let the UI show notification
+                }
             }
             if (users.length === 0) {
                 const salt = 'default_salt'; 
