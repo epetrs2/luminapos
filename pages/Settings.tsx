@@ -100,9 +100,9 @@ export const Settings: React.FC = () => {
     updateSettings(formData);
     setIsSaved(true);
     
-    // Force immediate push to cloud if enabled
+    // Force immediate push to cloud if enabled, using the NEW form data to avoid race condition
     if (formData.enableCloudSync) {
-        await pushToCloud();
+        await pushToCloud({ settings: formData });
     }
     
     setTimeout(() => setIsSaved(false), 3000);

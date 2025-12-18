@@ -63,7 +63,7 @@ interface StoreContextType {
   requestNotificationPermission: () => Promise<boolean>;
   logActivity: (action: string, details: string) => void;
   pullFromCloud: (overrideUrl?: string, overrideSecret?: string) => Promise<void>;
-  pushToCloud: () => Promise<void>;
+  pushToCloud: (overrides?: any) => Promise<void>;
   generateInvite: (role: UserRole) => string;
   registerWithInvite: (code: string, userData: {
       username: string; 
@@ -320,14 +320,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
 
-    const pushToCloud = useCallback(async () => {
-        if (!settings.enableCloudSync || !settings.googleWebAppUrl || settings.googleWebAppUrl.length < 10) return;
+    const pushToCloud = useCallback(async (overrides?: any) => {
+        const settingsToPush = overrides?.settings || settings;
+        
+        if (!settingsToPush.enableCloudSync || !settingsToPush.googleWebAppUrl || settingsToPush.googleWebAppUrl.length < 10) return;
+        
         setIsSyncing(true);
         const dataToPush = {
             products, transactions, customers, suppliers, 
-            cashMovements, orders, purchases, users, userInvites, categories, activityLogs, settings
+            cashMovements, orders, purchases, users, userInvites, categories, activityLogs, 
+            settings: settingsToPush,
+            ...overrides // Merge any other overrides if passed
         };
-        await pushFullDataToCloud(settings.googleWebAppUrl, settings.cloudSecret, dataToPush);
+        await pushFullDataToCloud(settingsToPush.googleWebAppUrl, settingsToPush.cloudSecret, dataToPush);
         setIsSyncing(false);
     }, [settings, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs]);
 
@@ -362,10 +367,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         googleWebAppUrl: urlToUse, 
                         enableCloudSync: true, // If we are pulling, it means we want it enabled
                         cloudSecret: secretToUse,
-                        // FIX FOR LOGO: If cloud logo is empty/small but local is valid, KEEP LOCAL
-                        // This prevents sync overwriting a freshly uploaded logo before it was pushed
-                        logo: (safeData.settings.logo && safeData.settings.logo.length > 50) ? safeData.settings.logo : settings.logo,
-                        receiptLogo: (safeData.settings.receiptLogo && safeData.settings.receiptLogo.length > 50) ? safeData.settings.receiptLogo : settings.receiptLogo
+                        // Allow cloud values to override local visual settings if present (trust the cloud)
+                        logo: safeData.settings.logo !== undefined ? safeData.settings.logo : settings.logo,
+                        receiptLogo: safeData.settings.receiptLogo !== undefined ? safeData.settings.receiptLogo : settings.receiptLogo
                     };
                     setSettings(mergedSettings);
                 }
