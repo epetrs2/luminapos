@@ -178,12 +178,24 @@ export const Login: React.FC = () => {
       }
   };
 
-  const handleSaveConnection = () => {
+  const handleSaveConnection = async () => {
+      // 1. Update Context/Storage
       updateSettings({ ...settings, googleWebAppUrl: tempUrl, cloudSecret: tempSecret, enableCloudSync: true });
-      setSuccessMsg('Conexión actualizada.');
-      setView('LOGIN');
-      // Trigger a pull immediately after saving settings
-      handlePullCloudData();
+      
+      // 2. Immediate Pull using the values directly, ignoring the potentially stale 'settings' state in the context closure
+      setSuccessMsg('Guardando configuración...');
+      setError('');
+      
+      try {
+          setIsInitialSyncing(true);
+          await pullFromCloud(tempUrl, tempSecret); // Pass explicit values
+          setSuccessMsg('¡Conectado! Datos descargados de la nube.');
+          setView('LOGIN');
+      } catch (e: any) {
+          setError(e.message || 'Error al descargar datos.');
+      } finally {
+          setIsInitialSyncing(false);
+      }
   };
 
   const initRecovery = () => {
@@ -415,7 +427,8 @@ export const Login: React.FC = () => {
                   <div className="flex gap-3">
                       <button onClick={() => setView('LOGIN')} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200">Cancelar</button>
                       <button onClick={handleSaveConnection} className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg flex items-center justify-center gap-2">
-                          <Save className="w-4 h-4" /> Guardar y Sincronizar
+                          {isInitialSyncing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4" />}
+                          {isInitialSyncing ? 'Conectando...' : 'Guardar y Sincronizar'}
                       </button>
                   </div>
               </div>

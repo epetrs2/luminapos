@@ -740,7 +740,7 @@ export const Settings: React.FC = () => {
                                     </div>
 
                                     <button 
-                                        onClick={pullFromCloud}
+                                        onClick={() => pullFromCloud()}
                                         disabled={isSyncing || !formData.googleWebAppUrl}
                                         className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 transition-all disabled:opacity-50"
                                     >

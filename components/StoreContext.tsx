@@ -62,7 +62,7 @@ interface StoreContextType {
   removeToast: (id: string) => void;
   requestNotificationPermission: () => Promise<boolean>;
   logActivity: (action: string, details: string) => void;
-  pullFromCloud: () => Promise<void>;
+  pullFromCloud: (overrideUrl?: string, overrideSecret?: string) => Promise<void>;
   pushToCloud: () => Promise<void>;
   generateInvite: (role: UserRole) => string;
   registerWithInvite: (code: string, userData: {
@@ -331,11 +331,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setIsSyncing(false);
     }, [settings, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs]);
 
-    const pullFromCloud = async () => {
-        if (!settings.googleWebAppUrl || settings.googleWebAppUrl.length < 10) return;
+    const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string) => {
+        const urlToUse = overrideUrl || settings.googleWebAppUrl;
+        const secretToUse = overrideSecret !== undefined ? overrideSecret : settings.cloudSecret;
+
+        if (!urlToUse || urlToUse.length < 10) return;
         setIsSyncing(true);
         try {
-            const cloudData = await fetchFullDataFromCloud(settings.googleWebAppUrl, settings.cloudSecret);
+            const cloudData = await fetchFullDataFromCloud(urlToUse, secretToUse);
             if (cloudData && typeof cloudData === 'object') {
                 const safeData = sanitizeDataStructure(cloudData);
                 if (Array.isArray(safeData.products)) setProducts(safeData.products);
@@ -355,10 +358,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     const mergedSettings = { 
                         ...DEFAULT_SETTINGS,
                         ...safeData.settings, 
-                        // Always preserve critical connection details from local state
-                        googleWebAppUrl: settings.googleWebAppUrl, 
-                        enableCloudSync: settings.enableCloudSync, 
-                        cloudSecret: settings.cloudSecret,
+                        // Always preserve critical connection details from local state OR current overrides
+                        googleWebAppUrl: urlToUse, 
+                        enableCloudSync: true, // If we are pulling, it means we want it enabled
+                        cloudSecret: secretToUse,
                         // FIX FOR LOGO: If cloud logo is empty/small but local is valid, KEEP LOCAL
                         // This prevents sync overwriting a freshly uploaded logo before it was pushed
                         logo: (safeData.settings.logo && safeData.settings.logo.length > 50) ? safeData.settings.logo : settings.logo,
@@ -376,6 +379,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             } else {
                  notify("Error Sincronización", "No se pudieron descargar los datos. Verifique su conexión.", "error");
             }
+            throw e; // Re-throw to handle in UI if needed
         } finally {
             setIsSyncing(false);
         }
