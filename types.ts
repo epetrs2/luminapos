@@ -1,0 +1,267 @@
+export interface ProductVariant {
+  id: string;
+  name: string; // e.g. "Rojo / S"
+  price: number;
+  stock: number;
+  sku: string;
+}
+
+export type ProductType = 'PRODUCT' | 'SERVICE' | 'SUPPLY';
+
+export interface Product {
+  id: string;
+  name: string;
+  price: number; // Sales Price
+  stock: number; // For simple products
+  category: string;
+  sku: string; // Master SKU
+  description?: string;
+  
+  // Advanced Features
+  type?: ProductType; // New field: PRODUCT (Default), SERVICE, or SUPPLY (Raw material)
+  cost?: number; // Last purchase cost
+  taxRate: number; // Per product tax (0, 8, 16, etc.)
+  hasVariants: boolean;
+  variants?: ProductVariant[];
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  notes: string;
+  creditLimit: number;
+  currentDebt: number;
+  hasUnlimitedCredit?: boolean;
+  clientType?: 'INDIVIDUAL' | 'BUSINESS';
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  contactPerson: string;
+  email: string;
+  phone: string;
+  address: string;
+}
+
+export interface PurchaseItem {
+    productId: string;
+    variantId?: string;
+    variantName?: string;
+    name: string;
+    quantity: number;
+    unitCost: number; // Costo de compra, diferente al precio de venta
+    total: number;
+    type?: ProductType;
+}
+
+export interface Purchase {
+    id: string;
+    supplierId: string;
+    supplierName: string;
+    date: string;
+    items: PurchaseItem[];
+    total: number;
+    status: 'COMPLETED' | 'CANCELLED';
+    notes?: string;
+}
+
+export interface CartItem extends Product {
+  quantity: number;
+  originalPrice?: number;
+  variantId?: string; // If it's a variant
+  variantName?: string; // For display
+  finalTax?: number; // Calculated tax for this line item
+}
+
+export interface Transaction {
+  id: string;
+  date: string;
+  
+  subtotal: number;
+  taxAmount: number; // Sum of all item taxes
+  discount: number;
+  shipping: number;
+  total: number;
+  
+  items: CartItem[];
+  paymentMethod: 'cash' | 'card' | 'transfer' | 'split' | 'credit';
+  
+  paymentStatus: 'paid' | 'pending' | 'partial' | 'refunded';
+  amountPaid: number;
+  dueDate?: string;
+  
+  // For transfers not received immediately
+  transferReference?: string;
+  isTransferConfirmed?: boolean;
+
+  splitDetails?: { 
+    cash: number;
+    other: number;
+  };
+  customerId?: string;
+  customerName?: string; // Cached for sync
+  status: 'completed' | 'cancelled' | 'returned'; 
+  
+  // Return Tracking
+  originalTransactionId?: string; // If this is a return transaction
+  isReturn?: boolean; // Flag to identify return records
+  returnedItems?: { itemId: string, variantId?: string, quantity: number }[]; // Track what was returned
+}
+
+export interface Order {
+  id: string;
+  customerId?: string;
+  customerName: string;
+  date: string;
+  deliveryDate?: string;
+  items: CartItem[];
+  total: number;
+  status: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'COMPLETED';
+  notes?: string;
+  priority: 'NORMAL' | 'HIGH';
+}
+
+export type BudgetCategory = 'OPERATIONAL' | 'INVESTMENT' | 'PROFIT' | 'SALES' | 'OTHER';
+
+export interface ZReportData {
+    openingFund: number;
+    grossSales: number; // Total sold regardless of payment
+    cashSales: number;
+    cardSales: number;
+    transferSales: number;
+    creditSales: number;
+    expenses: number;
+    withdrawals: number;
+    expectedCash: number;
+    declaredCash: number;
+    difference: number;
+    timestamp: string;
+}
+
+export interface CashMovement {
+  id: string;
+  type: 'OPEN' | 'CLOSE' | 'EXPENSE' | 'DEPOSIT' | 'WITHDRAWAL';
+  amount: number;
+  description: string;
+  date: string;
+  category?: BudgetCategory;
+  customerId?: string;
+  
+  // Z-Cut Details
+  isZCut?: boolean;
+  zReportData?: ZReportData; // Store full snapshot for re-printing
+}
+
+export interface BusinessInsight {
+  analysis: string;
+  recommendations: string[];
+}
+
+export interface BudgetConfig {
+  expensesPercentage: number;
+  investmentPercentage: number;
+  profitPercentage: number;
+}
+
+export interface SequenceConfig {
+  customerStart: number;
+  ticketStart: number;
+  orderStart: number;
+}
+
+export interface ProductionDocConfig {
+    title: string;
+    showPrices: boolean;
+    showCustomerContact: boolean;
+    showDates: boolean;
+    customFooter: string;
+}
+
+export interface BusinessSettings {
+  name: string;
+  address: string;
+  phone: string;
+  email: string;
+  website: string;
+  taxId: string;
+  currency: string;
+  taxRate: number; // Default Global Tax
+  enableTax: boolean; // TOGGLE: Show/Hide Tax features
+  logo: string | null;
+  receiptLogo: string | null;
+  receiptHeader: string;
+  receiptFooter: string;
+  ticketPaperWidth: '58mm' | '80mm';
+  theme: 'light' | 'dark';
+  budgetConfig: BudgetConfig; 
+  notificationsEnabled: boolean; 
+  sequences: SequenceConfig;
+  productionDoc: ProductionDocConfig;
+  googleWebAppUrl?: string; // URL for sync
+  enableCloudSync?: boolean;
+  cloudSecret?: string; // NEW: Password for the cloud backend
+}
+
+export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER';
+
+export interface User {
+  id: string;
+  username: string;
+  passwordHash: string;
+  salt: string;
+  fullName: string;
+  role: UserRole;
+  active: boolean;
+  lastLogin?: string;
+  lastActive?: string;
+  failedLoginAttempts?: number;
+  lockoutUntil?: string;
+  recoveryCode?: string;
+  securityQuestion?: string;
+  securityAnswerHash?: string;
+  isTwoFactorEnabled?: boolean;
+  twoFactorSecret?: string;
+}
+
+export interface UserInvite {
+    code: string;
+    role: UserRole;
+    createdAt: string;
+    createdBy: string; // Admin username
+}
+
+export interface ActivityLog {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  action: 'LOGIN' | 'SALE' | 'INVENTORY' | 'SETTINGS' | 'USER_MGMT' | 'SECURITY' | 'CASH' | 'ORDER' | 'CRM' | 'RECOVERY';
+  details: string;
+  timestamp: string;
+}
+
+export interface ToastNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  duration?: number;
+}
+
+export enum AppView {
+  DASHBOARD = 'DASHBOARD',
+  POS = 'POS',
+  ORDERS = 'ORDERS',
+  INVENTORY = 'INVENTORY',
+  CUSTOMERS = 'CUSTOMERS',
+  SUPPLIERS = 'SUPPLIERS',
+  HISTORY = 'HISTORY', 
+  CASH = 'CASH',
+  REPORTS = 'REPORTS',
+  SETTINGS = 'SETTINGS',
+  USERS = 'USERS'
+}
