@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, CartItem, Purchase, UserInvite, UserRole } from '../types';
 import { hashPassword, verifyPassword, sanitizeDataStructure, generateSalt } from '../utils/security';
@@ -104,18 +103,15 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     sequences: { customerStart: 1001, ticketStart: 10001, orderStart: 5001 },
     productionDoc: { title: 'ORDEN DE TRABAJO', showPrices: true, showCustomerContact: true, showDates: true, customFooter: '' },
     enableCloudSync: true,
-    googleWebAppUrl: 'https://script.google.com/macros/s/AKfycbyHU5-tIyY7A0IUTKA9OvHOwF4cY8LXktAIMdTEjnSQ8ap4P-9z5eQbhmX8qb0JWHvn/exec',
+    googleWebAppUrl: '',
     cloudSecret: '' 
 };
 
 // --- DATA INTEGRITY & SECURITY HELPERS ---
 
-// Simple obfuscation/encoding to prevent casual editing in DevTools
-// For higher security in a real PWA, we would use WebCrypto API, but Base64+Rotation is enough to stop non-hackers.
 const encodeData = (data: any): string => {
     try {
         const json = JSON.stringify(data);
-        // Double Base64 encode + string reversal to confuse simple decoders
         const b64 = btoa(encodeURIComponent(json));
         return STORAGE_PREFIX + b64.split('').reverse().join('');
     } catch (e) {
@@ -126,24 +122,15 @@ const encodeData = (data: any): string => {
 
 const decodeData = <T,>(encoded: string | null, fallback: T): T => {
     if (!encoded) return fallback;
-    
     try {
-        // Migration support: If it's plain JSON (legacy data), try parsing directly
         if (!encoded.startsWith(STORAGE_PREFIX)) {
-            try {
-                return JSON.parse(encoded);
-            } catch {
-                return fallback;
-            }
+            try { return JSON.parse(encoded); } catch { return fallback; }
         }
-
-        // Decrypt logic
         const payload = encoded.replace(STORAGE_PREFIX, '');
         const reversed = payload.split('').reverse().join('');
         const json = decodeURIComponent(atob(reversed));
         return JSON.parse(json);
     } catch (e) {
-        console.warn("Data corruption or tampering detected. Resetting to safe default.", e);
         return fallback;
     }
 };
@@ -168,7 +155,6 @@ const safeSave = (key: string, data: any) => {
 };
 
 export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    // Initialize State using safeLoad (Decrypted)
     const [products, setProducts] = useState<Product[]>(() => safeLoad('products', []));
     const [transactions, setTransactions] = useState<Transaction[]>(() => safeLoad('transactions', []));
     const [customers, setCustomers] = useState<Customer[]>(() => safeLoad('customers', []));
@@ -181,10 +167,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [categories, setCategories] = useState<string[]>(() => safeLoad('categories', ["General"]));
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => safeLoad('activityLogs', []));
     
+    // Fix: Explicitly handle potential null from safeLoad to avoid spread on null
     const [settings, setSettings] = useState<BusinessSettings>(() => {
-        // Fix for Vercel TS2698: explicitly type generic to Partial<BusinessSettings> | null
-        const saved = safeLoad<Partial<BusinessSettings> | null>('settings', null);
-        return saved ? { ...DEFAULT_SETTINGS, ...saved } : DEFAULT_SETTINGS;
+        const saved = safeLoad('settings', null);
+        if (saved && typeof saved === 'object') {
+            return { ...DEFAULT_SETTINGS, ...saved };
+        }
+        return DEFAULT_SETTINGS;
     });
     
     const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -193,67 +182,50 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     
     const justPulledFromCloud = useRef(false);
 
-    // --- SECURITY: SESSION INTEGRITY CHECK ---
     useEffect(() => {
         const savedUser = safeLoad<User | null>('currentUser', null);
-        
         if (savedUser) {
-            // CRITICAL: Validate that the user in localStorage actually exists in the users database
-            // and has the correct permissions. Prevents tampering via DevTools.
             const validUser = users.find(u => u.id === savedUser.id && u.username === savedUser.username);
-            
             if (validUser) {
-                // If the stored role doesn't match the database role (tampering detected), revert to DB role
                 if (savedUser.role !== validUser.role) {
-                    console.warn("Security Alert: Session role mismatch. Reverting to safe role.");
-                    const sanitizedUser = { ...validUser, role: validUser.role }; // Force DB role
+                    const sanitizedUser = { ...validUser, role: validUser.role }; 
                     setCurrentUser(sanitizedUser);
                     safeSave('currentUser', sanitizedUser);
                 } else {
                     setCurrentUser(savedUser);
                 }
             } else {
-                // User deleted or invalid session
-                if (users.length > 0) { // Only force logout if users exist (avoid lockout on first run)
-                    console.warn("Security Alert: Invalid session user.");
+                if (users.length > 0) { 
                     setCurrentUser(null);
                     localStorage.removeItem('currentUser');
                 } else {
-                    // First run edge case
                     setCurrentUser(savedUser);
                 }
             }
         }
-    }, [users]); // Re-run check whenever users list changes (e.g. sync from cloud)
+    }, [users]); 
 
-    // --- SECURITY: AUTO-LOGOUT IDLE TIMER ---
     useEffect(() => {
         let idleTimer: ReturnType<typeof setTimeout>;
-
         const resetTimer = () => {
             if (!currentUser) return; 
-            
             clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {
                 notify('Sesión Cerrada', 'Tu sesión ha expirado por seguridad (15 min inactividad).', 'warning');
                 logout();
             }, IDLE_TIMEOUT_MS);
         };
-
         const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-        
         if (currentUser) {
             activityEvents.forEach(event => window.addEventListener(event, resetTimer));
             resetTimer(); 
         }
-
         return () => {
             clearTimeout(idleTimer);
             activityEvents.forEach(event => window.removeEventListener(event, resetTimer));
         };
     }, [currentUser]); 
 
-    // Persistencia Local (Encrypted/Obfuscated)
     useEffect(() => {
         safeSave('products', products);
         safeSave('transactions', transactions);
@@ -273,49 +245,15 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const id = crypto.randomUUID();
         setToasts(prev => [...prev, { id, title, message, type }]);
         setTimeout(() => removeToast(id), 6000);
-
-        if (type === 'success' || type === 'error' || type === 'warning' || forceNative) {
-            try {
-                const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-                if (AudioContext) {
-                    const ctx = new AudioContext();
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    
-                    osc.type = type === 'error' ? 'sawtooth' : 'sine';
-                    if (type === 'error') {
-                        osc.frequency.setValueAtTime(150, ctx.currentTime);
-                        osc.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.2);
-                    } else if (type === 'success') {
-                        osc.frequency.setValueAtTime(500, ctx.currentTime);
-                        osc.frequency.linearRampToValueAtTime(1000, ctx.currentTime + 0.1);
-                    } else {
-                        osc.frequency.setValueAtTime(440, ctx.currentTime);
-                    }
-
-                    gain.gain.setValueAtTime(0.1, ctx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-                    
-                    osc.start();
-                    osc.stop(ctx.currentTime + 0.3);
-                }
-            } catch (e) {}
-        }
-
         if ((settings.notificationsEnabled || forceNative) && Notification.permission === 'granted') {
-            try {
-                new Notification(title, { body: message, icon: '/pwa-192x192.png', silent: false });
-            } catch (error) { console.warn('System notification failed:', error); }
+            try { new Notification(title, { body: message, icon: '/pwa-192x192.png', silent: false }); } catch (error) {}
         }
     };
 
     const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
 
     const pushToCloud = useCallback(async () => {
-        if (!settings.enableCloudSync || !settings.googleWebAppUrl || settings.googleWebAppUrl.length < 20) return;
+        if (!settings.enableCloudSync || !settings.googleWebAppUrl || settings.googleWebAppUrl.length < 10) return;
         setIsSyncing(true);
         const dataToPush = {
             products, transactions, customers, suppliers, 
@@ -326,13 +264,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }, [settings, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs]);
 
     const pullFromCloud = async () => {
-        if (!settings.googleWebAppUrl || settings.googleWebAppUrl.length < 20) return;
+        if (!settings.googleWebAppUrl || settings.googleWebAppUrl.length < 10) return;
         setIsSyncing(true);
         try {
             const cloudData = await fetchFullDataFromCloud(settings.googleWebAppUrl, settings.cloudSecret);
             if (cloudData && typeof cloudData === 'object') {
                 const safeData = sanitizeDataStructure(cloudData);
-
                 if (Array.isArray(safeData.products)) setProducts(safeData.products);
                 if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
                 if (Array.isArray(safeData.customers)) setCustomers(safeData.customers);
@@ -344,18 +281,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 if (Array.isArray(safeData.userInvites)) setUserInvites(safeData.userInvites);
                 if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
                 if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
-                
                 if (safeData.settings && typeof safeData.settings === 'object') {
                     const mergedSettings = { 
                         ...DEFAULT_SETTINGS,
                         ...safeData.settings, 
-                        googleWebAppUrl: settings.googleWebAppUrl, 
-                        enableCloudSync: settings.enableCloudSync,
-                        cloudSecret: settings.cloudSecret
+                        googleWebAppUrl: settings.googleWebAppUrl, // Keep local config URL
+                        enableCloudSync: settings.enableCloudSync, // Keep local config flag
+                        cloudSecret: settings.cloudSecret // Keep local secret
                     };
                     setSettings(mergedSettings);
                 }
-                
                 justPulledFromCloud.current = true;
                 notify('Datos Sincronizados', 'Sincronización con la nube completada.', 'success');
             }
@@ -369,11 +304,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     useEffect(() => {
         const init = async () => {
+            // Initial pull
             if (settings.enableCloudSync && settings.googleWebAppUrl) {
                 await pullFromCloud();
             }
-
-            // Create admin if no users exist
             if (users.length === 0) {
                 const salt = 'default_salt'; 
                 const hash = await hashPassword('Admin@123456', salt);
@@ -387,21 +321,21 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         init();
     }, []);
 
+    // Debounced Push
     useEffect(() => {
         if (justPulledFromCloud.current) {
             justPulledFromCloud.current = false;
             return;
         }
-
         const timer = setTimeout(() => {
             if (settings.enableCloudSync) pushToCloud();
         }, 2000); 
         return () => clearTimeout(timer);
     }, [products, transactions, customers, cashMovements, users, userInvites, orders, purchases, activityLogs, settings, pushToCloud]);
 
+    // ... rest of the functions (logActivity, login, logout, etc.)
     const logActivity = (action: string, details: string) => {
         if (!currentUser) return;
-        
         const now = new Date().toISOString();
         const newLog: ActivityLog = {
             id: crypto.randomUUID(),
@@ -413,18 +347,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             timestamp: now
         };
         setActivityLogs(prev => [newLog, ...prev].slice(0, 1000));
-
-        setUsers(prev => prev.map(u => 
-            u.id === currentUser.id ? { ...u, lastActive: now } : u
-        ));
+        setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lastActive: now } : u));
     };
 
     const login = async (u: string, p: string, code?: string) => {
         const userIndex = users.findIndex(user => user.username.toLowerCase() === u.toLowerCase());
         const user = users[userIndex];
-        
         if (!user || !user.active) return 'INVALID';
-
         if (user.lockoutUntil) {
             if (new Date() < new Date(user.lockoutUntil)) {
                 logActivity('SECURITY', `Intento de login en cuenta bloqueada: ${u}`);
@@ -435,25 +364,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 setUsers(updatedUsers);
             }
         }
-        
         const isValid = await verifyPassword(p, user.salt, user.passwordHash);
-        
         if (!isValid) {
             const attempts = (user.failedLoginAttempts || 0) + 1;
             let lockoutUntil = undefined;
-            
             if (attempts >= MAX_LOGIN_ATTEMPTS) {
                 lockoutUntil = new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString();
                 logActivity('SECURITY', `Cuenta bloqueada por fuerza bruta: ${u}`);
             }
-
             const updatedUsers = [...users];
             updatedUsers[userIndex] = { ...user, failedLoginAttempts: attempts, lockoutUntil };
             setUsers(updatedUsers);
-            
             return 'INVALID';
         }
-
         if (user.isTwoFactorEnabled === true && user.twoFactorSecret) {
             if (!code) return '2FA_REQUIRED';
             const is2FAValid = verify2FAToken(code, user.twoFactorSecret);
@@ -462,26 +385,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 return 'INVALID_2FA';
             }
         }
-
         const now = new Date().toISOString();
         const updatedUser = { ...user, lastLogin: now, lastActive: now, failedLoginAttempts: 0, lockoutUntil: undefined };
-
         setUsers(prev => prev.map(usr => usr.id === user.id ? updatedUser : usr));
-        
         setCurrentUser(updatedUser);
-        safeSave('currentUser', updatedUser); // Save encrypted session
-        
+        safeSave('currentUser', updatedUser); 
         const loginLog: ActivityLog = {
-            id: crypto.randomUUID(),
-            userId: updatedUser.id,
-            userName: updatedUser.username,
-            userRole: updatedUser.role,
-            action: 'LOGIN',
-            details: `Usuario ${u} inició sesión`,
-            timestamp: now
+            id: crypto.randomUUID(), userId: updatedUser.id, userName: updatedUser.username, userRole: updatedUser.role,
+            action: 'LOGIN', details: `Usuario ${u} inició sesión`, timestamp: now
         };
         setActivityLogs(prev => [loginLog, ...prev].slice(0, 1000));
-
         return 'SUCCESS';
     };
 
@@ -491,7 +404,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         localStorage.removeItem('currentUser');
     };
 
-    // ... (Generate Invite, Register, CRUDs remain identical but use state that is now safe-loaded)
     const generateInvite = (role: UserRole) => {
         const code = Math.random().toString(36).substring(2, 7).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();
         const newInvite: UserInvite = { code, role, createdAt: new Date().toISOString(), createdBy: currentUser?.username || 'System' };
@@ -499,42 +411,28 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         logActivity('USER_MGMT', `Invitación generada (${role})`);
         return code;
     };
-
     const deleteInvite = (code: string) => setUserInvites(prev => prev.filter(i => i.code !== code));
-
     const registerWithInvite = async (code: string, userData: any) => {
         const inviteIndex = userInvites.findIndex(i => i.code === code);
         if (inviteIndex === -1) return 'INVALID_CODE';
         if (users.some(u => u.username.toLowerCase() === userData.username.toLowerCase())) return 'USERNAME_EXISTS';
-
         const invite = userInvites[inviteIndex];
         const salt = generateSalt();
         const hash = await hashPassword(userData.password, salt);
         const answerHash = await hashPassword(userData.securityAnswer.trim().toLowerCase(), salt);
-        
         const newUser: User = {
-            id: crypto.randomUUID(),
-            username: userData.username,
-            fullName: userData.fullName,
-            role: invite.role,
-            active: true,
-            passwordHash: hash,
-            salt: salt,
-            recoveryCode: Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase(),
-            securityQuestion: userData.securityQuestion,
-            securityAnswerHash: answerHash,
-            isTwoFactorEnabled: userData.isTwoFactorEnabled,
-            twoFactorSecret: userData.twoFactorSecret
+            id: crypto.randomUUID(), username: userData.username, fullName: userData.fullName, role: invite.role, active: true,
+            passwordHash: hash, salt: salt, recoveryCode: Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase(),
+            securityQuestion: userData.securityQuestion, securityAnswerHash: answerHash, isTwoFactorEnabled: userData.isTwoFactorEnabled, twoFactorSecret: userData.twoFactorSecret
         };
-
         setUsers(prev => [...prev, newUser]);
         setUserInvites(prev => prev.filter((_, i) => i !== inviteIndex));
-
         const log: ActivityLog = { id: crypto.randomUUID(), userId: newUser.id, userName: newUser.username, userRole: newUser.role, action: 'USER_MGMT', details: `Registro completado`, timestamp: new Date().toISOString() };
         setActivityLogs(prev => [log, ...prev]);
         return 'SUCCESS';
     };
 
+    // State updaters
     const addProduct = (p: Product) => { setProducts(prev => [...prev, p]); logActivity('INVENTORY', `Producto creado: ${p.name}`); };
     const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); logActivity('INVENTORY', `Producto actualizado: ${p.name}`); };
     const deleteProduct = async (id: string): Promise<boolean> => {
