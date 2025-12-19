@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LayoutDashboard, ShoppingCart, Package, DollarSign, PieChart, Store, Users, Truck, History, Settings, LogOut, Shield, Menu, X, ClipboardList, Cloud, CloudOff, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Package, DollarSign, PieChart, Store, Users, Truck, History, Settings, LogOut, Shield, Menu, X, ClipboardList, Cloud, CloudOff, RefreshCw, AlertCircle } from 'lucide-react';
 import { AppView } from '../types';
 import { useStore } from './StoreContext';
 
@@ -10,7 +10,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
-  const { products, settings, currentUser, logout, isSyncing, hasPendingChanges } = useStore();
+  const { products, settings, currentUser, logout, isSyncing, hasPendingChanges, pullFromCloud } = useStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const lowStockCount = products.filter(p => p.stock < 5).length;
@@ -38,6 +38,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     setIsMobileMenuOpen(false);
   };
 
+  const handleForceSync = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      pullFromCloud();
+  };
+
   return (
     <>
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 z-50 flex items-center justify-between px-4 shadow-md">
@@ -47,9 +52,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
             </div>
             <span className="font-bold text-white truncate">{settings.name}</span>
          </div>
-         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-white hover:bg-white/10 rounded-lg">
-            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-         </button>
+         <div className="flex items-center gap-2">
+             {settings.enableCloudSync && (
+                 <button onClick={handleForceSync} className="p-2 text-indigo-300 hover:text-white hover:bg-white/10 rounded-lg">
+                     <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+                 </button>
+             )}
+             <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-white hover:bg-white/10 rounded-lg">
+                {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+             </button>
+         </div>
       </div>
 
       {isMobileMenuOpen && (
@@ -61,9 +73,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
             <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/10 flex items-center justify-center shrink-0">
             {settings.logo ? <img src={settings.logo} alt="Logo" className="w-full h-full object-contain" /> : <Store className="w-6 h-6 text-white" />}
             </div>
-            <div className="overflow-hidden">
+            <div className="overflow-hidden flex-1">
             <h1 className="text-lg font-bold tracking-tight truncate">{settings.name || 'LuminaPOS'}</h1>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 group">
                 {settings.enableCloudSync ? (
                     isSyncing ? (
                         <div title="Sincronizando..." className="flex items-center gap-1 text-[10px] text-orange-400 font-bold uppercase animate-pulse">
@@ -82,6 +94,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
                     <div title="Sólo memoria local" className="flex items-center gap-1 text-[10px] text-slate-500 font-bold uppercase">
                         <CloudOff className="w-2.5 h-2.5" /> Local
                     </div>
+                )}
+                {settings.enableCloudSync && (
+                    <button onClick={handleForceSync} className="opacity-0 group-hover:opacity-100 transition-opacity ml-auto p-1 hover:bg-white/10 rounded" title="Forzar Sincronización">
+                        <RefreshCw className="w-3 h-3 text-slate-400 hover:text-white" />
+                    </button>
                 )}
             </div>
             </div>
