@@ -204,7 +204,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // --- HELPER: Mark Local Change ---
     const markLocalChange = () => {
-        // DO NOT mark change if we are currently syncing to avoid loops
         if (isSyncing) return;
         
         dataLoadedRef.current = true;
@@ -214,33 +213,27 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // --- SECURITY CHECKS (CORRECTED) ---
     useEffect(() => {
-        // SKIP security check if syncing. This prevents the "logout loop" when data refreshes.
         if (isSyncing) return;
 
         const savedUser = safeLoad<User | null>('currentUser', null);
         if (savedUser) {
-            // If users array is empty, it might be loading. Don't kick out yet.
             if (users.length === 0) return;
 
             const validUser = users.find(u => u.id === savedUser.id && u.username === savedUser.username);
             if (validUser) {
-                // User exists, update session info if role changed
                 if (savedUser.role !== validUser.role) {
                     const sanitizedUser = { ...validUser, role: validUser.role }; 
                     setCurrentUser(sanitizedUser);
                     safeSave('currentUser', sanitizedUser);
                 } else if (!currentUser) {
-                    // Restore session on reload
                     setCurrentUser(savedUser);
                 }
             } else {
-                // Only logout if users array is populated BUT current user is missing
-                // This implies the user was deleted remotely
                 setCurrentUser(null);
                 localStorage.removeItem('currentUser');
             }
         }
-    }, [users, isSyncing]); // Re-run when users change or sync status changes
+    }, [users, isSyncing]); 
 
     // --- PERSISTENCE ---
     useEffect(() => {
@@ -280,7 +273,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             return;
         }
         
-        // Prevent pushing default empty state over existing cloud data on first load
         const isLocalStateEmpty = currentData.products.length === 0 && currentData.customers.length === 0 && currentData.transactions.length === 0;
         if (!dataLoadedRef.current && isLocalStateEmpty) {
             return; 
@@ -327,14 +319,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
             // --- CONFLICT RESOLUTION ---
             if (!force) {
-                // If local changes are strictly newer (by > 30 seconds), keep local.
-                // We use a buffer because 'login' updates localTs, and we don't want login to block download of new users.
-                if (hasPendingChanges && localTs > cloudTs + 30000) {
+                // If local is newer, wait for push.
+                // BUT: We reduce buffer to 5 seconds to prioritize synchronization speed.
+                if (hasPendingChanges && localTs > cloudTs + 5000) {
                     setTimeout(() => pushToCloud(), 500); 
                     return;
                 }
                 
-                // If cloud data is old, ignore it.
+                // If cloud is old, ignore.
                 if (cloudTs <= lastCloudSyncTimestamp.current && !hasPendingChanges) {
                     return; 
                 }
@@ -348,9 +340,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }
 
             // --- APPLY DATA ---
-            // We apply data even if we have pending changes if those changes are "minor" (recent login)
-            // or if the cloud is significantly newer.
-
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
             if (Array.isArray(safeData.customers)) setCustomers(safeData.customers);
@@ -362,15 +351,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
             if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
             
-            // SPECIAL HANDLING FOR USERS TO PREVENT LOGOUT
             if (Array.isArray(safeData.users)) {
                 setUsers(safeData.users);
-                // Immediately check if current user still exists in the NEW data
                 const savedUser = safeLoad<User | null>('currentUser', null);
                 if (savedUser) {
                     const stillExists = safeData.users.find((u: User) => u.id === savedUser.id);
                     if (stillExists) {
-                        // Update session reference silently to match new data structure
                         const updatedSession = { ...stillExists, role: stillExists.role };
                         setCurrentUser(updatedSession);
                         safeSave('currentUser', updatedSession);
@@ -394,7 +380,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             
             dataLoadedRef.current = true;
             lastCloudSyncTimestamp.current = cloudTs;
-            setHasPendingChanges(false); // We accept cloud state as the truth
+            setHasPendingChanges(false); 
 
             if (!silent) notify('Sincronizado', 'Datos actualizados desde la nube.', 'success');
             
@@ -422,7 +408,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         notify("Reiniciando...", "Descargando datos frescos...", "info");
         
         try {
-            // Reset timestamps to force acceptance of cloud data
             lastLocalUpdate.current = 0;
             lastCloudSyncTimestamp.current = 0;
             setHasPendingChanges(false);
@@ -440,26 +425,22 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 if (hasPendingChanges) {
                     pushToCloud();
                 } else {
-                    // Silent pull to keep updated
                     pullFromCloud(undefined, undefined, true);
                 }
             }
-        }, 15000); 
+        }, 10000); // Check every 10 seconds
         return () => clearInterval(intervalId);
     }, [hasPendingChanges]); 
 
     // --- INITIAL LOAD ---
     useEffect(() => {
         const init = async () => {
-            // Wait a tick to allow local storage hydration
             await new Promise(resolve => setTimeout(resolve, 100));
             
             if (storeRef.current.settings.enableCloudSync && storeRef.current.settings.googleWebAppUrl) {
-                // Force a pull on startup, ignoring minor local timestamp diffs
                 try { await pullFromCloud(undefined, undefined, true); } catch(e) {}
             }
             
-            // Only create default admin if REALLY empty and NO sync configured
             if (storeRef.current.users.length === 0) {
                 if (!storeRef.current.settings.googleWebAppUrl) {
                     const salt = 'default_salt'; 
@@ -469,7 +450,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         fullName: 'Administrador', role: 'ADMIN', active: true
                     } as User;
                     setUsers([adminUser]);
-                    // Only mark local change if we actually created data locally
                     markLocalChange();
                 }
             }
@@ -482,7 +462,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (hasPendingChanges) {
             const timer = setTimeout(() => {
                 if (settings.enableCloudSync) pushToCloud();
-            }, 2000); 
+            }, 1000); // 1 second debounce
             return () => clearTimeout(timer);
         }
     }, [hasPendingChanges, settings, pushToCloud]);
@@ -496,9 +476,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             action: action as any, details, timestamp: now
         }, ...prev].slice(0, 1000));
         
-        // Updating users lastActive triggers a change
-        setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lastActive: now } : u));
-        markLocalChange(); 
+        // IMPORTANT: Log activity does NOT trigger markLocalChange to prevent sync loops
+        // unless it's a critical data change (handled by other functions)
     };
 
     const login = async (u: string, p: string, code?: string) => {
@@ -527,7 +506,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setCurrentUser(updatedUser);
         safeSave('currentUser', updatedUser); 
         logActivity('LOGIN', `Inicio sesión: ${u}`);
-        // NOTE: logActivity calls markLocalChange, but we prioritize cloud on startup in init()
+        // NOTE: login does NOT call markLocalChange to prioritize cloud download on fresh login
         return 'SUCCESS';
     };
 

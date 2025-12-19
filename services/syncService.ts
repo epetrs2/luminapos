@@ -27,6 +27,9 @@ export const pushFullDataToCloud = async (url: string, secret: string | undefine
         const payload = unicodeBase64Encode(jsonString);
 
         // POST: Push requires body.
+        // TRICK: We use 'text/plain' as Content-Type. 
+        // This is a "Simple Request" in CORS terms, so the browser skips the OPTIONS preflight
+        // which Google Apps Script handles poorly.
         const separator = url.includes('?') ? '&' : '?';
         const finalUrl = `${url.trim()}${separator}action=push`;
 
@@ -38,7 +41,7 @@ export const pushFullDataToCloud = async (url: string, secret: string | undefine
             mode: 'cors', 
             signal: controller.signal,
             headers: { 
-                'Content-Type': 'text/plain' 
+                'Content-Type': 'text/plain;charset=utf-8' 
             },
             body: JSON.stringify({
                 action: 'push',

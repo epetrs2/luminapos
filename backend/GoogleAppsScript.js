@@ -1,11 +1,11 @@
 
 /*
  * ==========================================
- *  LUMINA POS - BACKEND SEGURO (VERSION 2.3)
+ *  LUMINA POS - BACKEND SEGURO (VERSION 3.0)
  * ==========================================
  */
 
-const SCRIPT_VERSION = "2.3.0";
+const SCRIPT_VERSION = "3.0.0";
 const API_SECRET = ""; // <--- ¡CONFIGURA TU CONTRASEÑA AQUÍ!
 
 function doGet(e) {
@@ -25,23 +25,29 @@ function handleRequest(e) {
       var incomingSecret = null;
       var payloadData = null;
 
-      // Intentar leer datos de POST (Escritura)
+      // 1. Try reading as JSON body (Normal API behavior)
       if (e.postData && e.postData.contents) {
          try {
-             var body = JSON.parse(e.postData.contents);
+             var content = e.postData.contents;
+             var body = JSON.parse(content);
              if (body.action) action = body.action;
              if (body.secret) incomingSecret = body.secret;
              if (body.payload) payloadData = body.payload;
-         } catch(err) {}
+         } catch(err) {
+             // If JSON parse fails, maybe it's just raw data? 
+             // We'll log it but usually it means bad request.
+         }
       } 
 
-      // Intentar leer datos de GET (Lectura/Sync)
-      if (e.parameter.action) action = e.parameter.action;
-      if (!incomingSecret && e.parameter.secret) incomingSecret = e.parameter.secret;
+      // 2. Try reading parameters (GET or URL-Encoded)
+      if (e.parameter) {
+          if (e.parameter.action) action = e.parameter.action;
+          if (!incomingSecret && e.parameter.secret) incomingSecret = e.parameter.secret;
+      }
       
       action = action.toString().toLowerCase().trim();
 
-      // Verificación de Seguridad
+      // Security Check
       if (API_SECRET && API_SECRET.length > 0) {
           if (incomingSecret !== API_SECRET) {
               return createJSONOutput({ status: 'error', message: '⛔ ACCESO DENEGADO: Clave incorrecta.' });
@@ -52,7 +58,7 @@ function handleRequest(e) {
       var dbSheet = getOrCreateSheet(ss, "Database");
       var backupSheet = getOrCreateSheet(ss, "Backups");
       
-      // --- LECTURA ---
+      // --- READ (PULL) ---
       if (action === 'pull') {
         var lastRow = dbSheet.getLastRow();
         if (lastRow < 1) return createJSONOutput({}); 
@@ -61,12 +67,12 @@ function handleRequest(e) {
         return createJSONOutput({ status: 'success', payload: data });
       }
       
-      // --- ESCRITURA ---
+      // --- WRITE (PUSH) ---
       if (action === 'push') {
         if (!payloadData || payloadData.length < 10) {
            return createJSONOutput({ status: 'error', message: 'Datos inválidos o vacíos.' });
         }
-        // Crear Backup
+        // Backup
         var currentData = dbSheet.getRange(1, 1).getValue();
         if (currentData) {
           backupSheet.insertRowBefore(1); 
@@ -74,7 +80,7 @@ function handleRequest(e) {
           backupSheet.getRange(1, 2).setValue(currentData); 
           if (backupSheet.getLastRow() > 50) backupSheet.deleteRow(51);
         }
-        // Guardar Nuevo
+        // Save
         dbSheet.getRange(1, 1).setValue(payloadData);
         dbSheet.getRange(1, 2).setValue("Última sincronización: " + new Date().toLocaleString());
         return createJSONOutput({ status: 'success', version: SCRIPT_VERSION });
@@ -93,7 +99,8 @@ function handleRequest(e) {
 }
 
 function createJSONOutput(data) {
-  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function getOrCreateSheet(ss, name) {
