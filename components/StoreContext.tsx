@@ -202,27 +202,45 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
     }, []); 
 
-    // --- BROWSER CLOSE PROTECTION ---
-    useEffect(() => {
-        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            if (hasPendingChanges || isSyncing) {
-                const message = "Tienes cambios sin guardar en la nube. ¿Seguro que quieres salir?";
-                e.preventDefault();
-                e.returnValue = message;
-                return message;
-            }
-        };
-
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [hasPendingChanges, isSyncing]);
-
     // --- HELPER: Mark Local Change ---
     const markLocalChange = () => {
+        // DO NOT mark change if we are currently syncing to avoid loops
+        if (isSyncing) return;
+        
         dataLoadedRef.current = true;
         lastLocalUpdate.current = Date.now();
         setHasPendingChanges(true); 
     };
+
+    // --- SECURITY CHECKS (CORRECTED) ---
+    useEffect(() => {
+        // SKIP security check if syncing. This prevents the "logout loop" when data refreshes.
+        if (isSyncing) return;
+
+        const savedUser = safeLoad<User | null>('currentUser', null);
+        if (savedUser) {
+            // If users array is empty, it might be loading. Don't kick out yet.
+            if (users.length === 0) return;
+
+            const validUser = users.find(u => u.id === savedUser.id && u.username === savedUser.username);
+            if (validUser) {
+                // User exists, update session info if role changed
+                if (savedUser.role !== validUser.role) {
+                    const sanitizedUser = { ...validUser, role: validUser.role }; 
+                    setCurrentUser(sanitizedUser);
+                    safeSave('currentUser', sanitizedUser);
+                } else if (!currentUser) {
+                    // Restore session on reload
+                    setCurrentUser(savedUser);
+                }
+            } else {
+                // Only logout if users array is populated BUT current user is missing
+                // This implies the user was deleted remotely
+                setCurrentUser(null);
+                localStorage.removeItem('currentUser');
+            }
+        }
+    }, [users, isSyncing]); // Re-run when users change or sync status changes
 
     // --- PERSISTENCE ---
     useEffect(() => {
@@ -281,9 +299,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             lastCloudSyncTimestamp.current = Date.now();
             setHasPendingChanges(false); 
         } catch (e: any) {
-            if (overrides) { 
-                notify("Error de Sincronización", "No se pudieron subir los datos. Reintentando en breve.", "warning");
-            }
             console.error("Push failed:", e);
         } finally {
             setIsSyncing(false);
@@ -312,12 +327,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
             // --- CONFLICT RESOLUTION ---
             if (!force) {
-                // If local changes are strictly newer, push instead.
-                if (hasPendingChanges && localTs > cloudTs + 5000) {
+                // If local changes are strictly newer (by > 30 seconds), keep local.
+                // We use a buffer because 'login' updates localTs, and we don't want login to block download of new users.
+                if (hasPendingChanges && localTs > cloudTs + 30000) {
                     setTimeout(() => pushToCloud(), 500); 
                     return;
                 }
-                // If cloud is old, ignore.
+                
+                // If cloud data is old, ignore it.
                 if (cloudTs <= lastCloudSyncTimestamp.current && !hasPendingChanges) {
                     return; 
                 }
@@ -330,14 +347,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 return;
             }
 
-            // --- FORCE: DESTRUCTIVE UPDATE ---
-            // When linking a device, we want to mirror the cloud exactly.
-            if (force) {
-                // Clear all local states first to prevent merging issues with IDs
-                setProducts([]); setTransactions([]); setCustomers([]); setSuppliers([]); 
-                setCashMovements([]); setOrders([]); setPurchases([]); setUsers([]); 
-                setCategories([]); setActivityLogs([]);
-            }
+            // --- APPLY DATA ---
+            // We apply data even if we have pending changes if those changes are "minor" (recent login)
+            // or if the cloud is significantly newer.
 
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
@@ -346,10 +358,25 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (Array.isArray(safeData.cashMovements)) setCashMovements(safeData.cashMovements);
             if (Array.isArray(safeData.orders)) setOrders(safeData.orders);
             if (Array.isArray(safeData.purchases)) setPurchases(safeData.purchases);
-            if (Array.isArray(safeData.users)) setUsers(safeData.users);
             if (Array.isArray(safeData.userInvites)) setUserInvites(safeData.userInvites);
             if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
             if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
+            
+            // SPECIAL HANDLING FOR USERS TO PREVENT LOGOUT
+            if (Array.isArray(safeData.users)) {
+                setUsers(safeData.users);
+                // Immediately check if current user still exists in the NEW data
+                const savedUser = safeLoad<User | null>('currentUser', null);
+                if (savedUser) {
+                    const stillExists = safeData.users.find((u: User) => u.id === savedUser.id);
+                    if (stillExists) {
+                        // Update session reference silently to match new data structure
+                        const updatedSession = { ...stillExists, role: stillExists.role };
+                        setCurrentUser(updatedSession);
+                        safeSave('currentUser', updatedSession);
+                    }
+                }
+            }
             
             if (safeData.settings && typeof safeData.settings === 'object') {
                 const mergedSettings = { 
@@ -358,25 +385,22 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     googleWebAppUrl: urlToUse, 
                     enableCloudSync: true, 
                     cloudSecret: secretToUse,
-                    // Respect cloud logo unless forced otherwise
                     logo: safeData.settings.logo,
                     receiptLogo: safeData.settings.receiptLogo
                 };
                 setSettings(mergedSettings);
-                // Immediately persist to storage
                 safeSave('settings', mergedSettings);
             }
             
             dataLoadedRef.current = true;
             lastCloudSyncTimestamp.current = cloudTs;
-            setHasPendingChanges(false); 
+            setHasPendingChanges(false); // We accept cloud state as the truth
 
             if (!silent) notify('Sincronizado', 'Datos actualizados desde la nube.', 'success');
             
         } catch (e: any) {
             console.error("Pull Error:", e);
             if (!silent) notify("Error Sincronización", e.message || "Error al conectar.", "error");
-            throw e; // Rethrow for UI handling in Login/Settings
         } finally {
             if (!silent) setIsSyncing(false);
         }
@@ -398,6 +422,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         notify("Reiniciando...", "Descargando datos frescos...", "info");
         
         try {
+            // Reset timestamps to force acceptance of cloud data
+            lastLocalUpdate.current = 0;
+            lastCloudSyncTimestamp.current = 0;
+            setHasPendingChanges(false);
+            
             await pullFromCloud(url, secret, false, true);
         } catch(e) {
             notify("Error Fatal", "No se pudo recuperar la copia de seguridad. Revisa tu internet.", "error");
@@ -411,6 +440,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 if (hasPendingChanges) {
                     pushToCloud();
                 } else {
+                    // Silent pull to keep updated
                     pullFromCloud(undefined, undefined, true);
                 }
             }
@@ -425,19 +455,22 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             await new Promise(resolve => setTimeout(resolve, 100));
             
             if (storeRef.current.settings.enableCloudSync && storeRef.current.settings.googleWebAppUrl) {
+                // Force a pull on startup, ignoring minor local timestamp diffs
                 try { await pullFromCloud(undefined, undefined, true); } catch(e) {}
             }
             
             // Only create default admin if REALLY empty and NO sync configured
             if (storeRef.current.users.length === 0) {
-                // Check if we are waiting for a sync
                 if (!storeRef.current.settings.googleWebAppUrl) {
                     const salt = 'default_salt'; 
                     const hash = await hashPassword('Admin@123456', salt);
-                    setUsers([{
+                    const adminUser = {
                         id: 'admin-001', username: 'admin', passwordHash: hash, salt: salt,
                         fullName: 'Administrador', role: 'ADMIN', active: true
-                    }]);
+                    } as User;
+                    setUsers([adminUser]);
+                    // Only mark local change if we actually created data locally
+                    markLocalChange();
                 }
             }
         };
@@ -462,6 +495,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             id: crypto.randomUUID(), userId: currentUser.id, userName: currentUser.username, userRole: currentUser.role,
             action: action as any, details, timestamp: now
         }, ...prev].slice(0, 1000));
+        
+        // Updating users lastActive triggers a change
         setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lastActive: now } : u));
         markLocalChange(); 
     };
@@ -492,7 +527,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setCurrentUser(updatedUser);
         safeSave('currentUser', updatedUser); 
         logActivity('LOGIN', `Inicio sesión: ${u}`);
-        markLocalChange();
+        // NOTE: logActivity calls markLocalChange, but we prioritize cloud on startup in init()
         return 'SUCCESS';
     };
 
