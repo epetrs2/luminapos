@@ -109,19 +109,22 @@ export const fetchFullDataFromCloud = async (url: string, secret: string | undef
             try {
                 const decodedJson = unicodeBase64Decode(responseData.payload);
                 const parsed = JSON.parse(decodedJson);
+                // The structure should be { timestamp: ..., data: { ... } }
+                // We return 'parsed.data' if it exists (the payload wrapper), or 'parsed' if it was raw
                 return parsed.data || parsed;
             } catch (e) {
                 console.warn("Error decoding payload, checking if raw data...", e);
-                // Fallback attempt
+                // Fallback attempt: maybe it wasn't base64 after all?
                 return responseData;
             }
         }
 
-        // Direct JSON payload case
+        // Direct JSON payload case (Legacy support or different script version)
         if (responseData && responseData.payload && typeof responseData.payload === 'object') {
              return responseData.payload;
         }
 
+        // If it's just the raw data at root
         return responseData;
     } catch (error: any) {
         console.error('Error en descarga:', error);

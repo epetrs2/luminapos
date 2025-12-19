@@ -66,6 +66,7 @@ interface StoreContextType {
   generateInvite: (role: UserRole) => string;
   registerWithInvite: (code: string, userData: any) => Promise<string>;
   deleteInvite: (code: string) => void;
+  hardReset: () => Promise<void>; // NEW: Hard reset function
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -473,10 +474,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     googleWebAppUrl: urlToUse, 
                     enableCloudSync: true, 
                     cloudSecret: secretToUse,
-                    logo: safeData.settings.logo !== undefined ? safeData.settings.logo : currentSettings.logo,
-                    receiptLogo: safeData.settings.receiptLogo !== undefined ? safeData.settings.receiptLogo : currentSettings.receiptLogo
+                    // Preserve logo if missing in cloud but present locally (optional logic, usually cloud wins on pull)
+                    logo: safeData.settings.logo || currentSettings.logo,
+                    receiptLogo: safeData.settings.receiptLogo || currentSettings.receiptLogo
                 };
                 setSettings(mergedSettings);
+                // Also force save to storage immediately to prevent loss on reload
+                safeSave('settings', mergedSettings);
             }
             
             dataLoadedRef.current = true;
@@ -491,6 +495,41 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         } finally {
             if (!silent) setIsSyncing(false);
         }
+    };
+
+    const hardReset = async () => {
+        if (!window.confirm("ADVERTENCIA: Esto borrará TODOS los datos locales de este dispositivo y descargará una copia fresca de la nube. ¿Continuar?")) {
+            return;
+        }
+        
+        // Preserve connection info
+        const url = storeRef.current.settings.googleWebAppUrl;
+        const secret = storeRef.current.settings.cloudSecret;
+        
+        if (!url) {
+            notify("Error", "No hay URL de nube configurada. No se puede resetear.", "error");
+            return;
+        }
+
+        // Clear everything
+        setProducts([]);
+        setTransactions([]);
+        setCustomers([]);
+        setSuppliers([]);
+        setCashMovements([]);
+        setOrders([]);
+        setPurchases([]);
+        setUsers([]);
+        
+        // Reset timestamps
+        lastLocalUpdate.current = 0;
+        lastCloudSyncTimestamp.current = 0;
+        setHasPendingChanges(false);
+        
+        notify("Reiniciando...", "Descargando datos frescos...", "info");
+        
+        // Force Pull
+        await pullFromCloud(url, secret, false, true);
     };
 
     // --- AUTOMATIC POLLING ---
@@ -750,7 +789,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory, removeCategory, addTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment, addSupplier, updateSupplier, deleteSupplier, addPurchase, addCashMovement, deleteCashMovement,
             addOrder, updateOrderStatus, convertOrderToSale, deleteOrder, updateSettings, importData, login, logout, addUser, updateUser, deleteUser, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
-            notify, removeToast, requestNotificationPermission, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite
+            notify, removeToast, requestNotificationPermission, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset
         }}>
             {children}
         </StoreContext.Provider>

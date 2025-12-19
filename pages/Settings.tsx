@@ -5,7 +5,7 @@ import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Databas
 import { processLogoImage } from '../utils/imageHelper';
 
 export const Settings: React.FC = () => {
-  const { settings, updateSettings, products, categories, transactions, cashMovements, customers, suppliers, users, importData, requestNotificationPermission, notify, pullFromCloud, pushToCloud, isSyncing } = useStore();
+  const { settings, updateSettings, products, categories, transactions, cashMovements, customers, suppliers, users, importData, requestNotificationPermission, notify, pullFromCloud, pushToCloud, isSyncing, hardReset } = useStore();
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'RECEIPT' | 'PRODUCTION' | 'THEME' | 'DATA' | 'BUDGET' | 'NOTIFICATIONS' | 'SEQUENCES'>('GENERAL');
   const [formData, setFormData] = useState(settings);
   const [isSaved, setIsSaved] = useState(false);
@@ -756,14 +756,25 @@ export const Settings: React.FC = () => {
                                         </p>
                                     </div>
 
-                                    <button 
-                                        onClick={() => pullFromCloud()}
-                                        disabled={isSyncing || !formData.googleWebAppUrl}
-                                        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 transition-all disabled:opacity-50"
-                                    >
-                                        <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                                        {isSyncing ? 'Sincronizando...' : 'Descargar datos de la nube ahora'}
-                                    </button>
+                                    <div className="flex flex-col md:flex-row gap-3">
+                                        <button 
+                                            onClick={() => pullFromCloud()}
+                                            disabled={isSyncing || !formData.googleWebAppUrl}
+                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 transition-all disabled:opacity-50"
+                                        >
+                                            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                                            {isSyncing ? 'Sincronizando...' : 'Sincronizar Ahora'}
+                                        </button>
+                                        
+                                        <button 
+                                            onClick={hardReset}
+                                            disabled={isSyncing || !formData.googleWebAppUrl}
+                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold transition-all shadow-md disabled:opacity-50"
+                                            title="Usa esto si los datos no aparecen en este dispositivo."
+                                        >
+                                            <Database className="w-4 h-4" /> Resetear y Descargar de Nube
+                                        </button>
+                                    </div>
                                 </div>
                             )}
                         </div>
