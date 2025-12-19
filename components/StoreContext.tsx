@@ -373,6 +373,25 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 throw new Error("Datos de la nube corruptos o con formato inválido. Sincronización abortada para proteger datos locales.");
             }
 
+            // --- DATA PROTECTION SHIELD ---
+            // If local data exists but cloud data is empty (length 0), it means the cloud was wiped or never populated.
+            // In this case, we MUST NOT overwrite local data with empty arrays.
+            // Instead, we force a push to populate the cloud with local data.
+            const localHasData = products.length > 0 || customers.length > 0 || transactions.length > 0;
+            const cloudIsEmpty = (!safeData.products || safeData.products.length === 0) && 
+                                 (!safeData.customers || safeData.customers.length === 0) &&
+                                 (!safeData.transactions || safeData.transactions.length === 0);
+
+            if (localHasData && cloudIsEmpty) {
+                console.warn("Protección de Datos: La nube está vacía pero hay datos locales. Se cancela la descarga y se fuerza subida.");
+                notify("Respaldo Automático", "La nube estaba vacía. Subiendo tus datos locales para protegerlos.", "info");
+                // Do NOT set state from cloud. Instead, trigger a push.
+                // We use setTimeout to allow this function to exit and state to remain stable before pushing
+                setTimeout(() => pushToCloud(), 100);
+                return; 
+            }
+            // ------------------------------
+
             // Only update state if keys exist and are arrays/objects of correct type
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
