@@ -21,6 +21,7 @@ interface StoreContextType {
   categories: string[];
   toasts: ToastNotification[];
   isSyncing: boolean;
+  hasPendingChanges: boolean; // NEW: Exposes sync status to UI
   
   addProduct: (p: Product) => void;
   updateProduct: (p: Product) => void;
@@ -172,7 +173,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [isSyncing, setIsSyncing] = useState(false);
     
     // --- MASTER REFS FOR SYNC (Race Condition Solvers) ---
-    // These Refs will ALWAYS hold the current state. Push will read from here.
     const storeRef = useRef({
         products, transactions, customers, suppliers, cashMovements, 
         orders, purchases, users, userInvites, categories, activityLogs, settings
@@ -191,6 +191,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const lastCloudSyncTimestamp = useRef<number>(0);
     const dataLoadedRef = useRef(false);
     
+    // --- PENDING CHANGES FLAG ---
+    // If true, we have local changes that haven't been successfully pushed yet.
+    const [hasPendingChanges, setHasPendingChanges] = useState(false);
+    
     const audioCtxRef = useRef<AudioContext | null>(null);
 
     // Set DataLoaded to true if we load data from LocalStorage on mount
@@ -200,12 +204,29 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
     }, []); 
 
+    // --- BROWSER CLOSE PROTECTION ---
+    // This warns the user if they try to close the tab while data is pending sync.
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (hasPendingChanges || isSyncing) {
+                const message = "Tienes cambios sin guardar en la nube. ¿Seguro que quieres salir?";
+                e.preventDefault();
+                e.returnValue = message;
+                return message;
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [hasPendingChanges, isSyncing]);
+
     // --- HELPER: Mark Local Change ---
     // Every time we modify data locally, we update this timestamp.
     // Sync Pull will respect this and NOT overwrite if local is newer.
     const markLocalChange = () => {
         dataLoadedRef.current = true;
         lastLocalUpdate.current = Date.now();
+        setHasPendingChanges(true); // Flag UI that we need to sync
     };
 
     // --- AUDIO SYSTEM ---
@@ -348,18 +369,20 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const currentData = storeRef.current;
         const settingsToPush = overrides?.settings || currentData.settings;
         
-        if (!settingsToPush.enableCloudSync || !settingsToPush.googleWebAppUrl || settingsToPush.googleWebAppUrl.length < 10) return;
+        if (!settingsToPush.enableCloudSync || !settingsToPush.googleWebAppUrl || settingsToPush.googleWebAppUrl.length < 10) {
+            // Even if we can't push, we mark pending as false to stop UI warnings if sync is disabled
+            if (!settingsToPush.enableCloudSync) setHasPendingChanges(false);
+            return;
+        }
         
         // Safety Check: Prevent pushing empty state if we haven't loaded yet
         const isLocalStateEmpty = currentData.products.length === 0 && currentData.customers.length === 0 && currentData.transactions.length === 0;
         if (!dataLoadedRef.current && isLocalStateEmpty) {
-            console.warn("SYNC PROTECT: Bloqueando subida (Estado vacío/No cargado).");
             return; 
         }
 
         setIsSyncing(true);
         
-        // Construct payload using LATEST data from Ref
         const dataToPush = {
             ...currentData,
             settings: settingsToPush,
@@ -368,17 +391,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         try {
             await pushFullDataToCloud(settingsToPush.googleWebAppUrl, settingsToPush.cloudSecret, dataToPush);
-            // Update last known cloud timestamp to Now, so we don't re-download what we just sent
             lastCloudSyncTimestamp.current = Date.now();
+            setHasPendingChanges(false); // Success! Data is safe.
         } catch (e: any) {
             if (overrides) { 
-                notify("Error de Sincronización", e.message || "No se pudieron subir los datos.", "error");
+                notify("Error de Sincronización", "No se pudieron subir los datos. Reintentando en breve.", "warning");
             }
             console.error("Push failed:", e);
+            // We DO NOT set hasPendingChanges to false here. It stays true so UI warns user.
         } finally {
             setIsSyncing(false);
         }
-    }, []); // No dependencies needed because we use storeRef
+    }, []); 
 
     const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string, silent: boolean = false) => {
         const currentSettings = storeRef.current.settings;
@@ -401,13 +425,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             const cloudTs = cloudData.timestamp ? new Date(cloudData.timestamp).getTime() : 0;
             const localTs = lastLocalUpdate.current;
 
-            // Logica: Si mi último cambio local es MAS NUEVO que la fecha de los datos que vienen de la nube...
-            // SIGNIFICA QUE YO TENGO DATOS MAS FRESCOS QUE AUN NO HAN SUBIDO.
-            // EN ESE CASO, IGNORO LA NUBE PARA NO SOBRESCRIBIR MI TRABAJO.
-            // (Allow 2 second buffer for network latency)
-            if (localTs > cloudTs + 2000) {
-                // console.log("SYNC PROTECT: Datos locales más recientes. Ignorando nube.");
-                // Implicitly triggers a push via debouncer usually
+            // If local data is newer (pending changes), IGNORE cloud to avoid overwrite.
+            if (hasPendingChanges || localTs > cloudTs + 2000) {
+                // We have newer data. Trigger a push to overwrite cloud instead.
+                setTimeout(() => pushToCloud(), 500); 
                 return;
             }
 
@@ -418,13 +439,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
             const safeData = sanitizeDataStructure(cloudData);
 
-            // Validation
             if (!safeData || typeof safeData !== 'object' || (safeData.products && !Array.isArray(safeData.products))) {
                 if(!silent) throw new Error("Datos corruptos.");
                 return;
             }
 
-            // Empty Cloud Protection
             const localHasData = storeRef.current.products.length > 0 || storeRef.current.customers.length > 0;
             const cloudIsEmpty = (!safeData.products || safeData.products.length === 0) && (!safeData.customers || safeData.customers.length === 0);
 
@@ -461,8 +480,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }
             
             dataLoadedRef.current = true;
-            lastCloudSyncTimestamp.current = cloudTs; // Mark that we are up to date with this cloud version
-            // Note: We DO NOT update lastLocalUpdate here, because this is a sync, not a user action.
+            lastCloudSyncTimestamp.current = cloudTs;
+            setHasPendingChanges(false); // We are in sync
 
             if (!silent) notify('Sincronizado', 'Datos actualizados desde la nube.', 'success');
             
@@ -478,11 +497,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     useEffect(() => {
         const intervalId = setInterval(() => {
             if (storeRef.current.settings.enableCloudSync && storeRef.current.settings.googleWebAppUrl) {
-                pullFromCloud(undefined, undefined, true);
+                // If we have pending changes, we try to PUSH first, not pull
+                if (hasPendingChanges) {
+                    pushToCloud();
+                } else {
+                    pullFromCloud(undefined, undefined, true);
+                }
             }
         }, 15000); 
         return () => clearInterval(intervalId);
-    }, []);
+    }, [hasPendingChanges]); // Restart interval if pending state changes
 
     // --- INITIAL LOAD ---
     useEffect(() => {
@@ -490,7 +514,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (storeRef.current.settings.enableCloudSync && storeRef.current.settings.googleWebAppUrl) {
                 try { await pullFromCloud(); } catch(e) {}
             }
-            // Ensure Admin exists
             if (users.length === 0) {
                 const salt = 'default_salt'; 
                 const hash = await hashPassword('Admin@123456', salt);
@@ -505,16 +528,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }, []);
 
     // --- DEBOUNCED AUTO-PUSH ---
-    // Whenever local state changes (detected via effect dependencies), we schedule a push.
-    // BUT we check if it was a local change (via markLocalChange) vs a sync update.
     useEffect(() => {
-        // If last update was from cloud (local timestamp is old), don't push immediately unless needed.
-        // But simpler: just debounced push everything. The Pull logic protects us from overwrites.
-        const timer = setTimeout(() => {
-            if (settings.enableCloudSync) pushToCloud();
-        }, 2000); 
-        return () => clearTimeout(timer);
-    }, [products, transactions, customers, cashMovements, users, userInvites, orders, purchases, activityLogs, settings]);
+        if (hasPendingChanges) {
+            const timer = setTimeout(() => {
+                if (settings.enableCloudSync) pushToCloud();
+            }, 2000); 
+            return () => clearTimeout(timer);
+        }
+    }, [hasPendingChanges, settings, pushToCloud]);
 
     // ... rest of the functions ...
     const logActivity = (action: string, details: string) => {
@@ -525,7 +546,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             action: action as any, details, timestamp: now
         }, ...prev].slice(0, 1000));
         setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lastActive: now } : u));
-        markLocalChange(); // Log is a change
+        markLocalChange(); 
     };
 
     const login = async (u: string, p: string, code?: string) => {
@@ -554,6 +575,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setCurrentUser(updatedUser);
         safeSave('currentUser', updatedUser); 
         logActivity('LOGIN', `Inicio sesión: ${u}`);
+        // We do NOT mark local change here to avoid triggering sync storm on every login, 
+        // unless we want lastLogin synced instantly. Let's sync it.
         markLocalChange();
         return 'SUCCESS';
     };
@@ -597,7 +620,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return 'SUCCESS';
     };
 
-    // State updaters with markLocalChange
     const addProduct = (p: Product) => { setProducts(prev => [...prev, p]); logActivity('INVENTORY', `Creó: ${p.name}`); markLocalChange(); };
     const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); logActivity('INVENTORY', `Actualizó: ${p.name}`); markLocalChange(); };
     const deleteProduct = async (id: string): Promise<boolean> => {
@@ -640,8 +662,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setTransactions(prev => prev.filter(t => t.id !== id)); 
         logActivity('SALE', `Venta anulada #${id}`); 
         markLocalChange();
-        // Restore stock logic is handled in UI by calling updateStockAfterSale manually or here if passed logic
-        // For this context, simplistic delete
     };
     const registerTransactionPayment = (id: string, amount: number, method: string) => {
         setTransactions(prev => prev.map(t => { if (t.id === id) { const newPaid = (t.amountPaid || 0) + amount; return { ...t, amountPaid: newPaid, paymentStatus: newPaid >= t.total ? 'paid' : 'partial' }; } return t; }));
@@ -727,7 +747,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     return (
         <StoreContext.Provider value={{
-            products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing,
+            products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing, hasPendingChanges,
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory, removeCategory, addTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment, addSupplier, updateSupplier, deleteSupplier, addPurchase, addCashMovement, deleteCashMovement,
             addOrder, updateOrderStatus, convertOrderToSale, deleteOrder, updateSettings, importData, login, logout, addUser, updateUser, deleteUser, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,

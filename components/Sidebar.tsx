@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LayoutDashboard, ShoppingCart, Package, DollarSign, PieChart, Store, Users, Truck, History, Settings, LogOut, Shield, Menu, X, ClipboardList, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Package, DollarSign, PieChart, Store, Users, Truck, History, Settings, LogOut, Shield, Menu, X, ClipboardList, Cloud, CloudOff, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 import { AppView } from '../types';
 import { useStore } from './StoreContext';
 
@@ -10,7 +10,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
-  const { products, settings, currentUser, logout, isSyncing } = useStore();
+  const { products, settings, currentUser, logout, isSyncing, hasPendingChanges } = useStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const lowStockCount = products.filter(p => p.stock < 5).length;
@@ -65,9 +65,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
             <h1 className="text-lg font-bold tracking-tight truncate">{settings.name || 'LuminaPOS'}</h1>
             <div className="flex items-center gap-1">
                 {settings.enableCloudSync ? (
-                    <div title="Sincronización en la nube activa" className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase">
-                        {isSyncing ? <RefreshCw className="w-2.5 h-2.5 animate-spin" /> : <Cloud className="w-2.5 h-2.5" />} Nube OK
-                    </div>
+                    isSyncing ? (
+                        <div title="Sincronizando..." className="flex items-center gap-1 text-[10px] text-orange-400 font-bold uppercase animate-pulse">
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Guardando...
+                        </div>
+                    ) : hasPendingChanges ? (
+                        <div title="Cambios sin guardar en la nube" className="flex items-center gap-1 text-[10px] text-yellow-400 font-bold uppercase">
+                            <AlertCircle className="w-2.5 h-2.5" /> Sin Guardar
+                        </div>
+                    ) : (
+                        <div title="Todo sincronizado" className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase">
+                            <Cloud className="w-2.5 h-2.5" /> Nube OK
+                        </div>
+                    )
                 ) : (
                     <div title="Sólo memoria local" className="flex items-center gap-1 text-[10px] text-slate-500 font-bold uppercase">
                         <CloudOff className="w-2.5 h-2.5" /> Local
