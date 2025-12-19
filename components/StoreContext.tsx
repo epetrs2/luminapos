@@ -186,12 +186,25 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const settingsRef = useRef(settings);
     const justPulledFromCloud = useRef(false);
     const lastCloudTimestamp = useRef<string>(""); 
+    
+    // --- SAFETY LATCH ---
+    // If false, it means we haven't confirmed data loaded from storage or cloud yet.
+    // We should NOT overwrite cloud data while this is false.
+    const dataLoadedRef = useRef(false);
+    
     const audioCtxRef = useRef<AudioContext | null>(null);
 
     // Keep settingsRef updated
     useEffect(() => {
         settingsRef.current = settings;
     }, [settings]);
+
+    // Set DataLoaded to true if we load data from LocalStorage on mount
+    useEffect(() => {
+        if (products.length > 0 || customers.length > 0 || users.length > 0) {
+            dataLoadedRef.current = true;
+        }
+    }, []); // Run once
 
     // --- AUDIO SYSTEM ---
     useEffect(() => {
@@ -331,11 +344,22 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     const pushToCloud = useCallback(async (overrides?: any) => {
         // Use refs or current state, but merging strictly with overrides
-        // Important: If overrides contains settings, we use those, otherwise use current settings
         const settingsToPush = overrides?.settings || settingsRef.current;
         
         if (!settingsToPush.enableCloudSync || !settingsToPush.googleWebAppUrl || settingsToPush.googleWebAppUrl.length < 10) return;
         
+        // --- SAFETY CHECK (Prevent "Blank Slate" Overwrites) ---
+        // If we haven't loaded data yet, or explicitly marked data as loaded via Pull or Creation,
+        // and our local state is essentially empty, DO NOT PUSH.
+        // This prevents a new device login (empty state) from wiping the cloud db before it has pulled.
+        const isLocalStateEmpty = products.length === 0 && customers.length === 0 && transactions.length === 0;
+        
+        if (!dataLoadedRef.current && isLocalStateEmpty) {
+            console.warn("SYNC PROTECT: Bloqueando subida porque los datos locales no se han cargado y están vacíos.");
+            return; 
+        }
+        // -------------------------------------------------------
+
         setIsSyncing(true);
         const dataToPush = {
             products, transactions, customers, suppliers, 
@@ -348,15 +372,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             // Update last known cloud timestamp to prevent re-pulling what we just pushed
             lastCloudTimestamp.current = new Date().toISOString(); 
         } catch (e: any) {
-            // Only notify if it's a manual action or significant failure
-            if (overrides) { // Assuming explicit push if overrides provided (like saving settings)
+            if (overrides) { // Only notify on manual pushes/settings saves
                 notify("Error de Sincronización", e.message || "No se pudieron subir los datos.", "error");
             }
             console.error("Push failed:", e);
         } finally {
             setIsSyncing(false);
         }
-    }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs]); // Dep dependency is critical for closure state
+    }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs]); 
 
     const validateCloudData = (data: any): boolean => {
         if (!data || typeof data !== 'object') return false;
@@ -377,7 +400,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         if (!urlToUse || urlToUse.length < 10) return;
         
-        // Don't show spinner for background polling
         if (!silent) setIsSyncing(true);
         
         try {
@@ -389,17 +411,15 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }
 
             // Check Timestamp to avoid overwriting newer local data with old cloud data (Simple check)
-            // Or if we just pushed, ignore.
             const cloudTs = cloudData.timestamp;
             if (cloudTs && lastCloudTimestamp.current && new Date(cloudTs) <= new Date(lastCloudTimestamp.current)) {
                 // Cloud is older or same as what we saw last, no update needed
-                // console.log("Cloud data is not newer, skipping update.");
                 return;
             }
 
             const safeData = sanitizeDataStructure(cloudData);
 
-            // STRICT VALIDATION: Ensure we have valid arrays before wiping/updating local state
+            // STRICT VALIDATION
             if (!validateCloudData(safeData)) {
                 if(!silent) throw new Error("Datos de la nube corruptos o con formato inválido.");
                 return;
@@ -419,7 +439,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     console.warn("Protección de Datos: La nube está vacía pero hay datos locales. Se cancela la descarga y se fuerza subida.");
                     notify("Respaldo Automático", "La nube estaba vacía. Subiendo tus datos locales para protegerlos.", "info");
                 }
-                // Do NOT set state from cloud. Instead, trigger a push.
+                dataLoadedRef.current = true; // Mark loaded so push can happen
                 setTimeout(() => pushToCloud(), 100);
                 return; 
             }
@@ -455,6 +475,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }
             
             justPulledFromCloud.current = true;
+            dataLoadedRef.current = true; // Mark as safely loaded
             if (cloudTs) lastCloudTimestamp.current = cloudTs;
 
             if (!silent) notify('Datos Sincronizados', 'Sincronización con la nube completada.', 'success');
@@ -619,18 +640,24 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setUserInvites(prev => prev.filter((_, i) => i !== inviteIndex));
         const log: ActivityLog = { id: crypto.randomUUID(), userId: newUser.id, userName: newUser.username, userRole: newUser.role, action: 'USER_MGMT', details: `Registro completado`, timestamp: new Date().toISOString() };
         setActivityLogs(prev => [log, ...prev]);
+        
+        // IMPORTANT: Manually mark data as loaded so this new user is pushed to cloud immediately
+        dataLoadedRef.current = true;
+        
         return 'SUCCESS';
     };
 
     // State updaters
-    const addProduct = (p: Product) => { setProducts(prev => [...prev, p]); logActivity('INVENTORY', `Producto creado: ${p.name}`); };
-    const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); logActivity('INVENTORY', `Producto actualizado: ${p.name}`); };
+    // For all state updates, we now confirm dataLoaded = true, so the push engine is allowed to run
+    const addProduct = (p: Product) => { setProducts(prev => [...prev, p]); dataLoadedRef.current = true; logActivity('INVENTORY', `Producto creado: ${p.name}`); };
+    const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); dataLoadedRef.current = true; logActivity('INVENTORY', `Producto actualizado: ${p.name}`); };
     const deleteProduct = async (id: string): Promise<boolean> => {
         const product = products.find(p => p.id === id);
         if (!product) return false;
         const hasSales = transactions.some(t => t.items.some(i => i.id === id));
         if (hasSales) { notify('Error', 'Producto con ventas. No se puede eliminar.', 'error'); return false; }
         setProducts(prev => prev.filter(p => p.id !== id));
+        dataLoadedRef.current = true;
         logActivity('INVENTORY', `Producto eliminado ID: ${id}`);
         return true;
     };
@@ -645,10 +672,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }
             return p;
         }));
+        dataLoadedRef.current = true;
         logActivity('INVENTORY', `Ajuste stock (${type} ${qty}) ID: ${id}`);
     };
-    const addCategory = (name: string) => setCategories(prev => [...prev, name]);
-    const removeCategory = (name: string) => setCategories(prev => prev.filter(c => c !== name));
+    const addCategory = (name: string) => { setCategories(prev => [...prev, name]); dataLoadedRef.current = true; };
+    const removeCategory = (name: string) => { setCategories(prev => prev.filter(c => c !== name)); dataLoadedRef.current = true; };
     const addTransaction = (t: Transaction) => {
         const finalTrans = { ...t, id: t.id || (settings.sequences.ticketStart + transactions.length).toString(), customerName: customers.find(c => c.id === t.customerId)?.name || 'Cliente General' };
         setTransactions(prev => [finalTrans, ...prev]);
@@ -657,11 +685,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
              const movement: CashMovement = { id: `mv_${finalTrans.id}`, type: 'DEPOSIT', amount: t.amountPaid, description: `Venta Ticket #${finalTrans.id}`, date: new Date().toISOString(), category: 'SALES', customerId: t.customerId };
              setCashMovements(prev => [movement, ...prev]);
         }
+        dataLoadedRef.current = true;
         logActivity('SALE', `Venta registrada #${finalTrans.id}`);
     };
-    const deleteTransaction = (id: string, items: any[]) => { setTransactions(prev => prev.filter(t => t.id !== id)); logActivity('SALE', `Venta anulada #${id}`); };
+    const deleteTransaction = (id: string, items: any[]) => { setTransactions(prev => prev.filter(t => t.id !== id)); dataLoadedRef.current = true; logActivity('SALE', `Venta anulada #${id}`); };
     const registerTransactionPayment = (id: string, amount: number, method: string) => {
         setTransactions(prev => prev.map(t => { if (t.id === id) { const newPaid = (t.amountPaid || 0) + amount; return { ...t, amountPaid: newPaid, paymentStatus: newPaid >= t.total ? 'paid' : 'partial' }; } return t; }));
+        dataLoadedRef.current = true;
         logActivity('CASH', `Pago registrado en venta #${id}: $${amount}`);
     };
     const updateStockAfterSale = (items: any[]) => {
@@ -669,41 +699,44 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             const item = items.find((i: any) => i.id === p.id);
             if (item) { if (p.hasVariants && item.variantId) { const newVariants = p.variants?.map(v => v.id === item.variantId ? { ...v, stock: v.stock - item.quantity } : v); return { ...p, variants: newVariants, stock: (newVariants?.reduce((acc, v) => acc + v.stock, 0) || 0) }; } return { ...p, stock: p.stock - item.quantity }; } return p;
         }));
+        dataLoadedRef.current = true;
     };
-    const addCustomer = (c: Customer) => { const newId = (settings.sequences.customerStart + customers.length).toString(); setCustomers(prev => [...prev, { ...c, id: newId }]); logActivity('CRM', `Nuevo cliente: ${c.name}`); };
-    const updateCustomer = (c: Customer) => setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust));
+    const addCustomer = (c: Customer) => { const newId = (settings.sequences.customerStart + customers.length).toString(); setCustomers(prev => [...prev, { ...c, id: newId }]); dataLoadedRef.current = true; logActivity('CRM', `Nuevo cliente: ${c.name}`); };
+    const updateCustomer = (c: Customer) => { setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust)); dataLoadedRef.current = true; };
     const deleteCustomer = async (id: string): Promise<boolean> => {
         const customer = customers.find(c => c.id === id);
         if (!customer) return false;
         if (customer.currentDebt > 0) { notify('Error', 'Cliente con deuda pendiente.', 'error'); return false; }
         setCustomers(prev => prev.filter(c => c.id !== id));
+        dataLoadedRef.current = true;
         notify('Éxito', 'Cliente eliminado.', 'success'); return true;
     };
-    const processCustomerPayment = (customerId: string, amount: number) => { setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c)); logActivity('CASH', `Abono cliente ID ${customerId}: $${amount}`); };
-    const addSupplier = (s: Supplier) => setSuppliers(prev => [...prev, s]);
-    const updateSupplier = (s: Supplier) => setSuppliers(prev => prev.map(sup => sup.id === s.id ? s : sup));
-    const deleteSupplier = async (id: string): Promise<boolean> => { setSuppliers(prev => prev.filter(s => s.id !== id)); return true; };
+    const processCustomerPayment = (customerId: string, amount: number) => { setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c)); dataLoadedRef.current = true; logActivity('CASH', `Abono cliente ID ${customerId}: $${amount}`); };
+    const addSupplier = (s: Supplier) => { setSuppliers(prev => [...prev, s]); dataLoadedRef.current = true; };
+    const updateSupplier = (s: Supplier) => { setSuppliers(prev => prev.map(sup => sup.id === s.id ? s : sup)); dataLoadedRef.current = true; };
+    const deleteSupplier = async (id: string): Promise<boolean> => { setSuppliers(prev => prev.filter(s => s.id !== id)); dataLoadedRef.current = true; return true; };
     const addPurchase = (purchase: Purchase) => {
         setPurchases(prev => [purchase, ...prev]);
         purchase.items.forEach(item => { adjustStock(item.productId, item.quantity, 'IN', item.variantId); });
         const expenseMovement: CashMovement = { id: `purch_${purchase.id}`, type: 'EXPENSE', amount: purchase.total, description: `Compra a ${purchase.supplierName}`, date: purchase.date, category: 'OPERATIONAL' };
         addCashMovement(expenseMovement);
+        dataLoadedRef.current = true;
         logActivity('INVENTORY', `Compra registrada #${purchase.id}`);
         notify('Compra Exitosa', `Gasto de $${purchase.total.toFixed(2)} registrado.`, 'success');
     };
-    const addCashMovement = (m: CashMovement) => { setCashMovements(prev => [m, ...prev]); logActivity('CASH', `Movimiento caja: ${m.type} $${m.amount}`); };
-    const deleteCashMovement = (id: string) => setCashMovements(prev => prev.filter(m => m.id !== id));
-    const addOrder = (o: Order) => { const newId = (settings.sequences.orderStart + orders.length).toString(); setOrders(prev => [...prev, { ...o, id: newId }]); logActivity('ORDER', `Nuevo pedido #${newId}`); };
-    const updateOrderStatus = (id: string, status: string) => { setOrders(prev => prev.map(o => o.id === id ? { ...o, status: status as any } : o)); logActivity('ORDER', `Pedido #${id} estado: ${status}`); };
-    const deleteOrder = (id: string) => setOrders(prev => prev.filter(o => o.id !== id));
+    const addCashMovement = (m: CashMovement) => { setCashMovements(prev => [m, ...prev]); dataLoadedRef.current = true; logActivity('CASH', `Movimiento caja: ${m.type} $${m.amount}`); };
+    const deleteCashMovement = (id: string) => { setCashMovements(prev => prev.filter(m => m.id !== id)); dataLoadedRef.current = true; };
+    const addOrder = (o: Order) => { const newId = (settings.sequences.orderStart + orders.length).toString(); setOrders(prev => [...prev, { ...o, id: newId }]); dataLoadedRef.current = true; logActivity('ORDER', `Nuevo pedido #${newId}`); };
+    const updateOrderStatus = (id: string, status: string) => { setOrders(prev => prev.map(o => o.id === id ? { ...o, status: status as any } : o)); dataLoadedRef.current = true; logActivity('ORDER', `Pedido #${id} estado: ${status}`); };
+    const deleteOrder = (id: string) => { setOrders(prev => prev.filter(o => o.id !== id)); dataLoadedRef.current = true; };
     const convertOrderToSale = (id: string, paymentMethod: string) => {
         const order = orders.find(o => o.id === id); if (!order) return;
         const transaction: Transaction = { id: '', date: new Date().toISOString(), subtotal: order.total, taxAmount: 0, discount: 0, shipping: 0, total: order.total, items: order.items, paymentMethod: paymentMethod as any, paymentStatus: paymentMethod === 'credit' ? 'pending' : 'paid', amountPaid: paymentMethod === 'credit' ? 0 : order.total, customerId: order.customerId, status: 'completed' };
-        addTransaction(transaction); updateStockAfterSale(order.items); updateOrderStatus(id, 'COMPLETED'); logActivity('ORDER', `Pedido #${id} convertido a venta`);
+        addTransaction(transaction); updateStockAfterSale(order.items); updateOrderStatus(id, 'COMPLETED'); dataLoadedRef.current = true; logActivity('ORDER', `Pedido #${id} convertido a venta`);
     };
-    const addUser = (u: User) => { setUsers(prev => [...prev, u]); logActivity('USER_MGMT', `Usuario creado: ${u.username}`); };
-    const updateUser = (u: User) => { setUsers(prev => prev.map(user => user.id === u.id ? u : user)); logActivity('USER_MGMT', `Usuario actualizado: ${u.username}`); };
-    const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
+    const addUser = (u: User) => { setUsers(prev => [...prev, u]); dataLoadedRef.current = true; logActivity('USER_MGMT', `Usuario creado: ${u.username}`); };
+    const updateUser = (u: User) => { setUsers(prev => prev.map(user => user.id === u.id ? u : user)); dataLoadedRef.current = true; logActivity('USER_MGMT', `Usuario actualizado: ${u.username}`); };
+    const deleteUser = (id: string) => { setUsers(prev => prev.filter(u => u.id !== id)); dataLoadedRef.current = true; };
     const getUserPublicInfo = (username: string) => { const user = users.find(u => u.username.toLowerCase() === username.toLowerCase()); return user ? { username: user.username, fullName: user.fullName, securityQuestion: user.securityQuestion, isTwoFactorEnabled: user.isTwoFactorEnabled } : null; };
     const recoverAccount = async (u: string, method: string, payload: string, newPass: string) => {
         const user = users.find(usr => usr.username.toLowerCase() === u.toLowerCase());
@@ -711,11 +744,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const salt = 'new_salt_' + Date.now(); 
         const hash = await hashPassword(newPass, salt);
         updateUser({ ...user, passwordHash: hash, salt: salt, lockoutUntil: undefined, failedLoginAttempts: 0 });
+        dataLoadedRef.current = true;
         logActivity('RECOVERY', `Cuenta recuperada: ${u}`);
         return 'SUCCESS';
     };
     const verifyRecoveryAttempt = async (u: string, method: string, payload: string) => !!users.find(usr => usr.username.toLowerCase() === u.toLowerCase());
-    const updateSettings = (s: BusinessSettings) => { setSettings(s); logActivity('SETTINGS', 'Configuración actualizada'); };
+    const updateSettings = (s: BusinessSettings) => { setSettings(s); dataLoadedRef.current = true; logActivity('SETTINGS', 'Configuración actualizada'); };
     const importData = (data: any) => {
         try {
             const safeData = sanitizeDataStructure(data);
@@ -724,6 +758,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (safeData.settings && typeof safeData.settings === 'object') setSettings(safeData.settings);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
             if (Array.isArray(safeData.customers)) setCustomers(safeData.customers);
+            dataLoadedRef.current = true;
             logActivity('SETTINGS', 'Importación de datos (Sanitizada)');
             notify('Restauración Completa', 'Datos importados y asegurados correctamente.', 'success');
         } catch (e) {
