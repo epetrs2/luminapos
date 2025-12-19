@@ -182,8 +182,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [toasts, setToasts] = useState<ToastNotification[]>([]);
     const [isSyncing, setIsSyncing] = useState(false);
     
+    // Refs for accessing state inside intervals/timeouts without closure staleness
+    const settingsRef = useRef(settings);
     const justPulledFromCloud = useRef(false);
+    const lastCloudTimestamp = useRef<string>(""); 
     const audioCtxRef = useRef<AudioContext | null>(null);
+
+    // Keep settingsRef updated
+    useEffect(() => {
+        settingsRef.current = settings;
+    }, [settings]);
 
     // --- AUDIO SYSTEM ---
     useEffect(() => {
@@ -208,7 +216,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     const playSound = (type: 'success' | 'error' | 'warning' | 'info') => {
         if (!settings.notificationsEnabled && type === 'info') return;
-        
         try {
             if (!audioCtxRef.current) {
                 audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -320,8 +327,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
 
+    // --- SYNC ENGINE ---
+
     const pushToCloud = useCallback(async (overrides?: any) => {
-        const settingsToPush = overrides?.settings || settings;
+        // Use refs or current state, but merging strictly with overrides
+        // Important: If overrides contains settings, we use those, otherwise use current settings
+        const settingsToPush = overrides?.settings || settingsRef.current;
         
         if (!settingsToPush.enableCloudSync || !settingsToPush.googleWebAppUrl || settingsToPush.googleWebAppUrl.length < 10) return;
         
@@ -334,12 +345,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         };
         try {
             await pushFullDataToCloud(settingsToPush.googleWebAppUrl, settingsToPush.cloudSecret, dataToPush);
+            // Update last known cloud timestamp to prevent re-pulling what we just pushed
+            lastCloudTimestamp.current = new Date().toISOString(); 
         } catch (e: any) {
-            notify("Error de Sincronización", e.message || "No se pudieron subir los datos.", "error");
+            // Only notify if it's a manual action or significant failure
+            if (overrides) { // Assuming explicit push if overrides provided (like saving settings)
+                notify("Error de Sincronización", e.message || "No se pudieron subir los datos.", "error");
+            }
+            console.error("Push failed:", e);
         } finally {
             setIsSyncing(false);
         }
-    }, [settings, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs]);
+    }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs]); // Dep dependency is critical for closure state
 
     const validateCloudData = (data: any): boolean => {
         if (!data || typeof data !== 'object') return false;
@@ -353,24 +370,39 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return true;
     };
 
-    const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string) => {
-        const urlToUse = overrideUrl || settings.googleWebAppUrl;
-        const secretToUse = overrideSecret !== undefined ? overrideSecret : settings.cloudSecret;
+    const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string, silent: boolean = false) => {
+        const currentSettings = settingsRef.current;
+        const urlToUse = overrideUrl || currentSettings.googleWebAppUrl;
+        const secretToUse = overrideSecret !== undefined ? overrideSecret : currentSettings.cloudSecret;
 
         if (!urlToUse || urlToUse.length < 10) return;
-        setIsSyncing(true);
+        
+        // Don't show spinner for background polling
+        if (!silent) setIsSyncing(true);
+        
         try {
             const cloudData = await fetchFullDataFromCloud(urlToUse, secretToUse);
             
             if (!cloudData) {
-                throw new Error("No se recibieron datos o la respuesta estaba vacía.");
+                if(!silent) throw new Error("No se recibieron datos o la respuesta estaba vacía.");
+                return;
+            }
+
+            // Check Timestamp to avoid overwriting newer local data with old cloud data (Simple check)
+            // Or if we just pushed, ignore.
+            const cloudTs = cloudData.timestamp;
+            if (cloudTs && lastCloudTimestamp.current && new Date(cloudTs) <= new Date(lastCloudTimestamp.current)) {
+                // Cloud is older or same as what we saw last, no update needed
+                // console.log("Cloud data is not newer, skipping update.");
+                return;
             }
 
             const safeData = sanitizeDataStructure(cloudData);
 
             // STRICT VALIDATION: Ensure we have valid arrays before wiping/updating local state
             if (!validateCloudData(safeData)) {
-                throw new Error("Datos de la nube corruptos o con formato inválido. Sincronización abortada para proteger datos locales.");
+                if(!silent) throw new Error("Datos de la nube corruptos o con formato inválido.");
+                return;
             }
 
             // --- DATA PROTECTION SHIELD ---
@@ -383,10 +415,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                                  (!safeData.transactions || safeData.transactions.length === 0);
 
             if (localHasData && cloudIsEmpty) {
-                console.warn("Protección de Datos: La nube está vacía pero hay datos locales. Se cancela la descarga y se fuerza subida.");
-                notify("Respaldo Automático", "La nube estaba vacía. Subiendo tus datos locales para protegerlos.", "info");
+                if (!silent) {
+                    console.warn("Protección de Datos: La nube está vacía pero hay datos locales. Se cancela la descarga y se fuerza subida.");
+                    notify("Respaldo Automático", "La nube estaba vacía. Subiendo tus datos locales para protegerlos.", "info");
+                }
                 // Do NOT set state from cloud. Instead, trigger a push.
-                // We use setTimeout to allow this function to exit and state to remain stable before pushing
                 setTimeout(() => pushToCloud(), 100);
                 return; 
             }
@@ -420,24 +453,41 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 };
                 setSettings(mergedSettings);
             }
+            
             justPulledFromCloud.current = true;
-            notify('Datos Sincronizados', 'Sincronización con la nube completada.', 'success');
+            if (cloudTs) lastCloudTimestamp.current = cloudTs;
+
+            if (!silent) notify('Datos Sincronizados', 'Sincronización con la nube completada.', 'success');
             
         } catch (e: any) {
             console.error("Sync Pull Error:", e);
-            let msg = "No se pudieron descargar los datos.";
-            if (e.message) {
-                if (e.message.includes("ACCESO DENEGADO")) msg = "Contraseña de nube incorrecta.";
-                else if (e.message.includes("corruptos")) msg = e.message;
-                else if (e.message.includes("URL")) msg = "URL de script inválida.";
+            if (!silent) {
+                let msg = "No se pudieron descargar los datos.";
+                if (e.message) {
+                    if (e.message.includes("ACCESO DENEGADO")) msg = "Contraseña de nube incorrecta.";
+                    else if (e.message.includes("corruptos")) msg = e.message;
+                    else if (e.message.includes("URL")) msg = "URL de script inválida.";
+                }
+                notify("Error de Sincronización", msg, "error");
             }
-            notify("Error de Sincronización", msg, "error");
-            throw e; // Re-throw to handle in UI if needed (e.g. Login page)
         } finally {
-            setIsSyncing(false);
+            if (!silent) setIsSyncing(false);
         }
     };
 
+    // --- AUTOMATIC POLLING (Google Docs Style) ---
+    useEffect(() => {
+        // Poll every 15 seconds to see if other users made changes
+        const intervalId = setInterval(() => {
+            if (settingsRef.current.enableCloudSync && settingsRef.current.googleWebAppUrl) {
+                pullFromCloud(undefined, undefined, true); // true = silent mode
+            }
+        }, 15000); 
+
+        return () => clearInterval(intervalId);
+    }, []);
+
+    // --- INITIAL LOAD ---
     useEffect(() => {
         const init = async () => {
             // Initial pull
@@ -445,7 +495,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 try {
                     await pullFromCloud();
                 } catch(e) {
-                    // Silent catch on init, let the UI show notification
+                    // Silent catch on init
                 }
             }
             if (users.length === 0) {
@@ -461,7 +511,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         init();
     }, []);
 
-    // Debounced Push
+    // --- DEBOUNCED AUTO-PUSH ---
     useEffect(() => {
         if (justPulledFromCloud.current) {
             justPulledFromCloud.current = false;
@@ -469,7 +519,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
         const timer = setTimeout(() => {
             if (settings.enableCloudSync) pushToCloud();
-        }, 2000); 
+        }, 1500); // 1.5s debounce for responsiveness
         return () => clearTimeout(timer);
     }, [products, transactions, customers, cashMovements, users, userInvites, orders, purchases, activityLogs, settings, pushToCloud]);
 
