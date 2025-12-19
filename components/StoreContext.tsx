@@ -273,6 +273,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             return;
         }
         
+        // Prevent pushing default empty state over existing cloud data on first load
         const isLocalStateEmpty = currentData.products.length === 0 && currentData.customers.length === 0 && currentData.transactions.length === 0;
         if (!dataLoadedRef.current && isLocalStateEmpty) {
             return; 
@@ -319,9 +320,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
             // --- CONFLICT RESOLUTION ---
             if (!force) {
-                // If local is newer, wait for push.
-                // BUT: We reduce buffer to 5 seconds to prioritize synchronization speed.
-                if (hasPendingChanges && localTs > cloudTs + 5000) {
+                // If local is strictly newer (by > 10 seconds), push instead.
+                // We use 10s buffer to prioritize Cloud if times are close (e.g. slight clock drift)
+                if (hasPendingChanges && localTs > cloudTs + 10000) {
                     setTimeout(() => pushToCloud(), 500); 
                     return;
                 }
@@ -428,7 +429,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     pullFromCloud(undefined, undefined, true);
                 }
             }
-        }, 10000); // Check every 10 seconds
+        }, 15000); 
         return () => clearInterval(intervalId);
     }, [hasPendingChanges]); 
 
@@ -462,7 +463,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (hasPendingChanges) {
             const timer = setTimeout(() => {
                 if (settings.enableCloudSync) pushToCloud();
-            }, 1000); // 1 second debounce
+            }, 1500); 
             return () => clearTimeout(timer);
         }
     }, [hasPendingChanges, settings, pushToCloud]);
@@ -476,8 +477,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             action: action as any, details, timestamp: now
         }, ...prev].slice(0, 1000));
         
-        // IMPORTANT: Log activity does NOT trigger markLocalChange to prevent sync loops
-        // unless it's a critical data change (handled by other functions)
+        // IMPORTANT: Update local user 'lastActive' stats without triggering a destructive cloud sync.
+        // We do NOT call markLocalChange() here. Activity logs are "ephemeral" until a real data change happens.
+        setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lastActive: now } : u));
     };
 
     const login = async (u: string, p: string, code?: string) => {
@@ -505,8 +507,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setUsers(prev => prev.map(usr => usr.id === user.id ? updatedUser : usr));
         setCurrentUser(updatedUser);
         safeSave('currentUser', updatedUser); 
+        
         logActivity('LOGIN', `Inicio sesión: ${u}`);
-        // NOTE: login does NOT call markLocalChange to prioritize cloud download on fresh login
+        
+        // FORCE PULL on Login: Ensure we have the latest data immediately
+        if (settings.enableCloudSync && settings.googleWebAppUrl) {
+            setTimeout(() => pullFromCloud(undefined, undefined, true), 100);
+        }
+        
         return 'SUCCESS';
     };
 

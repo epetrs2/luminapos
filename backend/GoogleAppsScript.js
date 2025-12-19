@@ -1,12 +1,12 @@
 
 /*
  * ==========================================
- *  LUMINA POS - BACKEND SEGURO (VERSION 3.0)
+ *  LUMINA POS - BACKEND SEGURO (VERSION 3.1)
  * ==========================================
  */
 
-const SCRIPT_VERSION = "3.0.0";
-const API_SECRET = ""; // <--- ¡CONFIGURA TU CONTRASEÑA AQUÍ!
+const SCRIPT_VERSION = "3.1.0";
+const API_SECRET = ""; // <--- ¡CONFIGURA TU CONTRASEÑA AQUÍ (Opcional)!
 
 function doGet(e) {
   return handleRequest(e);
@@ -22,7 +22,7 @@ function handleRequest(e) {
   if (lock.tryLock(30000)) {
     try {
       var action = 'pull'; 
-      var incomingSecret = null;
+      var incomingSecret = '';
       var payloadData = null;
 
       // 1. Try reading as JSON body (Normal API behavior)
@@ -35,19 +35,18 @@ function handleRequest(e) {
              if (body.payload) payloadData = body.payload;
          } catch(err) {
              // If JSON parse fails, maybe it's just raw data? 
-             // We'll log it but usually it means bad request.
          }
       } 
 
       // 2. Try reading parameters (GET or URL-Encoded)
       if (e.parameter) {
           if (e.parameter.action) action = e.parameter.action;
-          if (!incomingSecret && e.parameter.secret) incomingSecret = e.parameter.secret;
+          if (e.parameter.secret) incomingSecret = e.parameter.secret;
       }
       
       action = action.toString().toLowerCase().trim();
 
-      // Security Check
+      // Security Check: Only if API_SECRET is configured in the script
       if (API_SECRET && API_SECRET.length > 0) {
           if (incomingSecret !== API_SECRET) {
               return createJSONOutput({ status: 'error', message: '⛔ ACCESO DENEGADO: Clave incorrecta.' });
@@ -64,6 +63,9 @@ function handleRequest(e) {
         if (lastRow < 1) return createJSONOutput({}); 
         var data = dbSheet.getRange(1, 1).getValue();
         if (!data) return createJSONOutput({});
+        
+        // Ensure we return a JSON structure that the frontend expects
+        // If data is already a JSON string (base64 encoded typically), wrap it
         return createJSONOutput({ status: 'success', payload: data });
       }
       
