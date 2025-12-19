@@ -61,7 +61,7 @@ interface StoreContextType {
   removeToast: (id: string) => void;
   requestNotificationPermission: () => Promise<boolean>;
   logActivity: (action: string, details: string) => void;
-  pullFromCloud: (overrideUrl?: string, overrideSecret?: string) => Promise<void>;
+  pullFromCloud: (overrideUrl?: string, overrideSecret?: string, silent?: boolean, force?: boolean) => Promise<void>;
   pushToCloud: (overrides?: any) => Promise<void>;
   generateInvite: (role: UserRole) => string;
   registerWithInvite: (code: string, userData: any) => Promise<string>;
@@ -399,7 +399,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
     }, []); 
 
-    const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string, silent: boolean = false) => {
+    const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string, silent: boolean = false, force: boolean = false) => {
         const currentSettings = storeRef.current.settings;
         const urlToUse = overrideUrl || currentSettings.googleWebAppUrl;
         const secretToUse = overrideSecret !== undefined ? overrideSecret : currentSettings.cloudSecret;
@@ -420,15 +420,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             const localTs = lastLocalUpdate.current;
 
             // --- RACE CONDITION FIX ---
+            // If FORCE is true, we skip the checks and overwrite local data.
             // If localTs is 0 (fresh load), we ALWAYS accept cloud data.
-            // If localTs > 0 (user made changes), we prioritize local changes.
-            if (hasPendingChanges || (localTs > 0 && localTs > cloudTs + 2000)) {
-                setTimeout(() => pushToCloud(), 500); 
-                return;
-            }
+            // If localTs > 0 (user made changes), we prioritize local changes unless forced.
+            if (!force) {
+                if (hasPendingChanges || (localTs > 0 && localTs > cloudTs + 2000)) {
+                    // We have newer data. Trigger a push to overwrite cloud instead.
+                    setTimeout(() => pushToCloud(), 500); 
+                    return;
+                }
 
-            if (cloudTs <= lastCloudSyncTimestamp.current) {
-                return; 
+                if (cloudTs <= lastCloudSyncTimestamp.current) {
+                    return; 
+                }
             }
 
             const safeData = sanitizeDataStructure(cloudData);
@@ -438,13 +442,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 return;
             }
 
-            const localHasData = storeRef.current.products.length > 0 || storeRef.current.customers.length > 0;
-            const cloudIsEmpty = (!safeData.products || safeData.products.length === 0) && (!safeData.customers || safeData.customers.length === 0);
+            // Only perform empty check if NOT forced. Forced pull can mean overwrite with empty data if needed.
+            if (!force) {
+                const localHasData = storeRef.current.products.length > 0 || storeRef.current.customers.length > 0;
+                const cloudIsEmpty = (!safeData.products || safeData.products.length === 0) && (!safeData.customers || safeData.customers.length === 0);
 
-            if (localHasData && cloudIsEmpty) {
-                if (!silent) notify("Respaldo Automático", "Nube vacía detectada. Subiendo datos locales...", "info");
-                setTimeout(() => pushToCloud(), 100);
-                return; 
+                if (localHasData && cloudIsEmpty) {
+                    if (!silent) notify("Respaldo Automático", "Nube vacía detectada. Subiendo datos locales...", "info");
+                    setTimeout(() => pushToCloud(), 100);
+                    return; 
+                }
             }
 
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
@@ -513,7 +520,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     id: 'admin-001', username: 'admin', passwordHash: hash, salt: salt,
                     fullName: 'Administrador', role: 'ADMIN', active: true
                 }]);
-                markLocalChange();
+                // FIX: Do NOT mark local change here. It prevents syncing on fresh devices.
+                // The persistence effect will save this to localStorage anyway.
+                // markLocalChange(); 
             }
         };
         init();

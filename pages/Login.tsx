@@ -169,7 +169,7 @@ export const Login: React.FC = () => {
       }
       try {
           setIsInitialSyncing(true);
-          await pullFromCloud();
+          await pullFromCloud(undefined, undefined, false, true); // FORCE SYNC
           setSuccessMsg('Datos sincronizados correctamente.');
       } catch (e: any) {
           setError(e.message || 'Error al sincronizar. Verifica tu conexión.');
@@ -182,13 +182,13 @@ export const Login: React.FC = () => {
       // 1. Update Context/Storage
       updateSettings({ ...settings, googleWebAppUrl: tempUrl, cloudSecret: tempSecret, enableCloudSync: true });
       
-      // 2. Immediate Pull using the values directly, ignoring the potentially stale 'settings' state in the context closure
+      // 2. Immediate Pull using the values directly, IGNORING stale local data (force=true)
       setSuccessMsg('Guardando configuración...');
       setError('');
       
       try {
           setIsInitialSyncing(true);
-          await pullFromCloud(tempUrl, tempSecret); // Pass explicit values
+          await pullFromCloud(tempUrl, tempSecret, false, true); // Force overwrite
           setSuccessMsg('¡Conectado! Datos descargados de la nube.');
           setView('LOGIN');
       } catch (e: any) {
