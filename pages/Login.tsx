@@ -363,7 +363,7 @@ export const Login: React.FC = () => {
             </div>
 
             <div className="flex flex-col items-center">
-                <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center mb-4 shadow-lg border border-white/20">
+                <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center mb-4 shadow-lg border border-white/20 overflow-hidden">
                 {settings.logo ? <img src={settings.logo} className="w-full h-full object-contain p-2" alt="Logo"/> : <Store className="w-8 h-8 text-white" />}
                 </div>
                 <h1 className="text-2xl font-bold text-white tracking-tight">{settings.name || 'LuminaPOS'}</h1>

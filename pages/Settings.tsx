@@ -1,7 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Database, Download, AlertTriangle, PieChart, Bell, Volume2, Printer, Trash2, Hash, FileInput, Info, CreditCard, Percent, Cloud, CloudOff, RefreshCw, LayoutTemplate, Eye, Calendar, Phone, DollarSign, ToggleLeft, ToggleRight, Check, Lock, RotateCw, ShieldCheck } from 'lucide-react';
+import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Database, Download, AlertTriangle, PieChart, Bell, Volume2, Printer, Trash2, Hash, FileInput, Info, CreditCard, Percent, Cloud, CloudOff, RefreshCw, LayoutTemplate, Eye, Calendar, Phone, DollarSign, ToggleLeft, ToggleRight, Check, Lock, RotateCw, ShieldCheck, Loader2 } from 'lucide-react';
+import { processLogoImage } from '../utils/imageHelper';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, products, categories, transactions, cashMovements, customers, suppliers, users, importData, requestNotificationPermission, notify, pullFromCloud, pushToCloud, isSyncing } = useStore();
@@ -9,6 +10,7 @@ export const Settings: React.FC = () => {
   const [formData, setFormData] = useState(settings);
   const [isSaved, setIsSaved] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState<NotificationPermission>('default');
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const receiptLogoInputRef = useRef<HTMLInputElement>(null);
@@ -74,18 +76,28 @@ export const Settings: React.FC = () => {
       setIsSaved(false);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, field: 'logo' | 'receiptLogo') => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logo' | 'receiptLogo') => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2000000) { // 2MB limit
-          alert("La imagen es demasiado grande. Máximo 2MB.");
+      if (file.size > 5000000) { // 5MB limit check before processing
+          alert("La imagen es demasiado grande. Intenta con una menor a 5MB.");
           return;
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        handleInputChange(field, reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      
+      setIsProcessingImage(true);
+      try {
+          // Use the new helper to process: resize + white background
+          const processedImage = await processLogoImage(file);
+          handleInputChange(field, processedImage);
+          notify("Imagen Procesada", "Se ha ajustado el tamaño y el fondo correctamente.", "success");
+      } catch (error) {
+          console.error("Error processing image", error);
+          notify("Error de Imagen", "No se pudo procesar la imagen. Intenta con otro archivo.", "error");
+      } finally {
+          setIsProcessingImage(false);
+          // Reset input so same file can be selected again if needed
+          if (e.target) e.target.value = '';
+      }
     }
   };
 
@@ -232,11 +244,11 @@ export const Settings: React.FC = () => {
           </div>
           <button
             onClick={handleSave}
-            disabled={isSaved || isSyncing}
+            disabled={isSaved || isSyncing || isProcessingImage}
             className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold shadow-lg transition-all ${isSaved ? 'bg-emerald-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 dark:shadow-none disabled:opacity-70'}`}
           >
-            {isSyncing ? <RefreshCw className="w-5 h-5 animate-spin" /> : isSaved ? <CheckCircle className="w-5 h-5" /> : <Save className="w-5 h-5" />}
-            {isSyncing ? 'Sincronizando...' : isSaved ? '¡Guardado!' : 'Guardar Cambios'}
+            {isSyncing || isProcessingImage ? <Loader2 className="w-5 h-5 animate-spin" /> : isSaved ? <CheckCircle className="w-5 h-5" /> : <Save className="w-5 h-5" />}
+            {isProcessingImage ? 'Procesando img...' : isSyncing ? 'Sincronizando...' : isSaved ? '¡Guardado!' : 'Guardar Cambios'}
           </button>
         </div>
 
@@ -255,11 +267,9 @@ export const Settings: React.FC = () => {
           </div>
 
           <div className="flex-1 min-w-0">
-            {/* ... other tabs ... */}
             
             {activeTab === 'GENERAL' && (
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
-                {/* ... existing GENERAL content ... */}
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                   <Store className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
                   Datos del Negocio
@@ -268,10 +278,15 @@ export const Settings: React.FC = () => {
                     <div className="shrink-0 text-center">
                         <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Logo Principal</p>
                         <div onClick={() => fileInputRef.current?.click()} className="w-32 h-32 rounded-2xl bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center overflow-hidden cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors relative group">
-                            {formData.logo ? <img src={formData.logo} alt="Logo" className="w-full h-full object-contain p-2" /> : <Upload className="w-8 h-8 text-slate-300 dark:text-slate-600 group-hover:text-indigo-400" />}
+                            {formData.logo ? (
+                                <img src={formData.logo} alt="Logo" className="w-full h-full object-contain p-2 bg-white" /> 
+                            ) : (
+                                <Upload className="w-8 h-8 text-slate-300 dark:text-slate-600 group-hover:text-indigo-400" />
+                            )}
                             <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium">Cambiar</div>
                         </div>
                         <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'logo')}/>
+                        <p className="text-[10px] text-slate-400 mt-2">Se ajustará y pondrá fondo blanco automáticamente.</p>
                     </div>
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                         <div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nombre del Negocio</label><input type="text" value={formData.name} onChange={(e) => handleInputChange('name', e.target.value)} className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"/></div>
@@ -303,7 +318,7 @@ export const Settings: React.FC = () => {
               </div>
             )}
 
-            {/* ... other existing tabs ... */}
+            {/* ... other tabs ... */}
             {activeTab === 'RECEIPT' && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
@@ -359,6 +374,7 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
+            {/* Rest of the component (Production, Theme, etc. remains identical) */}
             {activeTab === 'PRODUCTION' && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
                     <div className="flex items-center gap-3 mb-6">
@@ -480,6 +496,7 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
+            {/* Other tabs follow same pattern, ensuring imageHelper is not needed there */}
             {activeTab === 'THEME' && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">

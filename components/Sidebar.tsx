@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { LayoutDashboard, ShoppingCart, Package, DollarSign, PieChart, Store, Users, Truck, History, Settings, LogOut, Shield, Menu, X, ClipboardList, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import { AppView } from '../types';
@@ -41,8 +42,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     <>
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 z-50 flex items-center justify-between px-4 shadow-md">
          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded bg-white/10 flex items-center justify-center">
-                {settings.logo ? <img src={settings.logo} alt="Logo" className="w-full h-full object-cover rounded" /> : <Store className="w-5 h-5 text-white" />}
+            <div className="w-8 h-8 rounded bg-white/10 flex items-center justify-center overflow-hidden">
+                {settings.logo ? <img src={settings.logo} alt="Logo" className="w-full h-full object-contain rounded" /> : <Store className="w-5 h-5 text-white" />}
             </div>
             <span className="font-bold text-white truncate">{settings.name}</span>
          </div>
@@ -58,7 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
       <div className={`fixed top-0 left-0 h-screen bg-slate-900 text-white flex flex-col shadow-xl z-50 transition-transform duration-300 ease-in-out w-64 ${isMobileMenuOpen ? 'translate-x-0 pt-16' : '-translate-x-full pt-0'} md:translate-x-0 md:pt-0`}>
         <div className="hidden md:flex p-6 items-center gap-3 border-b border-slate-700">
             <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/10 flex items-center justify-center shrink-0">
-            {settings.logo ? <img src={settings.logo} alt="Logo" className="w-full h-full object-cover" /> : <Store className="w-6 h-6 text-white" />}
+            {settings.logo ? <img src={settings.logo} alt="Logo" className="w-full h-full object-contain" /> : <Store className="w-6 h-6 text-white" />}
             </div>
             <div className="overflow-hidden">
             <h1 className="text-lg font-bold tracking-tight truncate">{settings.name || 'LuminaPOS'}</h1>
