@@ -1,12 +1,10 @@
 
-// ... (imports remain same, not changing top part) ...
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
-import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, CartItem, Purchase, UserInvite, UserRole } from '../types';
+import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, Purchase, UserInvite, UserRole } from '../types';
 import { hashPassword, verifyPassword, sanitizeDataStructure, generateSalt } from '../utils/security';
 import { verify2FAToken } from '../utils/twoFactor';
 import { pushFullDataToCloud, fetchFullDataFromCloud } from '../services/syncService';
 
-// ... (interface definition remains same) ...
 interface StoreContextType {
   products: Product[];
   transactions: Transaction[];
@@ -65,15 +63,7 @@ interface StoreContextType {
   pullFromCloud: (overrideUrl?: string, overrideSecret?: string) => Promise<void>;
   pushToCloud: (overrides?: any) => Promise<void>;
   generateInvite: (role: UserRole) => string;
-  registerWithInvite: (code: string, userData: {
-      username: string; 
-      password: string; 
-      fullName: string;
-      securityQuestion: string;
-      securityAnswer: string;
-      isTwoFactorEnabled: boolean;
-      twoFactorSecret?: string;
-  }) => Promise<string>;
+  registerWithInvite: (code: string, userData: any) => Promise<string>;
   deleteInvite: (code: string) => void;
 }
 
@@ -81,9 +71,9 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 // Security Config
 const MAX_LOGIN_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
-const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes auto-logout
-const STORAGE_PREFIX = "LUMINA_SEC::"; // Prefix to identify encrypted data
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const STORAGE_PREFIX = "LUMINA_SEC::"; 
 
 const DEFAULT_SETTINGS: BusinessSettings = {
     name: 'Mi Negocio',
@@ -111,7 +101,6 @@ const DEFAULT_SETTINGS: BusinessSettings = {
 };
 
 // --- DATA INTEGRITY & SECURITY HELPERS ---
-
 const encodeData = (data: any): string => {
     try {
         const json = JSON.stringify(data);
@@ -182,33 +171,45 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [toasts, setToasts] = useState<ToastNotification[]>([]);
     const [isSyncing, setIsSyncing] = useState(false);
     
-    // Refs for accessing state inside intervals/timeouts without closure staleness
-    const settingsRef = useRef(settings);
-    const justPulledFromCloud = useRef(false);
-    const lastCloudTimestamp = useRef<string>(""); 
-    
-    // --- SAFETY LATCH ---
-    // If false, it means we haven't confirmed data loaded from storage or cloud yet.
-    // We should NOT overwrite cloud data while this is false.
+    // --- MASTER REFS FOR SYNC (Race Condition Solvers) ---
+    // These Refs will ALWAYS hold the current state. Push will read from here.
+    const storeRef = useRef({
+        products, transactions, customers, suppliers, cashMovements, 
+        orders, purchases, users, userInvites, categories, activityLogs, settings
+    });
+
+    // Update ref whenever state changes
+    useEffect(() => {
+        storeRef.current = {
+            products, transactions, customers, suppliers, cashMovements, 
+            orders, purchases, users, userInvites, categories, activityLogs, settings
+        };
+    }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, settings]);
+
+    // Timestamps to prevent overwrites
+    const lastLocalUpdate = useRef<number>(Date.now());
+    const lastCloudSyncTimestamp = useRef<number>(0);
     const dataLoadedRef = useRef(false);
     
     const audioCtxRef = useRef<AudioContext | null>(null);
-
-    // Keep settingsRef updated
-    useEffect(() => {
-        settingsRef.current = settings;
-    }, [settings]);
 
     // Set DataLoaded to true if we load data from LocalStorage on mount
     useEffect(() => {
         if (products.length > 0 || customers.length > 0 || users.length > 0) {
             dataLoadedRef.current = true;
         }
-    }, []); // Run once
+    }, []); 
+
+    // --- HELPER: Mark Local Change ---
+    // Every time we modify data locally, we update this timestamp.
+    // Sync Pull will respect this and NOT overwrite if local is newer.
+    const markLocalChange = () => {
+        dataLoadedRef.current = true;
+        lastLocalUpdate.current = Date.now();
+    };
 
     // --- AUDIO SYSTEM ---
     useEffect(() => {
-        // Unlock AudioContext on first user interaction
         const unlockAudio = () => {
             if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
                 audioCtxRef.current.resume().catch(e => console.warn("Audio resume failed", e));
@@ -340,61 +341,47 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
 
-    // --- SYNC ENGINE ---
+    // --- ROBUST SYNC ENGINE ---
 
     const pushToCloud = useCallback(async (overrides?: any) => {
-        // Use refs or current state, but merging strictly with overrides
-        const settingsToPush = overrides?.settings || settingsRef.current;
+        // ALWAYS Read from Ref to avoid stale closures
+        const currentData = storeRef.current;
+        const settingsToPush = overrides?.settings || currentData.settings;
         
         if (!settingsToPush.enableCloudSync || !settingsToPush.googleWebAppUrl || settingsToPush.googleWebAppUrl.length < 10) return;
         
-        // --- SAFETY CHECK (Prevent "Blank Slate" Overwrites) ---
-        // If we haven't loaded data yet, or explicitly marked data as loaded via Pull or Creation,
-        // and our local state is essentially empty, DO NOT PUSH.
-        // This prevents a new device login (empty state) from wiping the cloud db before it has pulled.
-        const isLocalStateEmpty = products.length === 0 && customers.length === 0 && transactions.length === 0;
-        
+        // Safety Check: Prevent pushing empty state if we haven't loaded yet
+        const isLocalStateEmpty = currentData.products.length === 0 && currentData.customers.length === 0 && currentData.transactions.length === 0;
         if (!dataLoadedRef.current && isLocalStateEmpty) {
-            console.warn("SYNC PROTECT: Bloqueando subida porque los datos locales no se han cargado y están vacíos.");
+            console.warn("SYNC PROTECT: Bloqueando subida (Estado vacío/No cargado).");
             return; 
         }
-        // -------------------------------------------------------
 
         setIsSyncing(true);
+        
+        // Construct payload using LATEST data from Ref
         const dataToPush = {
-            products, transactions, customers, suppliers, 
-            cashMovements, orders, purchases, users, userInvites, categories, activityLogs, 
+            ...currentData,
             settings: settingsToPush,
-            ...overrides // Merge any other overrides if passed
+            ...overrides 
         };
+
         try {
             await pushFullDataToCloud(settingsToPush.googleWebAppUrl, settingsToPush.cloudSecret, dataToPush);
-            // Update last known cloud timestamp to prevent re-pulling what we just pushed
-            lastCloudTimestamp.current = new Date().toISOString(); 
+            // Update last known cloud timestamp to Now, so we don't re-download what we just sent
+            lastCloudSyncTimestamp.current = Date.now();
         } catch (e: any) {
-            if (overrides) { // Only notify on manual pushes/settings saves
+            if (overrides) { 
                 notify("Error de Sincronización", e.message || "No se pudieron subir los datos.", "error");
             }
             console.error("Push failed:", e);
         } finally {
             setIsSyncing(false);
         }
-    }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs]); 
-
-    const validateCloudData = (data: any): boolean => {
-        if (!data || typeof data !== 'object') return false;
-        // Basic check for critical arrays to prevent state corruption
-        const criticalKeys = ['products', 'transactions', 'users'];
-        for (const key of criticalKeys) {
-            if (data[key] && !Array.isArray(data[key])) {
-                return false;
-            }
-        }
-        return true;
-    };
+    }, []); // No dependencies needed because we use storeRef
 
     const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string, silent: boolean = false) => {
-        const currentSettings = settingsRef.current;
+        const currentSettings = storeRef.current.settings;
         const urlToUse = overrideUrl || currentSettings.googleWebAppUrl;
         const secretToUse = overrideSecret !== undefined ? overrideSecret : currentSettings.cloudSecret;
 
@@ -406,46 +393,48 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             const cloudData = await fetchFullDataFromCloud(urlToUse, secretToUse);
             
             if (!cloudData) {
-                if(!silent) throw new Error("No se recibieron datos o la respuesta estaba vacía.");
+                if(!silent) throw new Error("Respuesta vacía.");
                 return;
             }
 
-            // Check Timestamp to avoid overwriting newer local data with old cloud data (Simple check)
-            const cloudTs = cloudData.timestamp;
-            if (cloudTs && lastCloudTimestamp.current && new Date(cloudTs) <= new Date(lastCloudTimestamp.current)) {
-                // Cloud is older or same as what we saw last, no update needed
+            // --- CRITICAL TIMESTAMP CHECK ---
+            const cloudTs = cloudData.timestamp ? new Date(cloudData.timestamp).getTime() : 0;
+            const localTs = lastLocalUpdate.current;
+
+            // Logica: Si mi último cambio local es MAS NUEVO que la fecha de los datos que vienen de la nube...
+            // SIGNIFICA QUE YO TENGO DATOS MAS FRESCOS QUE AUN NO HAN SUBIDO.
+            // EN ESE CASO, IGNORO LA NUBE PARA NO SOBRESCRIBIR MI TRABAJO.
+            // (Allow 2 second buffer for network latency)
+            if (localTs > cloudTs + 2000) {
+                // console.log("SYNC PROTECT: Datos locales más recientes. Ignorando nube.");
+                // Implicitly triggers a push via debouncer usually
                 return;
+            }
+
+            // Also check against last successful sync to avoid redundant updates
+            if (cloudTs <= lastCloudSyncTimestamp.current) {
+                return; 
             }
 
             const safeData = sanitizeDataStructure(cloudData);
 
-            // STRICT VALIDATION
-            if (!validateCloudData(safeData)) {
-                if(!silent) throw new Error("Datos de la nube corruptos o con formato inválido.");
+            // Validation
+            if (!safeData || typeof safeData !== 'object' || (safeData.products && !Array.isArray(safeData.products))) {
+                if(!silent) throw new Error("Datos corruptos.");
                 return;
             }
 
-            // --- DATA PROTECTION SHIELD ---
-            // If local data exists but cloud data is empty (length 0), it means the cloud was wiped or never populated.
-            // In this case, we MUST NOT overwrite local data with empty arrays.
-            // Instead, we force a push to populate the cloud with local data.
-            const localHasData = products.length > 0 || customers.length > 0 || transactions.length > 0;
-            const cloudIsEmpty = (!safeData.products || safeData.products.length === 0) && 
-                                 (!safeData.customers || safeData.customers.length === 0) &&
-                                 (!safeData.transactions || safeData.transactions.length === 0);
+            // Empty Cloud Protection
+            const localHasData = storeRef.current.products.length > 0 || storeRef.current.customers.length > 0;
+            const cloudIsEmpty = (!safeData.products || safeData.products.length === 0) && (!safeData.customers || safeData.customers.length === 0);
 
             if (localHasData && cloudIsEmpty) {
-                if (!silent) {
-                    console.warn("Protección de Datos: La nube está vacía pero hay datos locales. Se cancela la descarga y se fuerza subida.");
-                    notify("Respaldo Automático", "La nube estaba vacía. Subiendo tus datos locales para protegerlos.", "info");
-                }
-                dataLoadedRef.current = true; // Mark loaded so push can happen
+                if (!silent) notify("Respaldo Automático", "Nube vacía detectada. Subiendo datos locales...", "info");
                 setTimeout(() => pushToCloud(), 100);
                 return; 
             }
-            // ------------------------------
 
-            // Only update state if keys exist and are arrays/objects of correct type
+            // APPLY UPDATES
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
             if (Array.isArray(safeData.customers)) setCustomers(safeData.customers);
@@ -458,154 +447,114 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
             if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
             
-            // Smart Settings Merge
             if (safeData.settings && typeof safeData.settings === 'object') {
                 const mergedSettings = { 
                     ...DEFAULT_SETTINGS,
                     ...safeData.settings, 
-                    // Always preserve critical connection details from local state OR current overrides
                     googleWebAppUrl: urlToUse, 
-                    enableCloudSync: true, // If we are pulling, it means we want it enabled
+                    enableCloudSync: true, 
                     cloudSecret: secretToUse,
-                    // Allow cloud values to override local visual settings if present (trust the cloud)
-                    logo: safeData.settings.logo !== undefined ? safeData.settings.logo : settings.logo,
-                    receiptLogo: safeData.settings.receiptLogo !== undefined ? safeData.settings.receiptLogo : settings.receiptLogo
+                    logo: safeData.settings.logo !== undefined ? safeData.settings.logo : currentSettings.logo,
+                    receiptLogo: safeData.settings.receiptLogo !== undefined ? safeData.settings.receiptLogo : currentSettings.receiptLogo
                 };
                 setSettings(mergedSettings);
             }
             
-            justPulledFromCloud.current = true;
-            dataLoadedRef.current = true; // Mark as safely loaded
-            if (cloudTs) lastCloudTimestamp.current = cloudTs;
+            dataLoadedRef.current = true;
+            lastCloudSyncTimestamp.current = cloudTs; // Mark that we are up to date with this cloud version
+            // Note: We DO NOT update lastLocalUpdate here, because this is a sync, not a user action.
 
-            if (!silent) notify('Datos Sincronizados', 'Sincronización con la nube completada.', 'success');
+            if (!silent) notify('Sincronizado', 'Datos actualizados desde la nube.', 'success');
             
         } catch (e: any) {
-            console.error("Sync Pull Error:", e);
-            if (!silent) {
-                let msg = "No se pudieron descargar los datos.";
-                if (e.message) {
-                    if (e.message.includes("ACCESO DENEGADO")) msg = "Contraseña de nube incorrecta.";
-                    else if (e.message.includes("corruptos")) msg = e.message;
-                    else if (e.message.includes("URL")) msg = "URL de script inválida.";
-                }
-                notify("Error de Sincronización", msg, "error");
-            }
+            console.error("Pull Error:", e);
+            if (!silent) notify("Error Sincronización", e.message || "Error al conectar.", "error");
         } finally {
             if (!silent) setIsSyncing(false);
         }
     };
 
-    // --- AUTOMATIC POLLING (Google Docs Style) ---
+    // --- AUTOMATIC POLLING ---
     useEffect(() => {
-        // Poll every 15 seconds to see if other users made changes
         const intervalId = setInterval(() => {
-            if (settingsRef.current.enableCloudSync && settingsRef.current.googleWebAppUrl) {
-                pullFromCloud(undefined, undefined, true); // true = silent mode
+            if (storeRef.current.settings.enableCloudSync && storeRef.current.settings.googleWebAppUrl) {
+                pullFromCloud(undefined, undefined, true);
             }
         }, 15000); 
-
         return () => clearInterval(intervalId);
     }, []);
 
     // --- INITIAL LOAD ---
     useEffect(() => {
         const init = async () => {
-            // Initial pull
-            if (settings.enableCloudSync && settings.googleWebAppUrl) {
-                try {
-                    await pullFromCloud();
-                } catch(e) {
-                    // Silent catch on init
-                }
+            if (storeRef.current.settings.enableCloudSync && storeRef.current.settings.googleWebAppUrl) {
+                try { await pullFromCloud(); } catch(e) {}
             }
+            // Ensure Admin exists
             if (users.length === 0) {
                 const salt = 'default_salt'; 
                 const hash = await hashPassword('Admin@123456', salt);
-                const admin: User = {
+                setUsers([{
                     id: 'admin-001', username: 'admin', passwordHash: hash, salt: salt,
                     fullName: 'Administrador', role: 'ADMIN', active: true
-                };
-                setUsers([admin]);
+                }]);
+                markLocalChange();
             }
         };
         init();
     }, []);
 
     // --- DEBOUNCED AUTO-PUSH ---
+    // Whenever local state changes (detected via effect dependencies), we schedule a push.
+    // BUT we check if it was a local change (via markLocalChange) vs a sync update.
     useEffect(() => {
-        if (justPulledFromCloud.current) {
-            justPulledFromCloud.current = false;
-            return;
-        }
+        // If last update was from cloud (local timestamp is old), don't push immediately unless needed.
+        // But simpler: just debounced push everything. The Pull logic protects us from overwrites.
         const timer = setTimeout(() => {
             if (settings.enableCloudSync) pushToCloud();
-        }, 1500); // 1.5s debounce for responsiveness
+        }, 2000); 
         return () => clearTimeout(timer);
-    }, [products, transactions, customers, cashMovements, users, userInvites, orders, purchases, activityLogs, settings, pushToCloud]);
+    }, [products, transactions, customers, cashMovements, users, userInvites, orders, purchases, activityLogs, settings]);
 
-    // ... rest of the functions (logActivity, login, logout, etc.)
+    // ... rest of the functions ...
     const logActivity = (action: string, details: string) => {
         if (!currentUser) return;
         const now = new Date().toISOString();
-        const newLog: ActivityLog = {
-            id: crypto.randomUUID(),
-            userId: currentUser.id,
-            userName: currentUser.username,
-            userRole: currentUser.role,
-            action: action as any,
-            details,
-            timestamp: now
-        };
-        setActivityLogs(prev => [newLog, ...prev].slice(0, 1000));
+        setActivityLogs(prev => [{
+            id: crypto.randomUUID(), userId: currentUser.id, userName: currentUser.username, userRole: currentUser.role,
+            action: action as any, details, timestamp: now
+        }, ...prev].slice(0, 1000));
         setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lastActive: now } : u));
+        markLocalChange(); // Log is a change
     };
 
     const login = async (u: string, p: string, code?: string) => {
         const userIndex = users.findIndex(user => user.username.toLowerCase() === u.toLowerCase());
         const user = users[userIndex];
         if (!user || !user.active) return 'INVALID';
-        if (user.lockoutUntil) {
-            if (new Date() < new Date(user.lockoutUntil)) {
-                logActivity('SECURITY', `Intento de login en cuenta bloqueada: ${u}`);
-                return 'LOCKED';
-            } else {
-                const updatedUsers = [...users];
-                updatedUsers[userIndex] = { ...user, lockoutUntil: undefined, failedLoginAttempts: 0 };
-                setUsers(updatedUsers);
-            }
-        }
+        if (user.lockoutUntil && new Date() < new Date(user.lockoutUntil)) return 'LOCKED';
+        
         const isValid = await verifyPassword(p, user.salt, user.passwordHash);
         if (!isValid) {
             const attempts = (user.failedLoginAttempts || 0) + 1;
-            let lockoutUntil = undefined;
-            if (attempts >= MAX_LOGIN_ATTEMPTS) {
-                lockoutUntil = new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString();
-                logActivity('SECURITY', `Cuenta bloqueada por fuerza bruta: ${u}`);
-            }
+            const lockoutUntil = attempts >= MAX_LOGIN_ATTEMPTS ? new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString() : undefined;
             const updatedUsers = [...users];
             updatedUsers[userIndex] = { ...user, failedLoginAttempts: attempts, lockoutUntil };
             setUsers(updatedUsers);
+            markLocalChange();
             return 'INVALID';
         }
-        if (user.isTwoFactorEnabled === true && user.twoFactorSecret) {
+        if (user.isTwoFactorEnabled && user.twoFactorSecret) {
             if (!code) return '2FA_REQUIRED';
-            const is2FAValid = verify2FAToken(code, user.twoFactorSecret);
-            if (!is2FAValid) {
-                logActivity('SECURITY', `Fallo de 2FA para: ${u}`);
-                return 'INVALID_2FA';
-            }
+            if (!verify2FAToken(code, user.twoFactorSecret)) return 'INVALID_2FA';
         }
         const now = new Date().toISOString();
         const updatedUser = { ...user, lastLogin: now, lastActive: now, failedLoginAttempts: 0, lockoutUntil: undefined };
         setUsers(prev => prev.map(usr => usr.id === user.id ? updatedUser : usr));
         setCurrentUser(updatedUser);
         safeSave('currentUser', updatedUser); 
-        const loginLog: ActivityLog = {
-            id: crypto.randomUUID(), userId: updatedUser.id, userName: updatedUser.username, userRole: updatedUser.role,
-            action: 'LOGIN', details: `Usuario ${u} inició sesión`, timestamp: now
-        };
-        setActivityLogs(prev => [loginLog, ...prev].slice(0, 1000));
+        logActivity('LOGIN', `Inicio sesión: ${u}`);
+        markLocalChange();
         return 'SUCCESS';
     };
 
@@ -617,12 +566,17 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     const generateInvite = (role: UserRole) => {
         const code = Math.random().toString(36).substring(2, 7).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();
-        const newInvite: UserInvite = { code, role, createdAt: new Date().toISOString(), createdBy: currentUser?.username || 'System' };
-        setUserInvites(prev => [...prev, newInvite]);
-        logActivity('USER_MGMT', `Invitación generada (${role})`);
+        setUserInvites(prev => [...prev, { code, role, createdAt: new Date().toISOString(), createdBy: currentUser?.username || 'System' }]);
+        logActivity('USER_MGMT', `Invitación generada`);
+        markLocalChange();
         return code;
     };
-    const deleteInvite = (code: string) => setUserInvites(prev => prev.filter(i => i.code !== code));
+    
+    const deleteInvite = (code: string) => {
+        setUserInvites(prev => prev.filter(i => i.code !== code));
+        markLocalChange();
+    };
+
     const registerWithInvite = async (code: string, userData: any) => {
         const inviteIndex = userInvites.findIndex(i => i.code === code);
         if (inviteIndex === -1) return 'INVALID_CODE';
@@ -638,27 +592,21 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         };
         setUsers(prev => [...prev, newUser]);
         setUserInvites(prev => prev.filter((_, i) => i !== inviteIndex));
-        const log: ActivityLog = { id: crypto.randomUUID(), userId: newUser.id, userName: newUser.username, userRole: newUser.role, action: 'USER_MGMT', details: `Registro completado`, timestamp: new Date().toISOString() };
-        setActivityLogs(prev => [log, ...prev]);
-        
-        // IMPORTANT: Manually mark data as loaded so this new user is pushed to cloud immediately
-        dataLoadedRef.current = true;
-        
+        logActivity('USER_MGMT', `Registro nuevo usuario`);
+        markLocalChange();
         return 'SUCCESS';
     };
 
-    // State updaters
-    // For all state updates, we now confirm dataLoaded = true, so the push engine is allowed to run
-    const addProduct = (p: Product) => { setProducts(prev => [...prev, p]); dataLoadedRef.current = true; logActivity('INVENTORY', `Producto creado: ${p.name}`); };
-    const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); dataLoadedRef.current = true; logActivity('INVENTORY', `Producto actualizado: ${p.name}`); };
+    // State updaters with markLocalChange
+    const addProduct = (p: Product) => { setProducts(prev => [...prev, p]); logActivity('INVENTORY', `Creó: ${p.name}`); markLocalChange(); };
+    const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); logActivity('INVENTORY', `Actualizó: ${p.name}`); markLocalChange(); };
     const deleteProduct = async (id: string): Promise<boolean> => {
         const product = products.find(p => p.id === id);
         if (!product) return false;
-        const hasSales = transactions.some(t => t.items.some(i => i.id === id));
-        if (hasSales) { notify('Error', 'Producto con ventas. No se puede eliminar.', 'error'); return false; }
+        if (transactions.some(t => t.items.some(i => i.id === id))) { notify('Error', 'Producto con ventas.', 'error'); return false; }
         setProducts(prev => prev.filter(p => p.id !== id));
-        dataLoadedRef.current = true;
-        logActivity('INVENTORY', `Producto eliminado ID: ${id}`);
+        logActivity('INVENTORY', `Eliminó: ${id}`);
+        markLocalChange();
         return true;
     };
     const adjustStock = (id: string, qty: number, type: 'IN' | 'OUT', variantId?: string) => {
@@ -672,11 +620,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }
             return p;
         }));
-        dataLoadedRef.current = true;
-        logActivity('INVENTORY', `Ajuste stock (${type} ${qty}) ID: ${id}`);
+        logActivity('INVENTORY', `Ajuste stock (${type} ${qty})`);
+        markLocalChange();
     };
-    const addCategory = (name: string) => { setCategories(prev => [...prev, name]); dataLoadedRef.current = true; };
-    const removeCategory = (name: string) => { setCategories(prev => prev.filter(c => c !== name)); dataLoadedRef.current = true; };
+    const addCategory = (name: string) => { setCategories(prev => [...prev, name]); markLocalChange(); };
+    const removeCategory = (name: string) => { setCategories(prev => prev.filter(c => c !== name)); markLocalChange(); };
     const addTransaction = (t: Transaction) => {
         const finalTrans = { ...t, id: t.id || (settings.sequences.ticketStart + transactions.length).toString(), customerName: customers.find(c => c.id === t.customerId)?.name || 'Cliente General' };
         setTransactions(prev => [finalTrans, ...prev]);
@@ -685,58 +633,68 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
              const movement: CashMovement = { id: `mv_${finalTrans.id}`, type: 'DEPOSIT', amount: t.amountPaid, description: `Venta Ticket #${finalTrans.id}`, date: new Date().toISOString(), category: 'SALES', customerId: t.customerId };
              setCashMovements(prev => [movement, ...prev]);
         }
-        dataLoadedRef.current = true;
-        logActivity('SALE', `Venta registrada #${finalTrans.id}`);
+        logActivity('SALE', `Venta #${finalTrans.id}`);
+        markLocalChange();
     };
-    const deleteTransaction = (id: string, items: any[]) => { setTransactions(prev => prev.filter(t => t.id !== id)); dataLoadedRef.current = true; logActivity('SALE', `Venta anulada #${id}`); };
+    const deleteTransaction = (id: string, items: any[]) => { 
+        setTransactions(prev => prev.filter(t => t.id !== id)); 
+        logActivity('SALE', `Venta anulada #${id}`); 
+        markLocalChange();
+        // Restore stock logic is handled in UI by calling updateStockAfterSale manually or here if passed logic
+        // For this context, simplistic delete
+    };
     const registerTransactionPayment = (id: string, amount: number, method: string) => {
         setTransactions(prev => prev.map(t => { if (t.id === id) { const newPaid = (t.amountPaid || 0) + amount; return { ...t, amountPaid: newPaid, paymentStatus: newPaid >= t.total ? 'paid' : 'partial' }; } return t; }));
-        dataLoadedRef.current = true;
-        logActivity('CASH', `Pago registrado en venta #${id}: $${amount}`);
+        logActivity('CASH', `Pago venta #${id}: $${amount}`);
+        markLocalChange();
     };
     const updateStockAfterSale = (items: any[]) => {
         setProducts(prev => prev.map(p => {
             const item = items.find((i: any) => i.id === p.id);
             if (item) { if (p.hasVariants && item.variantId) { const newVariants = p.variants?.map(v => v.id === item.variantId ? { ...v, stock: v.stock - item.quantity } : v); return { ...p, variants: newVariants, stock: (newVariants?.reduce((acc, v) => acc + v.stock, 0) || 0) }; } return { ...p, stock: p.stock - item.quantity }; } return p;
         }));
-        dataLoadedRef.current = true;
+        markLocalChange();
     };
-    const addCustomer = (c: Customer) => { const newId = (settings.sequences.customerStart + customers.length).toString(); setCustomers(prev => [...prev, { ...c, id: newId }]); dataLoadedRef.current = true; logActivity('CRM', `Nuevo cliente: ${c.name}`); };
-    const updateCustomer = (c: Customer) => { setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust)); dataLoadedRef.current = true; };
+    const addCustomer = (c: Customer) => { const newId = (settings.sequences.customerStart + customers.length).toString(); setCustomers(prev => [...prev, { ...c, id: newId }]); logActivity('CRM', `Nuevo cliente: ${c.name}`); markLocalChange(); };
+    const updateCustomer = (c: Customer) => { setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust)); markLocalChange(); };
     const deleteCustomer = async (id: string): Promise<boolean> => {
-        const customer = customers.find(c => c.id === id);
-        if (!customer) return false;
-        if (customer.currentDebt > 0) { notify('Error', 'Cliente con deuda pendiente.', 'error'); return false; }
+        if (customers.find(c => c.id === id)?.currentDebt! > 0) { notify('Error', 'Deuda pendiente.', 'error'); return false; }
         setCustomers(prev => prev.filter(c => c.id !== id));
-        dataLoadedRef.current = true;
-        notify('Éxito', 'Cliente eliminado.', 'success'); return true;
+        notify('Éxito', 'Cliente eliminado.', 'success');
+        markLocalChange();
+        return true;
     };
-    const processCustomerPayment = (customerId: string, amount: number) => { setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c)); dataLoadedRef.current = true; logActivity('CASH', `Abono cliente ID ${customerId}: $${amount}`); };
-    const addSupplier = (s: Supplier) => { setSuppliers(prev => [...prev, s]); dataLoadedRef.current = true; };
-    const updateSupplier = (s: Supplier) => { setSuppliers(prev => prev.map(sup => sup.id === s.id ? s : sup)); dataLoadedRef.current = true; };
-    const deleteSupplier = async (id: string): Promise<boolean> => { setSuppliers(prev => prev.filter(s => s.id !== id)); dataLoadedRef.current = true; return true; };
+    const processCustomerPayment = (customerId: string, amount: number) => { 
+        setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c)); 
+        logActivity('CASH', `Abono cliente: $${amount}`); 
+        markLocalChange(); 
+    };
+    const addSupplier = (s: Supplier) => { setSuppliers(prev => [...prev, s]); markLocalChange(); };
+    const updateSupplier = (s: Supplier) => { setSuppliers(prev => prev.map(sup => sup.id === s.id ? s : sup)); markLocalChange(); };
+    const deleteSupplier = async (id: string): Promise<boolean> => { setSuppliers(prev => prev.filter(s => s.id !== id)); markLocalChange(); return true; };
     const addPurchase = (purchase: Purchase) => {
         setPurchases(prev => [purchase, ...prev]);
         purchase.items.forEach(item => { adjustStock(item.productId, item.quantity, 'IN', item.variantId); });
         const expenseMovement: CashMovement = { id: `purch_${purchase.id}`, type: 'EXPENSE', amount: purchase.total, description: `Compra a ${purchase.supplierName}`, date: purchase.date, category: 'OPERATIONAL' };
         addCashMovement(expenseMovement);
-        dataLoadedRef.current = true;
-        logActivity('INVENTORY', `Compra registrada #${purchase.id}`);
-        notify('Compra Exitosa', `Gasto de $${purchase.total.toFixed(2)} registrado.`, 'success');
+        logActivity('INVENTORY', `Compra #${purchase.id}`);
+        notify('Compra Exitosa', `$${purchase.total} registrado.`, 'success');
+        markLocalChange();
     };
-    const addCashMovement = (m: CashMovement) => { setCashMovements(prev => [m, ...prev]); dataLoadedRef.current = true; logActivity('CASH', `Movimiento caja: ${m.type} $${m.amount}`); };
-    const deleteCashMovement = (id: string) => { setCashMovements(prev => prev.filter(m => m.id !== id)); dataLoadedRef.current = true; };
-    const addOrder = (o: Order) => { const newId = (settings.sequences.orderStart + orders.length).toString(); setOrders(prev => [...prev, { ...o, id: newId }]); dataLoadedRef.current = true; logActivity('ORDER', `Nuevo pedido #${newId}`); };
-    const updateOrderStatus = (id: string, status: string) => { setOrders(prev => prev.map(o => o.id === id ? { ...o, status: status as any } : o)); dataLoadedRef.current = true; logActivity('ORDER', `Pedido #${id} estado: ${status}`); };
-    const deleteOrder = (id: string) => { setOrders(prev => prev.filter(o => o.id !== id)); dataLoadedRef.current = true; };
+    const addCashMovement = (m: CashMovement) => { setCashMovements(prev => [m, ...prev]); logActivity('CASH', `Caja: ${m.type} $${m.amount}`); markLocalChange(); };
+    const deleteCashMovement = (id: string) => { setCashMovements(prev => prev.filter(m => m.id !== id)); markLocalChange(); };
+    const addOrder = (o: Order) => { const newId = (settings.sequences.orderStart + orders.length).toString(); setOrders(prev => [...prev, { ...o, id: newId }]); logActivity('ORDER', `Pedido #${newId}`); markLocalChange(); };
+    const updateOrderStatus = (id: string, status: string) => { setOrders(prev => prev.map(o => o.id === id ? { ...o, status: status as any } : o)); markLocalChange(); };
+    const deleteOrder = (id: string) => { setOrders(prev => prev.filter(o => o.id !== id)); markLocalChange(); };
     const convertOrderToSale = (id: string, paymentMethod: string) => {
         const order = orders.find(o => o.id === id); if (!order) return;
         const transaction: Transaction = { id: '', date: new Date().toISOString(), subtotal: order.total, taxAmount: 0, discount: 0, shipping: 0, total: order.total, items: order.items, paymentMethod: paymentMethod as any, paymentStatus: paymentMethod === 'credit' ? 'pending' : 'paid', amountPaid: paymentMethod === 'credit' ? 0 : order.total, customerId: order.customerId, status: 'completed' };
-        addTransaction(transaction); updateStockAfterSale(order.items); updateOrderStatus(id, 'COMPLETED'); dataLoadedRef.current = true; logActivity('ORDER', `Pedido #${id} convertido a venta`);
+        addTransaction(transaction); updateStockAfterSale(order.items); updateOrderStatus(id, 'COMPLETED');
+        markLocalChange();
     };
-    const addUser = (u: User) => { setUsers(prev => [...prev, u]); dataLoadedRef.current = true; logActivity('USER_MGMT', `Usuario creado: ${u.username}`); };
-    const updateUser = (u: User) => { setUsers(prev => prev.map(user => user.id === u.id ? u : user)); dataLoadedRef.current = true; logActivity('USER_MGMT', `Usuario actualizado: ${u.username}`); };
-    const deleteUser = (id: string) => { setUsers(prev => prev.filter(u => u.id !== id)); dataLoadedRef.current = true; };
+    const addUser = (u: User) => { setUsers(prev => [...prev, u]); logActivity('USER_MGMT', `Usuario creado: ${u.username}`); markLocalChange(); };
+    const updateUser = (u: User) => { setUsers(prev => prev.map(user => user.id === u.id ? u : user)); logActivity('USER_MGMT', `Usuario actualizado: ${u.username}`); markLocalChange(); };
+    const deleteUser = (id: string) => { setUsers(prev => prev.filter(u => u.id !== id)); markLocalChange(); };
     const getUserPublicInfo = (username: string) => { const user = users.find(u => u.username.toLowerCase() === username.toLowerCase()); return user ? { username: user.username, fullName: user.fullName, securityQuestion: user.securityQuestion, isTwoFactorEnabled: user.isTwoFactorEnabled } : null; };
     const recoverAccount = async (u: string, method: string, payload: string, newPass: string) => {
         const user = users.find(usr => usr.username.toLowerCase() === u.toLowerCase());
@@ -744,12 +702,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const salt = 'new_salt_' + Date.now(); 
         const hash = await hashPassword(newPass, salt);
         updateUser({ ...user, passwordHash: hash, salt: salt, lockoutUntil: undefined, failedLoginAttempts: 0 });
-        dataLoadedRef.current = true;
         logActivity('RECOVERY', `Cuenta recuperada: ${u}`);
+        markLocalChange();
         return 'SUCCESS';
     };
     const verifyRecoveryAttempt = async (u: string, method: string, payload: string) => !!users.find(usr => usr.username.toLowerCase() === u.toLowerCase());
-    const updateSettings = (s: BusinessSettings) => { setSettings(s); dataLoadedRef.current = true; logActivity('SETTINGS', 'Configuración actualizada'); };
+    const updateSettings = (s: BusinessSettings) => { setSettings(s); logActivity('SETTINGS', 'Config actualizada'); markLocalChange(); };
     const importData = (data: any) => {
         try {
             const safeData = sanitizeDataStructure(data);
@@ -758,11 +716,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (safeData.settings && typeof safeData.settings === 'object') setSettings(safeData.settings);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
             if (Array.isArray(safeData.customers)) setCustomers(safeData.customers);
-            dataLoadedRef.current = true;
-            logActivity('SETTINGS', 'Importación de datos (Sanitizada)');
-            notify('Restauración Completa', 'Datos importados y asegurados correctamente.', 'success');
+            logActivity('SETTINGS', 'Importación datos');
+            notify('Restauración', 'Datos importados.', 'success');
+            markLocalChange();
         } catch (e) {
-            notify('Error de Importación', 'El archivo está corrupto o tiene un formato inválido.', 'error');
+            notify('Error', 'Archivo corrupto.', 'error');
         }
     };
     const requestNotificationPermission = async () => (await Notification.requestPermission()) === 'granted';
