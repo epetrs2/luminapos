@@ -66,7 +66,7 @@ interface StoreContextType {
   generateInvite: (role: UserRole) => string;
   registerWithInvite: (code: string, userData: any) => Promise<string>;
   deleteInvite: (code: string) => void;
-  hardReset: () => Promise<void>; // NEW: Hard reset function
+  hardReset: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -188,14 +188,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, settings]);
 
     // Timestamps to prevent overwrites
-    // FIX: Initialize to 0. Only user actions set this to Date.now().
-    // This allows a fresh app instance to ALWAYS accept cloud data initially.
     const lastLocalUpdate = useRef<number>(0); 
-    
     const lastCloudSyncTimestamp = useRef<number>(0);
     const dataLoadedRef = useRef(false);
-    
-    // --- PENDING CHANGES FLAG ---
     const [hasPendingChanges, setHasPendingChanges] = useState(false);
     
     const audioCtxRef = useRef<AudioContext | null>(null);
@@ -226,111 +221,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const markLocalChange = () => {
         dataLoadedRef.current = true;
         lastLocalUpdate.current = Date.now();
-        setHasPendingChanges(true); // Flag UI that we need to sync
+        setHasPendingChanges(true); 
     };
-
-    // --- AUDIO SYSTEM ---
-    useEffect(() => {
-        const unlockAudio = () => {
-            if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-                audioCtxRef.current.resume().catch(e => console.warn("Audio resume failed", e));
-            }
-            if (!audioCtxRef.current) {
-                try {
-                    audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-                } catch (e) { console.warn("Audio not supported"); }
-            }
-        };
-        window.addEventListener('click', unlockAudio);
-        window.addEventListener('touchstart', unlockAudio);
-        return () => {
-            window.removeEventListener('click', unlockAudio);
-            window.removeEventListener('touchstart', unlockAudio);
-        };
-    }, []);
-
-    const playSound = (type: 'success' | 'error' | 'warning' | 'info') => {
-        if (!settings.notificationsEnabled && type === 'info') return;
-        try {
-            if (!audioCtxRef.current) {
-                audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-            }
-            const ctx = audioCtxRef.current;
-            if (ctx.state === 'suspended') ctx.resume();
-
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-
-            if (type === 'error') {
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(150, ctx.currentTime);
-                osc.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.2);
-            } else if (type === 'success') {
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(500, ctx.currentTime);
-                osc.frequency.linearRampToValueAtTime(1000, ctx.currentTime + 0.1);
-            } else {
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(440, ctx.currentTime);
-            }
-
-            gain.gain.setValueAtTime(0.1, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-
-            osc.start();
-            osc.stop(ctx.currentTime + 0.3);
-        } catch (e) {
-            console.warn("Audio play failed", e);
-        }
-    };
-
-    // --- SECURITY CHECKS ---
-    useEffect(() => {
-        const savedUser = safeLoad<User | null>('currentUser', null);
-        if (savedUser) {
-            const validUser = users.find(u => u.id === savedUser.id && u.username === savedUser.username);
-            if (validUser) {
-                if (savedUser.role !== validUser.role) {
-                    const sanitizedUser = { ...validUser, role: validUser.role }; 
-                    setCurrentUser(sanitizedUser);
-                    safeSave('currentUser', sanitizedUser);
-                } else {
-                    setCurrentUser(savedUser);
-                }
-            } else {
-                if (users.length > 0) { 
-                    setCurrentUser(null);
-                    localStorage.removeItem('currentUser');
-                } else {
-                    setCurrentUser(savedUser);
-                }
-            }
-        }
-    }, [users]); 
-
-    useEffect(() => {
-        let idleTimer: ReturnType<typeof setTimeout>;
-        const resetTimer = () => {
-            if (!currentUser) return; 
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => {
-                notify('Sesión Cerrada', 'Tu sesión ha expirado por seguridad (15 min inactividad).', 'warning');
-                logout();
-            }, IDLE_TIMEOUT_MS);
-        };
-        const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-        if (currentUser) {
-            activityEvents.forEach(event => window.addEventListener(event, resetTimer));
-            resetTimer(); 
-        }
-        return () => {
-            clearTimeout(idleTimer);
-            activityEvents.forEach(event => window.removeEventListener(event, resetTimer));
-        };
-    }, [currentUser]); 
 
     // --- PERSISTENCE ---
     useEffect(() => {
@@ -352,9 +244,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const id = crypto.randomUUID();
         setToasts(prev => [...prev, { id, title, message, type }]);
         setTimeout(() => removeToast(id), 6000);
-        
-        playSound(type);
-
         if ((settings.notificationsEnabled || forceNative) && Notification.permission === 'granted') {
             try { new Notification(title, { body: message, icon: '/pwa-192x192.png', silent: false }); } catch (error) {}
         }
@@ -373,6 +262,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             return;
         }
         
+        // Prevent pushing default empty state over existing cloud data on first load
         const isLocalStateEmpty = currentData.products.length === 0 && currentData.customers.length === 0 && currentData.transactions.length === 0;
         if (!dataLoadedRef.current && isLocalStateEmpty) {
             return; 
@@ -389,7 +279,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         try {
             await pushFullDataToCloud(settingsToPush.googleWebAppUrl, settingsToPush.cloudSecret, dataToPush);
             lastCloudSyncTimestamp.current = Date.now();
-            setHasPendingChanges(false); // Success! Data is safe.
+            setHasPendingChanges(false); 
         } catch (e: any) {
             if (overrides) { 
                 notify("Error de Sincronización", "No se pudieron subir los datos. Reintentando en breve.", "warning");
@@ -420,18 +310,15 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             const cloudTs = cloudData.timestamp ? new Date(cloudData.timestamp).getTime() : 0;
             const localTs = lastLocalUpdate.current;
 
-            // --- RACE CONDITION FIX ---
-            // If FORCE is true, we skip the checks and overwrite local data.
-            // If localTs is 0 (fresh load), we ALWAYS accept cloud data.
-            // If localTs > 0 (user made changes), we prioritize local changes unless forced.
+            // --- CONFLICT RESOLUTION ---
             if (!force) {
-                if (hasPendingChanges || (localTs > 0 && localTs > cloudTs + 2000)) {
-                    // We have newer data. Trigger a push to overwrite cloud instead.
+                // If local changes are strictly newer, push instead.
+                if (hasPendingChanges && localTs > cloudTs + 5000) {
                     setTimeout(() => pushToCloud(), 500); 
                     return;
                 }
-
-                if (cloudTs <= lastCloudSyncTimestamp.current) {
+                // If cloud is old, ignore.
+                if (cloudTs <= lastCloudSyncTimestamp.current && !hasPendingChanges) {
                     return; 
                 }
             }
@@ -443,16 +330,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 return;
             }
 
-            // Only perform empty check if NOT forced. Forced pull can mean overwrite with empty data if needed.
-            if (!force) {
-                const localHasData = storeRef.current.products.length > 0 || storeRef.current.customers.length > 0;
-                const cloudIsEmpty = (!safeData.products || safeData.products.length === 0) && (!safeData.customers || safeData.customers.length === 0);
-
-                if (localHasData && cloudIsEmpty) {
-                    if (!silent) notify("Respaldo Automático", "Nube vacía detectada. Subiendo datos locales...", "info");
-                    setTimeout(() => pushToCloud(), 100);
-                    return; 
-                }
+            // --- FORCE: DESTRUCTIVE UPDATE ---
+            // When linking a device, we want to mirror the cloud exactly.
+            if (force) {
+                // Clear all local states first to prevent merging issues with IDs
+                setProducts([]); setTransactions([]); setCustomers([]); setSuppliers([]); 
+                setCashMovements([]); setOrders([]); setPurchases([]); setUsers([]); 
+                setCategories([]); setActivityLogs([]);
             }
 
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
@@ -474,12 +358,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     googleWebAppUrl: urlToUse, 
                     enableCloudSync: true, 
                     cloudSecret: secretToUse,
-                    // Preserve logo if missing in cloud but present locally (optional logic, usually cloud wins on pull)
-                    logo: safeData.settings.logo || currentSettings.logo,
-                    receiptLogo: safeData.settings.receiptLogo || currentSettings.receiptLogo
+                    // Respect cloud logo unless forced otherwise
+                    logo: safeData.settings.logo,
+                    receiptLogo: safeData.settings.receiptLogo
                 };
                 setSettings(mergedSettings);
-                // Also force save to storage immediately to prevent loss on reload
+                // Immediately persist to storage
                 safeSave('settings', mergedSettings);
             }
             
@@ -492,6 +376,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         } catch (e: any) {
             console.error("Pull Error:", e);
             if (!silent) notify("Error Sincronización", e.message || "Error al conectar.", "error");
+            throw e; // Rethrow for UI handling in Login/Settings
         } finally {
             if (!silent) setIsSyncing(false);
         }
@@ -502,7 +387,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             return;
         }
         
-        // Preserve connection info
         const url = storeRef.current.settings.googleWebAppUrl;
         const secret = storeRef.current.settings.cloudSecret;
         
@@ -511,25 +395,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             return;
         }
 
-        // Clear everything
-        setProducts([]);
-        setTransactions([]);
-        setCustomers([]);
-        setSuppliers([]);
-        setCashMovements([]);
-        setOrders([]);
-        setPurchases([]);
-        setUsers([]);
-        
-        // Reset timestamps
-        lastLocalUpdate.current = 0;
-        lastCloudSyncTimestamp.current = 0;
-        setHasPendingChanges(false);
-        
         notify("Reiniciando...", "Descargando datos frescos...", "info");
         
-        // Force Pull
-        await pullFromCloud(url, secret, false, true);
+        try {
+            await pullFromCloud(url, secret, false, true);
+        } catch(e) {
+            notify("Error Fatal", "No se pudo recuperar la copia de seguridad. Revisa tu internet.", "error");
+        }
     };
 
     // --- AUTOMATIC POLLING ---
@@ -549,19 +421,24 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // --- INITIAL LOAD ---
     useEffect(() => {
         const init = async () => {
+            // Wait a tick to allow local storage hydration
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
             if (storeRef.current.settings.enableCloudSync && storeRef.current.settings.googleWebAppUrl) {
-                try { await pullFromCloud(); } catch(e) {}
+                try { await pullFromCloud(undefined, undefined, true); } catch(e) {}
             }
-            if (users.length === 0) {
-                const salt = 'default_salt'; 
-                const hash = await hashPassword('Admin@123456', salt);
-                setUsers([{
-                    id: 'admin-001', username: 'admin', passwordHash: hash, salt: salt,
-                    fullName: 'Administrador', role: 'ADMIN', active: true
-                }]);
-                // FIX: Do NOT mark local change here. It prevents syncing on fresh devices.
-                // The persistence effect will save this to localStorage anyway.
-                // markLocalChange(); 
+            
+            // Only create default admin if REALLY empty and NO sync configured
+            if (storeRef.current.users.length === 0) {
+                // Check if we are waiting for a sync
+                if (!storeRef.current.settings.googleWebAppUrl) {
+                    const salt = 'default_salt'; 
+                    const hash = await hashPassword('Admin@123456', salt);
+                    setUsers([{
+                        id: 'admin-001', username: 'admin', passwordHash: hash, salt: salt,
+                        fullName: 'Administrador', role: 'ADMIN', active: true
+                    }]);
+                }
             }
         };
         init();
