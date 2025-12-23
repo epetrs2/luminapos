@@ -42,6 +42,10 @@ export const pushFullDataToCloud = async (url: string, secret: string | undefine
             })
         });
 
+        if (response.status === 404) {
+            throw new Error("URL no encontrada (404). Verifica que termina en '/exec' y la implementación es correcta.");
+        }
+
         if (!response.ok) throw new Error(`Error de red: ${response.status}`);
         return true; 
     } catch (error: any) {
@@ -57,18 +61,32 @@ export const fetchFullDataFromCloud = async (url: string, secret: string | undef
         const separator = url.includes('?') ? '&' : '?';
         const finalUrl = `${url.trim()}${separator}action=pull&secret=${encodeURIComponent(secret || '')}&t=${Date.now()}`;
 
+        // GET request simple sin headers para evitar Preflight OPTIONS que GAS no maneja bien a veces
         const response = await fetch(finalUrl, {
             method: 'GET',
             mode: 'cors',
             credentials: 'omit',
-            redirect: 'follow',
-            headers: { 'Content-Type': 'text/plain' }
+            redirect: 'follow'
         });
         
+        if (response.status === 404) {
+            throw new Error("URL no encontrada (404). Verifica que termina en '/exec' y la implementación es correcta.");
+        }
+
         if (!response.ok) throw new Error(`Error de descarga: ${response.status}`);
         
         const text = await response.text();
-        const responseData = JSON.parse(text);
+        
+        // Intentar parsear JSON, si falla puede ser la página de error HTML de Google
+        let responseData;
+        try {
+            responseData = JSON.parse(text);
+        } catch (e) {
+            if (text.includes('<!DOCTYPE html>')) {
+                throw new Error("La URL devolvió HTML en lugar de JSON. Verifica los permisos de acceso (Debe ser 'Cualquier usuario').");
+            }
+            throw new Error("Respuesta inválida del servidor.");
+        }
         
         if (responseData.status === 'error') throw new Error(responseData.message);
         
