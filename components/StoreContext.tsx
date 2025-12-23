@@ -71,12 +71,10 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-const MAX_LOGIN_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 const STORAGE_PREFIX = "LUMINA_SEC::"; 
 
 const DEFAULT_SETTINGS: BusinessSettings = {
-    name: 'Mi Negocio',
+    name: 'LuminaPOS',
     address: 'Calle Principal #123',
     phone: '555-0000',
     email: 'contacto@negocio.com',
@@ -167,6 +165,33 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             orders, purchases, users, userInvites, categories, activityLogs, settings
         };
     }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, settings]);
+
+    // --- AUTO-SEED ADMIN USER ---
+    useEffect(() => {
+        const initializeAdmin = async () => {
+            if (users.length === 0) {
+                console.log("Detectada base de datos vacía. Creando usuario admin...");
+                const salt = generateSalt();
+                const adminPass = 'Admin@123456';
+                const passHash = await hashPassword(adminPass, salt);
+                
+                const initialAdmin: User = {
+                    id: 'default-admin-001',
+                    username: 'admin',
+                    fullName: 'Administrador Inicial',
+                    role: 'ADMIN',
+                    active: true,
+                    passwordHash: passHash,
+                    salt: salt,
+                    recoveryCode: 'LUMINA-ADMIN-INIT'
+                };
+                
+                setUsers([initialAdmin]);
+                safeSave('users', [initialAdmin]);
+            }
+        };
+        initializeAdmin();
+    }, []);
 
     const markLocalChange = () => {
         if (isSyncing) return;
@@ -344,7 +369,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), addTransaction, deleteTransaction: (id)=>setTransactions(p=>p.filter(t=>t.id!==id)), registerTransactionPayment: (id, am)=>setTransactions(p=>p.map(t=>t.id===id?{...t, amountPaid: (t.amountPaid||0)+am}:t)), updateStockAfterSale: (its)=>its.forEach(i=>adjustStock(i.id, i.quantity, 'OUT', i.variantId)),
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), addSupplier: (s)=>console.log(s), updateSupplier: (s)=>console.log(s), deleteSupplier: async (id)=>true, addPurchase: (p)=>console.log(p), addCashMovement, deleteCashMovement,
             addOrder: (o)=>setOrders(p=>[...p, o]), updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale: (id, m)=>{}, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
-            notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id!==id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset
+            notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset
         }}>
             {children}
         </StoreContext.Provider>
