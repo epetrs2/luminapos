@@ -145,7 +145,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => safeLoad('activityLogs', []));
     const [settings, setSettings] = useState<BusinessSettings>(() => ({ ...DEFAULT_SETTINGS, ...safeLoad('settings', {}) }));
     
-    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    // FIX: CARGAR USUARIO AL RECARGAR PÁGINA
+    const [currentUser, setCurrentUser] = useState<User | null>(() => safeLoad('currentUser', null));
+    
     const [toasts, setToasts] = useState<ToastNotification[]>([]);
     const [isSyncing, setIsSyncing] = useState(false);
     const [hasPendingChanges, setHasPendingChanges] = useState(false);
@@ -166,15 +168,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         };
     }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, settings]);
 
-    // --- AUTO-SEED ADMIN USER ---
+    // AUTO-SEED ADMIN
     useEffect(() => {
         const initializeAdmin = async () => {
             if (users.length === 0) {
-                console.log("Detectada base de datos vacía. Creando usuario admin...");
                 const salt = generateSalt();
                 const adminPass = 'Admin@123456';
                 const passHash = await hashPassword(adminPass, salt);
-                
                 const initialAdmin: User = {
                     id: 'default-admin-001',
                     username: 'admin',
@@ -185,7 +185,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     salt: salt,
                     recoveryCode: 'LUMINA-ADMIN-INIT'
                 };
-                
                 setUsers([initialAdmin]);
                 safeSave('users', [initialAdmin]);
             }
@@ -215,10 +214,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         safeSave('activityLogs', activityLogs);
     }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, categories, activityLogs]);
 
+    // GUARDAR USUARIO ACTUAL EN CADA CAMBIO
+    useEffect(() => {
+        if (currentUser) {
+            safeSave('currentUser', currentUser);
+        } else {
+            localStorage.removeItem(STORAGE_PREFIX + 'currentUser'.split('').reverse().join(''));
+        }
+    }, [currentUser]);
+
     const pushToCloud = useCallback(async (overrides?: any) => {
         const currentData = storeRef.current;
         const config = overrides?.settings || currentData.settings;
-        
         if (!config.enableCloudSync || !config.googleWebAppUrl) return;
         if (!dataLoadedRef.current && currentData.products.length === 0) return;
 
@@ -233,20 +240,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string, silent: boolean = false, force: boolean = false) => {
         const url = overrideUrl || storeRef.current.settings.googleWebAppUrl;
         const secret = overrideSecret !== undefined ? overrideSecret : storeRef.current.settings.cloudSecret;
-
         if (!url) return;
         if (!silent) setIsSyncing(true);
-        
         try {
             const cloudData = await fetchFullDataFromCloud(url, secret);
             if (!cloudData) return;
-
             const cloudTs = cloudData.timestamp ? new Date(cloudData.timestamp).getTime() : 0;
             if (!force && hasPendingChanges && lastLocalUpdate.current > cloudTs + 10000) {
                 pushToCloud();
                 return;
             }
-
             const safeData = sanitizeDataStructure(cloudData);
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
@@ -255,7 +258,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
             if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
             if (safeData.settings) setSettings({ ...DEFAULT_SETTINGS, ...safeData.settings, googleWebAppUrl: url, cloudSecret: secret });
-
             dataLoadedRef.current = true;
             lastCloudSyncTimestamp.current = cloudTs;
             setHasPendingChanges(false); 
@@ -283,8 +285,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }, [hasPendingChanges]);
 
     const login = async (u: string, p: string, code?: string) => {
-        const user = users.find(usr => usr.username.toLowerCase() === u.toLowerCase());
-        if (!user || !user.active) return 'INVALID';
+        const userIndex = users.findIndex(usr => usr.username.toLowerCase() === u.toLowerCase());
+        if (userIndex === -1) return 'INVALID';
+        
+        const user = users[userIndex];
+        if (!user.active) return 'INVALID';
         if (user.lockoutUntil && new Date() < new Date(user.lockoutUntil)) return 'LOCKED';
         
         if (!(await verifyPassword(p, user.salt, user.passwordHash))) return 'INVALID';
@@ -294,17 +299,37 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
 
         const now = new Date().toISOString();
-        setCurrentUser({ ...user, lastLogin: now });
-        safeSave('currentUser', { ...user, lastLogin: now }); 
+        const updatedUser = { ...user, lastLogin: now, lastActive: now };
+        
+        // ACTUALIZAR EN LA LISTA MAESTRA PARA QUE SE VEA EN "USUARIOS"
+        setUsers(prev => prev.map(usr => usr.id === user.id ? updatedUser : usr));
+        
+        setCurrentUser(updatedUser);
         logActivity('LOGIN', `Entró: ${u}`);
         pullFromCloud(undefined, undefined, true);
+        markLocalChange(); // Asegura que el lastLogin se suba a la nube
         return 'SUCCESS';
     };
 
     const logActivity = (action: string, details: string) => {
         if (!currentUser) return;
         const now = new Date().toISOString();
-        setActivityLogs(prev => [{ id: crypto.randomUUID(), userId: currentUser.id, userName: currentUser.username, userRole: currentUser.role, action: action as any, details, timestamp: now }, ...prev].slice(0, 500));
+        
+        // 1. ACTUALIZAR ÚLTIMA ACTIVIDAD EN EL USUARIO ACTUAL
+        setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lastActive: now } : u));
+        
+        // 2. ACTUALIZAR LOGS
+        setActivityLogs(prev => [{ 
+            id: crypto.randomUUID(), 
+            userId: currentUser.id, 
+            userName: currentUser.username, 
+            userRole: currentUser.role, 
+            action: action as any, 
+            details, 
+            timestamp: now 
+        }, ...prev].slice(0, 500));
+        
+        markLocalChange();
     };
 
     const notify = (title: string, message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
@@ -314,9 +339,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const logout = () => { setCurrentUser(null); localStorage.removeItem('currentUser'); };
-    const addProduct = (p: Product) => { setProducts(prev => [...prev, p]); markLocalChange(); };
-    const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); markLocalChange(); };
-    const deleteProduct = async (id: string) => { setProducts(prev => prev.filter(p => p.id !== id)); markLocalChange(); return true; };
+    const addProduct = (p: Product) => { setProducts(prev => [...prev, p]); markLocalChange(); logActivity('INVENTORY', `Agregó producto: ${p.name}`); };
+    const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); markLocalChange(); logActivity('INVENTORY', `Actualizó producto: ${p.name}`); };
+    const deleteProduct = async (id: string) => { const p = products.find(prod=>prod.id===id); setProducts(prev => prev.filter(p => p.id !== id)); markLocalChange(); logActivity('INVENTORY', `Eliminó producto: ${p?.name}`); return true; };
     const adjustStock = (id: string, qty: number, type: 'IN' | 'OUT', vId?: string) => {
         setProducts(prev => prev.map(p => {
             if (p.id === id) {
@@ -328,6 +353,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }
             return p;
         }));
+        const p = products.find(prod=>prod.id===id);
+        logActivity('INVENTORY', `Ajuste stock (${type}): ${qty} un. de ${p?.name}`);
         markLocalChange();
     };
     const addTransaction = (t: Transaction) => {
@@ -336,17 +363,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (t.paymentStatus === 'paid' && !t.isReturn) {
              addCashMovement({ id: `mv_${final.id}`, type: 'DEPOSIT', amount: t.amountPaid, description: `Venta #${final.id}`, date: new Date().toISOString(), category: 'SALES' });
         }
+        logActivity('SALE', `Venta #${final.id} - Total: $${t.total}`);
         markLocalChange();
     };
-    const addCustomer = (c: Customer) => { setCustomers(prev => [...prev, { ...c, id: (settings.sequences.customerStart + customers.length).toString() }]); markLocalChange(); };
-    const updateCustomer = (c: Customer) => { setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust)); markLocalChange(); };
-    const deleteCustomer = async (id: string) => { setCustomers(prev => prev.filter(c => c.id !== id)); markLocalChange(); return true; };
-    const addCashMovement = (m: CashMovement) => { setCashMovements(prev => [m, ...prev]); markLocalChange(); };
-    const deleteCashMovement = (id: string) => { setCashMovements(prev => prev.filter(m => m.id !== id)); markLocalChange(); };
-    const updateSettings = (s: BusinessSettings) => { setSettings(s); markLocalChange(); };
-    const addUser = (u: User) => { setUsers(prev => [...prev, u]); markLocalChange(); };
-    const updateUser = (u: User) => { setUsers(prev => prev.map(user => user.id === u.id ? u : user)); markLocalChange(); };
-    const deleteUser = (id: string) => { setUsers(prev => prev.filter(u => u.id !== id)); markLocalChange(); };
+    const addCustomer = (c: Customer) => { setCustomers(prev => [...prev, { ...c, id: (settings.sequences.customerStart + customers.length).toString() }]); markLocalChange(); logActivity('CRM', `Nuevo cliente: ${c.name}`); };
+    const updateCustomer = (c: Customer) => { setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust)); markLocalChange(); logActivity('CRM', `Editó cliente: ${c.name}`); };
+    const deleteCustomer = async (id: string) => { const c = customers.find(cust=>cust.id===id); setCustomers(prev => prev.filter(c => c.id !== id)); markLocalChange(); logActivity('CRM', `Eliminó cliente: ${c?.name}`); return true; };
+    const addCashMovement = (m: CashMovement) => { setCashMovements(prev => [m, ...prev]); markLocalChange(); logActivity('CASH', `Movimiento: ${m.description} - $${m.amount}`); };
+    const deleteCashMovement = (id: string) => { const m = cashMovements.find(mv=>mv.id===id); setCashMovements(prev => prev.filter(m => m.id !== id)); markLocalChange(); logActivity('CASH', `Eliminó movimiento: ${m?.description}`); };
+    const updateSettings = (s: BusinessSettings) => { setSettings(s); markLocalChange(); logActivity('SETTINGS', `Actualizó configuración del negocio`); };
+    const addUser = (u: User) => { setUsers(prev => [...prev, u]); markLocalChange(); logActivity('USER_MGMT', `Nuevo usuario: ${u.username}`); };
+    const updateUser = (u: User) => { setUsers(prev => prev.map(user => user.id === u.id ? u : user)); markLocalChange(); logActivity('USER_MGMT', `Editó usuario: ${u.username}`); };
+    const deleteUser = (id: string) => { const u = users.find(usr=>usr.id===id); setUsers(prev => prev.filter(u => u.id !== id)); markLocalChange(); logActivity('USER_MGMT', `Eliminó usuario: ${u?.username}`); };
     const generateInvite = (role: UserRole) => {
         const code = Math.random().toString(36).substring(2, 7).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();
         setUserInvites(prev => [...prev, { code, role, createdAt: new Date().toISOString(), createdBy: currentUser?.username || 'System' }]);
