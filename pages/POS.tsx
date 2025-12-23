@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
 import { Product, CartItem, Transaction } from '../types';
-import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle } from 'lucide-react';
+import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle, Scale } from 'lucide-react';
 import { printThermalTicket, printInvoice } from '../utils/printService';
 
 export const POS: React.FC = () => {
@@ -18,6 +19,11 @@ export const POS: React.FC = () => {
     const [discountValue, setDiscountValue] = useState<string>('0');
     const [discountType, setDiscountType] = useState<'PERCENT' | 'FIXED'>('PERCENT');
     const [shippingCost, setShippingCost] = useState<string>('');
+
+    // Weight/Decimal Input State
+    const [weightModalOpen, setWeightModalOpen] = useState(false);
+    const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+    const [decimalQty, setDecimalQty] = useState('');
 
     // Checkout Modal State
     const [showCheckoutModal, setShowCheckoutModal] = useState(false);
@@ -44,15 +50,14 @@ export const POS: React.FC = () => {
     const total = Math.max(0, subtotal + taxAmount + (parseFloat(shippingCost) || 0) - discountAmount);
 
     const filteredProducts = products.filter(p => {
-        // HIDE SUPPLIES FROM POS
         if (p.type === 'SUPPLY') return false;
+        if (p.isActive === false) return false; // HIDE INACTIVE
 
         const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku.includes(searchTerm);
         const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
         return matchesSearch && matchesCategory;
     });
 
-    // Reset checkout state when opening modal
     useEffect(() => {
         if (showCheckoutModal) {
             setCheckoutStep('SELECT');
@@ -63,21 +68,30 @@ export const POS: React.FC = () => {
         }
     }, [showCheckoutModal]);
 
-    const addToCart = (product: Product, variantId?: string) => {
+    const addToCart = (product: Product, variantId?: string, forceQty?: number) => {
+        // If product is sold by Weight (KG, GRAM, LITER, METER) and we don't have a qty, open decimal modal
+        if (product.unit && product.unit !== 'PIECE' && !forceQty) {
+            setPendingProduct(product);
+            setDecimalQty('');
+            setWeightModalOpen(true);
+            return;
+        }
+
         setCart(prev => {
+            const qtyToAdd = forceQty || 1;
             const existing = prev.find(i => i.id === product.id && i.variantId === variantId);
             const stockAvailable = variantId 
                 ? product.variants?.find(v => v.id === variantId)?.stock 
                 : product.stock;
             
-            if (stockAvailable !== undefined && (existing?.quantity || 0) >= stockAvailable) {
-                notify("Stock Insuficiente", "No hay más unidades disponibles.", "warning");
+            if (stockAvailable !== undefined && (existing?.quantity || 0) + qtyToAdd > stockAvailable) {
+                notify("Stock Insuficiente", "No hay unidades suficientes.", "warning");
                 return prev;
             }
 
             if (existing) {
                 return prev.map(i => i.id === product.id && i.variantId === variantId 
-                    ? { ...i, quantity: i.quantity + 1 } 
+                    ? { ...i, quantity: i.quantity + qtyToAdd } 
                     : i
                 );
             }
@@ -86,17 +100,19 @@ export const POS: React.FC = () => {
             return [...prev, {
                 ...product,
                 price: variant ? variant.price : product.price,
-                quantity: 1,
+                quantity: qtyToAdd,
                 variantId: variant?.id,
                 variantName: variant?.name
             }];
         });
+        setWeightModalOpen(false);
     };
 
     const updateQty = (itemId: string, variantId: string | undefined, delta: number) => {
         setCart(prev => prev.map(item => {
             if (item.id === itemId && item.variantId === variantId) {
-                return { ...item, quantity: Math.max(1, item.quantity + delta) };
+                const newQty = item.unit === 'PIECE' ? Math.max(1, item.quantity + delta) : Math.max(0.001, item.quantity + delta);
+                return { ...item, quantity: newQty };
             }
             return item;
         }));
@@ -129,14 +145,13 @@ export const POS: React.FC = () => {
     };
 
     const finalizeSale = () => {
-        // Validate Payment
         let finalAmountPaid = 0;
         let paymentStatus: Transaction['paymentStatus'] = 'paid';
 
         if (paymentMethod === 'cash') {
             const received = parseFloat(amountPaid) || 0;
             if (received < total) { alert("El monto recibido es menor al total."); return; }
-            finalAmountPaid = total; // We record paid as total, change is purely visual/cash drawer logic usually
+            finalAmountPaid = total;
         } else if (paymentMethod === 'split') {
             const c = parseFloat(splitCash) || 0;
             const o = parseFloat(splitOther) || 0;
@@ -150,7 +165,7 @@ export const POS: React.FC = () => {
         }
 
         const transaction: Transaction = {
-            id: '', // Context will generate
+            id: '', 
             date: new Date().toISOString(),
             subtotal,
             taxAmount,
@@ -168,10 +183,7 @@ export const POS: React.FC = () => {
 
         addTransaction(transaction);
         updateStockAfterSale(cart);
-        
-        // Use the ID generation logic simulation since we don't get the object back from context immediately in this pattern
-        // In a real app, addTransaction should return the object. For now we reconstruct a fake one for display
-        setLastTransaction({ ...transaction, id: 'NUEVO' }); 
+        setLastTransaction({ ...transaction, id: 'OK' }); 
         setCheckoutStep('SUCCESS');
     };
 
@@ -217,8 +229,12 @@ export const POS: React.FC = () => {
                     <div className={`grid gap-4 ${viewMode === 'GRID' ? 'grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
                         {filteredProducts.map(product => (
                             <div key={product.id} onClick={() => !product.hasVariants && addToCart(product)} className={`bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-500 transition-all hover:shadow-md group ${product.hasVariants ? '' : 'active:scale-95'}`}>
-                                <div className="flex justify-between items-start mb-2"><span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">{product.category}</span><span className={`text-xs font-bold px-2 py-0.5 rounded ${product.stock > 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>{product.stock} un.</span></div>
+                                <div className="flex justify-between items-start mb-2">
+                                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">{product.category}</span>
+                                    <span className="text-[9px] font-black bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-500">{product.unit || 'PZ'}</span>
+                                </div>
                                 <h3 className="font-bold text-slate-800 dark:text-white mb-1 line-clamp-2">{product.name}</h3>
+                                {product.unit && product.unit !== 'PIECE' && <p className="text-[10px] text-indigo-500 font-bold uppercase mb-2">Venta a granel</p>}
                                 <div className="flex justify-between items-end mt-2"><p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">${product.price}</p><div className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors"><Plus className="w-5 h-5" /></div></div>
                                 {product.hasVariants && (<div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">{product.variants?.map(v => (<button key={v.id} onClick={(e) => { e.stopPropagation(); addToCart(product, v.id); }} className="w-full flex justify-between items-center text-xs p-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"><span className="text-slate-700 dark:text-slate-300">{v.name}</span><span className="font-bold text-indigo-600 dark:text-indigo-400">${v.price}</span></button>))}</div>)}
                             </div>
@@ -236,7 +252,22 @@ export const POS: React.FC = () => {
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                     {cart.map(item => (
-                        <div key={`${item.id}-${item.variantId}`} className="flex items-center gap-3 group"><div className="flex flex-col items-center gap-1"><button onClick={() => updateQty(item.id, item.variantId, 1)} className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center transition-colors"><Plus className="w-3 h-3"/></button><span className="text-sm font-bold w-6 text-center">{item.quantity}</span><button onClick={() => updateQty(item.id, item.variantId, -1)} className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors"><Minus className="w-3 h-3"/></button></div><div className="flex-1 min-w-0"><h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{item.name}</h4>{item.variantName && <p className="text-xs text-slate-500">{item.variantName}</p>}<p className="text-xs text-indigo-600 dark:text-indigo-400 font-bold mt-0.5">${item.price.toFixed(2)}</p></div><div className="text-right"><p className="font-bold text-slate-800 dark:text-white">${(item.price * item.quantity).toFixed(2)}</p><button onClick={() => removeFromCart(item.id, item.variantId)} className="text-xs text-red-500 hover:underline mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Eliminar</button></div></div>
+                        <div key={`${item.id}-${item.variantId}`} className="flex items-center gap-3 group">
+                            <div className="flex flex-col items-center gap-1">
+                                <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? 1 : 0.1)} className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center transition-colors"><Plus className="w-3 h-3"/></button>
+                                <span className={`text-[10px] font-black w-10 text-center ${item.unit !== 'PIECE' ? 'text-indigo-600' : ''}`}>{item.quantity} {item.unit !== 'PIECE' ? item.unit.slice(0,2).toLowerCase() : ''}</span>
+                                <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? -1 : -0.1)} className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors"><Minus className="w-3 h-3"/></button>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{item.name}</h4>
+                                {item.variantName && <p className="text-xs text-slate-500">{item.variantName}</p>}
+                                <p className="text-xs text-indigo-600 dark:text-indigo-400 font-bold mt-0.5">${item.price.toFixed(2)} / {item.unit || 'pz'}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-bold text-slate-800 dark:text-white">${(item.price * item.quantity).toFixed(2)}</p>
+                                <button onClick={() => removeFromCart(item.id, item.variantId)} className="text-xs text-red-500 hover:underline mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Eliminar</button>
+                            </div>
+                        </div>
                     ))}
                     {cart.length === 0 && (<div className="text-center py-10 text-slate-400 flex flex-col items-center"><ShoppingCart className="w-12 h-12 mb-3 opacity-20" /><p>Carrito vacío</p><p className="text-xs mt-1">Agrega productos para comenzar</p></div>)}
                 </div>
@@ -251,6 +282,41 @@ export const POS: React.FC = () => {
                     <div className="flex justify-between items-end mb-4"><div><p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Total a Pagar</p><h3 className="text-3xl font-black text-slate-900 dark:text-white leading-none">${total.toFixed(2)}</h3></div><button onClick={() => setShowCheckoutModal(true)} disabled={cart.length === 0} className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex items-center gap-2">Cobrar <ArrowRight className="w-5 h-5" /></button></div>
                 </div>
             </div>
+
+            {/* WEIGHT / DECIMAL INPUT MODAL */}
+            {weightModalOpen && pendingProduct && (
+                <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800 text-center">
+                        <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Scale className="w-8 h-8" />
+                        </div>
+                        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">{pendingProduct.name}</h3>
+                        <p className="text-sm text-slate-500 mb-6">Ingresa la cantidad en <strong>{pendingProduct.unit?.toLowerCase() || 'unidades'}</strong></p>
+
+                        <div className="relative mb-6">
+                            <input 
+                                type="number" 
+                                step="0.001"
+                                autoFocus
+                                value={decimalQty}
+                                onChange={(e) => setDecimalQty(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && addToCart(pendingProduct, undefined, parseFloat(decimalQty))}
+                                className="w-full text-center text-4xl font-black py-4 rounded-2xl border-2 border-indigo-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                                placeholder="0.000"
+                            />
+                            <div className="mt-2 flex justify-between text-xs font-bold text-slate-400 px-2">
+                                <span>Precio: ${pendingProduct.price} / {pendingProduct.unit}</span>
+                                <span className="text-indigo-600">Total: ${((parseFloat(decimalQty) || 0) * pendingProduct.price).toFixed(2)}</span>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button onClick={() => setWeightModalOpen(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl">Cancelar</button>
+                            <button onClick={() => addToCart(pendingProduct, undefined, parseFloat(decimalQty))} disabled={!decimalQty || parseFloat(decimalQty) <= 0} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 disabled:opacity-50">Confirmar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* FULL CHECKOUT WIZARD MODAL */}
             {showCheckoutModal && (

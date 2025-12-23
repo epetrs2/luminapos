@@ -1,8 +1,17 @@
+
 import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, Search, Package, AlertTriangle, ArrowLeftRight, Sparkles, X, BrainCircuit, Loader2, Filter, Check, Layers, Tag, Percent, DollarSign, Archive, Box } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Package, AlertTriangle, ArrowLeftRight, Sparkles, X, BrainCircuit, Loader2, Filter, Check, Layers, Tag, Percent, DollarSign, Archive, Box, Eye, EyeOff, Scale, Info } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
-import { Product, ProductVariant } from '../types';
+import { Product, ProductVariant, MeasurementUnit } from '../types';
 import { generateStockRecommendations, StockRecommendation } from '../services/geminiService';
+
+const UNITS: { label: string, value: MeasurementUnit }[] = [
+    { label: 'Pieza (Pz)', value: 'PIECE' },
+    { label: 'Kilogramo (Kg)', value: 'KG' },
+    { label: 'Gramo (Gr)', value: 'GRAM' },
+    { label: 'Litro (Lt)', value: 'LITER' },
+    { label: 'Metro (Mt)', value: 'METER' }
+];
 
 export const Inventory: React.FC = () => {
   const { products, transactions, categories, addProduct, updateProduct, deleteProduct, adjustStock, addCategory, removeCategory, settings } = useStore();
@@ -30,7 +39,7 @@ export const Inventory: React.FC = () => {
   // Stock Adjustment Modal
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
   const [adjustProduct, setAdjustProduct] = useState<Product | null>(null);
-  const [adjustVariantId, setAdjustVariantId] = useState<string>(''); // For variant selection in adjust
+  const [adjustVariantId, setAdjustVariantId] = useState<string>(''); 
   const [adjustQty, setAdjustQty] = useState<number>(0);
   const [adjustType, setAdjustType] = useState<'IN' | 'OUT'>('IN');
 
@@ -53,7 +62,6 @@ export const Inventory: React.FC = () => {
       setTempVariants(product.variants || []);
     } else {
       setEditingProduct(null);
-      // Default type based on current tab
       setFormData({ 
           name: '', 
           sku: '', 
@@ -62,7 +70,10 @@ export const Inventory: React.FC = () => {
           stock: 0, 
           taxRate: settings.taxRate, 
           hasVariants: false,
-          type: inventoryType 
+          type: inventoryType,
+          unit: 'PIECE',
+          isActive: true,
+          description: ''
       });
       setTempVariants([]);
     }
@@ -79,11 +90,12 @@ export const Inventory: React.FC = () => {
         ...(editingProduct || {}),
         ...formData,
         id: editingProduct?.id || crypto.randomUUID(),
-        // If has variants, calculate total stock from sum of variants
         stock: formData.hasVariants ? tempVariants.reduce((sum, v) => sum + v.stock, 0) : (formData.stock || 0),
         variants: formData.hasVariants ? tempVariants : undefined,
         taxRate: settings.enableTax ? (formData.taxRate ?? 0) : 0,
-        type: formData.type || inventoryType
+        type: formData.type || inventoryType,
+        unit: formData.unit || 'PIECE',
+        isActive: formData.isActive ?? true
     } as Product;
 
     if (editingProduct) {
@@ -105,18 +117,15 @@ export const Inventory: React.FC = () => {
           sku: variantSku
       };
       setTempVariants([...tempVariants, newVariant]);
-      // Clear fields
       setVariantName('');
       setVariantStock('');
       setVariantSku('');
-      // Keep price for convenience
   };
 
   const removeVariant = (id: string) => {
       setTempVariants(tempVariants.filter(v => v.id !== id));
   };
 
-  // --- Category Handlers ---
   const handleAddCategory = () => {
     if (newCategoryName.trim()) {
         addCategory(newCategoryName.trim());
@@ -126,19 +135,11 @@ export const Inventory: React.FC = () => {
     }
   };
 
-  const handleDeleteCategory = (catName: string) => {
-      if (window.confirm(`¿Eliminar categoría "${catName}"?`)) {
-          removeCategory(catName);
-          if (formData.category === catName) setFormData({...formData, category: ''});
-      }
-  };
-
-  // --- Adjustment Handlers ---
   const handleOpenAdjust = (product: Product) => {
     setAdjustProduct(product);
     setAdjustQty(0);
     setAdjustType('IN');
-    setAdjustVariantId(''); // Reset selection
+    setAdjustVariantId(''); 
     setAdjustModalOpen(true);
   };
 
@@ -163,7 +164,7 @@ export const Inventory: React.FC = () => {
   };
 
   const filteredProducts = products.filter(p => {
-    const itemType = p.type || 'PRODUCT'; // Legacy items are products
+    const itemType = p.type || 'PRODUCT'; 
     const matchesType = itemType === inventoryType;
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           p.sku.toLowerCase().includes(searchTerm.toLowerCase());
@@ -184,7 +185,7 @@ export const Inventory: React.FC = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
             <h2 className="text-3xl font-bold text-slate-800 dark:text-white">Inventario</h2>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">Gestión de productos y existencias</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">Gestión avanzada de stock y medición</p>
           </div>
           <div className="flex flex-wrap gap-3">
              <button onClick={handleOpenAi} className="flex items-center gap-2 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900 hover:bg-indigo-50 dark:hover:bg-slate-700 px-5 py-3 rounded-xl font-medium shadow-sm transition-all">
@@ -231,9 +232,10 @@ export const Inventory: React.FC = () => {
             <table className="w-full">
               <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm uppercase font-semibold">
                 <tr>
+                  <th className="px-6 py-4 text-left">Estado</th>
                   <th className="px-6 py-4 text-left">Item</th>
                   <th className="px-6 py-4 text-left">SKU</th>
-                  {settings.enableTax && inventoryType === 'PRODUCT' && <th className="px-6 py-4 text-left">Impuesto</th>}
+                  <th className="px-6 py-4 text-center">Unidad</th>
                   <th className="px-6 py-4 text-right">{inventoryType === 'PRODUCT' ? 'Precio Venta' : 'Costo Aprox.'}</th>
                   <th className="px-6 py-4 text-center">Stock</th>
                   <th className="px-6 py-4 text-right">Acciones</th>
@@ -241,23 +243,24 @@ export const Inventory: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredProducts.map(product => (
-                  <tr key={product.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+                  <tr key={product.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${!product.isActive ? 'opacity-60' : ''}`}>
+                    <td className="px-6 py-4">
+                        {product.isActive ? (
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600"><Eye className="w-3 h-3" /> Activo</span>
+                        ) : (
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-400"><EyeOff className="w-3 h-3" /> Inactivo</span>
+                        )}
+                    </td>
                     <td className="px-6 py-4">
                         <div className="font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2">
                             {product.name}
-                            {inventoryType === 'SUPPLY' && <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded border border-orange-200">USO INTERNO</span>}
                         </div>
-                        <div className="text-xs text-slate-400 mt-1">{product.category}</div>
-                        {product.hasVariants && <div className="text-xs text-indigo-500 flex items-center gap-1 mt-1"><Layers className="w-3 h-3" /> {product.variants?.length} Variantes</div>}
+                        <div className="text-xs text-slate-400 mt-0.5">{product.category}</div>
                     </td>
                     <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-mono text-xs">{product.sku}</td>
-                    {settings.enableTax && inventoryType === 'PRODUCT' && (
-                        <td className="px-6 py-4">
-                            <span className={`text-xs px-2 py-1 rounded border ${product.taxRate === 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'}`}>
-                                {product.taxRate}%
-                            </span>
-                        </td>
-                    )}
+                    <td className="px-6 py-4 text-center">
+                        <span className="text-[10px] font-black bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-500 uppercase">{product.unit || 'PIECE'}</span>
+                    </td>
                     <td className="px-6 py-4 text-right font-medium text-slate-800 dark:text-slate-200">
                         {product.hasVariants ? 
                             <span className="text-xs text-slate-400 italic">Varía</span> : 
@@ -265,7 +268,7 @@ export const Inventory: React.FC = () => {
                         }
                     </td>
                     <td className="px-6 py-4 text-center">
-                        <span className={`px-2 py-1 rounded-md text-xs font-bold ${product.stock < 5 ? 'bg-red-100 text-red-600 border border-red-200 dark:bg-red-900/30 dark:text-red-300' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300'}`}>
+                        <span className={`px-2 py-1 rounded-md text-xs font-bold ${product.stock < 5 && product.isActive ? 'bg-red-100 text-red-600 border border-red-200 dark:bg-red-900/30 dark:text-red-300' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300'}`}>
                           {product.stock}
                         </span>
                     </td>
@@ -280,9 +283,9 @@ export const Inventory: React.FC = () => {
                 ))}
                 {filteredProducts.length === 0 && (
                     <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                             <Box className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                            <p>No hay {inventoryType === 'PRODUCT' ? 'productos' : 'insumos'} registrados en esta categoría.</p>
+                            <p>No hay {inventoryType === 'PRODUCT' ? 'productos' : 'insumos'} registrados.</p>
                         </td>
                     </tr>
                 )}
@@ -295,138 +298,117 @@ export const Inventory: React.FC = () => {
       {/* Product CRUD Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-0 max-w-lg w-full border border-slate-100 dark:border-slate-800 max-h-[90vh] flex flex-col animate-[fadeIn_0.2s_ease-out]">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 rounded-t-2xl">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-0 max-w-2xl w-full border border-slate-100 dark:border-slate-800 max-h-[90vh] flex flex-col animate-[fadeIn_0.2s_ease-out]">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 rounded-t-2xl flex justify-between items-center">
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                    {editingProduct ? 'Editar' : 'Nuevo'} {formData.type === 'SUPPLY' ? 'Insumo (Interno)' : 'Producto (Venta)'}
+                    {editingProduct ? 'Editar' : 'Nuevo'} {formData.type === 'SUPPLY' ? 'Insumo' : 'Producto'}
                 </h3>
+                <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className={`text-[10px] font-black uppercase px-2 ${formData.isActive ? 'text-emerald-500' : 'text-slate-400'}`}>{formData.isActive ? 'Activo' : 'Inactivo'}</span>
+                    <button 
+                        onClick={() => setFormData({...formData, isActive: !formData.isActive})}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${formData.isActive ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+                    >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.isActive ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                </div>
             </div>
             
             <div className="p-2 bg-slate-50 dark:bg-slate-800/50 flex border-b border-slate-200 dark:border-slate-700">
-                <button 
-                    onClick={() => setActiveTab('GENERAL')}
-                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'GENERAL' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm' : 'text-slate-500 hover:bg-white/50'}`}
-                >
-                    General
-                </button>
-                <button 
-                    onClick={() => setActiveTab('VARIANTS')}
-                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'VARIANTS' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm' : 'text-slate-500 hover:bg-white/50'}`}
-                >
-                    Variantes
-                </button>
+                <button onClick={() => setActiveTab('GENERAL')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'GENERAL' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm' : 'text-slate-500 hover:bg-white/50'}`}>General y Precio</button>
+                <button onClick={() => setActiveTab('VARIANTS')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'VARIANTS' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm' : 'text-slate-500 hover:bg-white/50'}`}>Variantes</button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
               {activeTab === 'GENERAL' ? (
-                  <>
-                    {!editingProduct && (
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg mb-4">
-                            <button 
-                                type="button"
-                                onClick={() => setFormData({...formData, type: 'PRODUCT'})} 
-                                className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${formData.type === 'PRODUCT' ? 'bg-white dark:bg-slate-700 shadow text-indigo-600 dark:text-white' : 'text-slate-500'}`}
-                            >
-                                Venta Público
-                            </button>
-                            <button 
-                                type="button"
-                                onClick={() => setFormData({...formData, type: 'SUPPLY'})} 
-                                className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${formData.type === 'SUPPLY' ? 'bg-white dark:bg-slate-700 shadow text-orange-600 dark:text-orange-400' : 'text-slate-500'}`}
-                            >
-                                Uso Interno
-                            </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Nombre del Item</label>
+                            <input type="text" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none font-medium" value={formData.name || ''} onChange={e => setFormData({ ...formData, name: e.target.value })} />
                         </div>
-                    )}
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nombre</label>
-                        <input type="text" placeholder={formData.type === 'SUPPLY' ? "Ej. Caja Cartón 30x30" : "Ej. Camiseta Polo"} className="w-full px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.name || ''} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="col-span-2">
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Categoría</label>
+                        
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Categoría</label>
                             <div className="flex gap-2">
                                 {isAddingCategory ? (
-                                    <div className="flex-1 flex gap-2 animate-[fadeIn_0.2s_ease-out]">
-                                        <input type="text" placeholder="Nueva..." className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} autoFocus />
-                                        <button onClick={handleAddCategory} className="p-2 bg-emerald-100 text-emerald-600 rounded-lg hover:bg-emerald-200"><Check className="w-5 h-5"/></button>
-                                        <button onClick={() => setIsAddingCategory(false)} className="p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-200"><X className="w-5 h-5"/></button>
+                                    <div className="flex-1 flex gap-2">
+                                        <input type="text" className="flex-1 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} autoFocus />
+                                        <button onClick={handleAddCategory} className="p-2 bg-emerald-100 text-emerald-600 rounded-lg"><Check className="w-5 h-5"/></button>
+                                        <button onClick={() => setIsAddingCategory(false)} className="p-2 bg-slate-100 text-slate-500 rounded-lg"><X className="w-5 h-5"/></button>
                                     </div>
                                 ) : (
                                     <>
-                                        <select className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none" value={formData.category || ''} onChange={e => setFormData({ ...formData, category: e.target.value })}>
+                                        <select className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none" value={formData.category || ''} onChange={e => setFormData({ ...formData, category: e.target.value })}>
                                             <option value="">Seleccionar...</option>
                                             {categories.map(cat => (<option key={cat} value={cat}>{cat}</option>))}
                                         </select>
-                                        <button onClick={() => setIsAddingCategory(true)} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors"><Plus className="w-5 h-5" /></button>
+                                        <button onClick={() => setIsAddingCategory(true)} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl"><Plus className="w-5 h-5" /></button>
                                     </>
                                 )}
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">SKU</label>
-                            <input type="text" placeholder="CÓDIGO" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-mono text-sm" value={formData.sku || ''} onChange={e => setFormData({ ...formData, sku: e.target.value })} />
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">SKU / Código</label>
+                            <input type="text" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-sm" value={formData.sku || ''} onChange={e => setFormData({ ...formData, sku: e.target.value })} />
                         </div>
-                        
-                        {settings.enableTax && formData.type === 'PRODUCT' && (
-                            <>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Impuesto (%)</label>
-                                    <div className="relative">
-                                        <Percent className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                                        <input 
-                                            type="number" 
-                                            className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none" 
-                                            value={formData.taxRate ?? settings.taxRate} 
-                                            onChange={e => setFormData({ ...formData, taxRate: parseFloat(e.target.value) })} 
-                                        />
-                                    </div>
-                                </div>
-                                <div className="col-span-2 flex gap-2">
-                                    {TAX_PRESETS.map(preset => (
-                                        <button
-                                            key={preset.value}
-                                            onClick={() => setFormData({...formData, taxRate: preset.value})}
-                                            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${formData.taxRate === preset.value ? 'bg-indigo-100 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}
-                                        >
-                                            {preset.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            </>
-                        )}
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Descripción</label>
+                            <textarea rows={3} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none resize-none" value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder="Ej. Material 100% algodón, ideal para verano..." />
+                        </div>
                     </div>
 
-                    {!formData.hasVariants && (
-                        <div className="grid grid-cols-2 gap-4 pt-4 border-t border-dashed border-slate-200 dark:border-slate-700">
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                                    {formData.type === 'SUPPLY' ? 'Costo Compra' : 'Precio Venta'}
-                                </label>
-                                <div className="relative">
-                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                                    {formData.type === 'SUPPLY' ? (
-                                        <input type="number" className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-bold" value={formData.cost || 0} onChange={e => setFormData({ ...formData, cost: parseFloat(e.target.value) })} />
-                                    ) : (
-                                        <input type="number" className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-bold" value={formData.price || 0} onChange={e => setFormData({ ...formData, price: parseFloat(e.target.value) })} />
-                                    )}
+                    <div className="space-y-4">
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                            <h4 className="text-xs font-black text-indigo-500 uppercase mb-3 flex items-center gap-2"><Scale className="w-4 h-4"/> Medición y Venta</h4>
+                            <div className="mb-4">
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Unidad de Medida</label>
+                                <select className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold" value={formData.unit || 'PIECE'} onChange={e => setFormData({ ...formData, unit: e.target.value as any })}>
+                                    {UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+                                </select>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">{formData.type === 'SUPPLY' ? 'Costo' : 'Precio Venta'}</label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                        <input type="number" step="0.01" className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-black text-indigo-600" value={formData.type === 'SUPPLY' ? formData.cost : formData.price} onChange={e => setFormData({ ...formData, [formData.type === 'SUPPLY' ? 'cost' : 'price']: parseFloat(e.target.value) })} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Stock Actual</label>
+                                    <input type="number" disabled={!!editingProduct} className={`w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 outline-none font-bold ${editingProduct ? 'bg-slate-100 text-slate-400' : 'bg-white dark:bg-slate-800'}`} value={formData.stock || 0} onChange={e => setFormData({ ...formData, stock: parseFloat(e.target.value) })} />
                                 </div>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Stock Inicial</label>
-                                <input type="number" disabled={!!editingProduct} className={`w-full px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 outline-none ${editingProduct ? 'bg-slate-100 text-slate-500' : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white'}`} value={formData.stock || 0} onChange={e => setFormData({ ...formData, stock: parseInt(e.target.value) })} />
-                            </div>
                         </div>
-                    )}
-                  </>
+
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                             <h4 className="text-xs font-black text-slate-500 uppercase mb-3 flex items-center gap-2"><Percent className="w-4 h-4"/> Fiscal</h4>
+                             <div className="flex gap-2">
+                                {TAX_PRESETS.map(preset => (
+                                    <button key={preset.value} onClick={() => setFormData({...formData, taxRate: preset.value})} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${formData.taxRate === preset.value ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}>
+                                        {preset.label}
+                                    </button>
+                                ))}
+                             </div>
+                        </div>
+
+                        {!formData.isActive && (
+                            <div className="p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 rounded-2xl flex gap-3">
+                                <Info className="w-5 h-5 text-orange-600 shrink-0" />
+                                <p className="text-xs text-orange-800 dark:text-orange-300 font-medium">Este producto está **inactivo**. No aparecerá en ventas y las alertas de stock estarán apagadas.</p>
+                            </div>
+                        )}
+                    </div>
+                  </div>
               ) : (
                   <div className="space-y-4">
-                      <div className="flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
+                      <div className="flex items-center gap-3 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-900/50">
                           <input type="checkbox" id="hasVariants" checked={formData.hasVariants || false} onChange={e => setFormData({...formData, hasVariants: e.target.checked})} className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500" />
-                          <label htmlFor="hasVariants" className="text-sm font-medium text-indigo-900 dark:text-indigo-200 cursor-pointer">Habilitar Variantes (Talla, Color, Medida)</label>
+                          <label htmlFor="hasVariants" className="text-sm font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">Habilitar Variantes (Talla, Color, Medida)</label>
                       </div>
 
                       {formData.hasVariants && (
@@ -436,16 +418,13 @@ export const Inventory: React.FC = () => {
                                   <div className="grid grid-cols-2 gap-3 mb-3">
                                       <input type="text" placeholder="Ej. Rojo / Grande" className="col-span-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none text-sm dark:text-white" value={variantName} onChange={e => setVariantName(e.target.value)} />
                                       <input type="text" placeholder="SKU Variante" className="col-span-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none text-sm dark:text-white font-mono" value={variantSku} onChange={e => setVariantSku(e.target.value)} />
-                                      <div className="relative">
-                                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                                          <input type="number" placeholder="Precio" className="w-full pl-5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none text-sm dark:text-white" value={variantPrice} onChange={e => setVariantPrice(e.target.value)} />
-                                      </div>
+                                      <div className="relative"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span><input type="number" placeholder="Precio" className="w-full pl-5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none text-sm dark:text-white" value={variantPrice} onChange={e => setVariantPrice(e.target.value)} /></div>
                                       <input type="number" placeholder="Stock" className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 outline-none text-sm dark:text-white" value={variantStock} onChange={e => setVariantStock(e.target.value)} />
                                   </div>
                                   <button onClick={addVariant} className="w-full py-2 bg-slate-900 dark:bg-indigo-600 text-white rounded-lg font-bold text-sm hover:opacity-90 transition-opacity">Agregar a la Lista</button>
                               </div>
 
-                              <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                              <div className="space-y-2 max-h-48 overflow-y-auto">
                                   {tempVariants.map(v => (
                                       <div key={v.id} className="flex justify-between items-center p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm group">
                                           <div>
@@ -458,7 +437,6 @@ export const Inventory: React.FC = () => {
                                           </div>
                                       </div>
                                   ))}
-                                  {tempVariants.length === 0 && <p className="text-center text-xs text-slate-400 py-4 italic">No hay variantes agregadas</p>}
                               </div>
                           </div>
                       )}
@@ -468,7 +446,7 @@ export const Inventory: React.FC = () => {
 
             <div className="p-6 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 bg-slate-50 dark:bg-slate-800/50 rounded-b-2xl">
               <button onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 font-medium transition-colors">Cancelar</button>
-              <button onClick={handleSave} className="px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-transform hover:scale-105 active:scale-95">Guardar</button>
+              <button onClick={handleSave} className="px-10 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-transform hover:scale-105 active:scale-95">Guardar</button>
             </div>
           </div>
         </div>
@@ -485,17 +463,14 @@ export const Inventory: React.FC = () => {
                 <div className="p-6">
                     <div className="mb-4">
                         <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">{adjustProduct.type === 'SUPPLY' ? 'Insumo' : 'Producto'}</p>
-                        <p className="font-medium text-slate-800 dark:text-white">{adjustProduct.name}</p>
+                        <p className="font-bold text-slate-800 dark:text-white">{adjustProduct.name}</p>
+                        <span className="text-[10px] font-black text-slate-400 uppercase">Unidad: {adjustProduct.unit || 'PIECE'}</span>
                     </div>
 
                     {adjustProduct.hasVariants && (
                         <div className="mb-4">
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Variante</label>
-                            <select 
-                                className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none text-sm"
-                                value={adjustVariantId}
-                                onChange={(e) => setAdjustVariantId(e.target.value)}
-                            >
+                            <select className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none text-sm" value={adjustVariantId} onChange={(e) => setAdjustVariantId(e.target.value)}>
                                 <option value="">Seleccionar variante...</option>
                                 {adjustProduct.variants?.map(v => (
                                     <option key={v.id} value={v.id}>{v.name} (Stock: {v.stock})</option>
@@ -511,7 +486,7 @@ export const Inventory: React.FC = () => {
 
                     <div className="mb-6">
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Cantidad</label>
-                        <input type="number" min="1" value={adjustQty} onChange={(e) => setAdjustQty(parseInt(e.target.value) || 0)} className="w-full text-center text-3xl font-bold py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        <input type="number" step={adjustProduct.unit === 'PIECE' ? '1' : '0.001'} min="0" value={adjustQty} onChange={(e) => setAdjustQty(parseFloat(e.target.value) || 0)} className="w-full text-center text-3xl font-bold py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
 
                     <button onClick={handleSaveAdjust} className={`w-full py-3 rounded-xl font-bold text-white transition-colors ${adjustType === 'IN' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}`}>Confirmar {adjustType === 'IN' ? 'Entrada' : 'Salida'}</button>
@@ -520,7 +495,7 @@ export const Inventory: React.FC = () => {
         </div>
       )}
 
-      {/* AI Recommendations Modal (Same as before) */}
+      {/* AI Recommendations Modal */}
       {aiModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-slate-100 dark:border-slate-800">

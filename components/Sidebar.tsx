@@ -13,7 +13,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
   const { products, settings, currentUser, logout, isSyncing, hasPendingChanges, pullFromCloud } = useStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const lowStockCount = products.filter(p => p.stock < 5).length;
+  // IGNORE INACTIVE PRODUCTS IN LOW STOCK COUNT
+  const lowStockCount = products.filter(p => p.isActive !== false && p.stock < 5).length;
+  
   const role = currentUser?.role || 'CASHIER';
   const isAdmin = role === 'ADMIN';
   const isManager = role === 'MANAGER' || role === 'ADMIN';

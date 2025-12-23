@@ -1,3 +1,4 @@
+
 export interface ProductVariant {
   id: string;
   name: string; // e.g. "Rojo / S"
@@ -7,6 +8,7 @@ export interface ProductVariant {
 }
 
 export type ProductType = 'PRODUCT' | 'SERVICE' | 'SUPPLY';
+export type MeasurementUnit = 'PIECE' | 'KG' | 'GRAM' | 'LITER' | 'METER';
 
 export interface Product {
   id: string;
@@ -18,7 +20,9 @@ export interface Product {
   description?: string;
   
   // Advanced Features
-  type?: ProductType; // New field: PRODUCT (Default), SERVICE, or SUPPLY (Raw material)
+  type?: ProductType;
+  unit: MeasurementUnit; // New field
+  isActive: boolean; // New field for disabling products
   cost?: number; // Last purchase cost
   taxRate: number; // Per product tax (0, 8, 16, etc.)
   hasVariants: boolean;
@@ -53,7 +57,7 @@ export interface PurchaseItem {
     variantName?: string;
     name: string;
     quantity: number;
-    unitCost: number; // Costo de compra, diferente al precio de venta
+    unitCost: number; 
     total: number;
     type?: ProductType;
 }
@@ -72,9 +76,9 @@ export interface Purchase {
 export interface CartItem extends Product {
   quantity: number;
   originalPrice?: number;
-  variantId?: string; // If it's a variant
-  variantName?: string; // For display
-  finalTax?: number; // Calculated tax for this line item
+  variantId?: string; 
+  variantName?: string; 
+  finalTax?: number; 
 }
 
 export interface Transaction {
@@ -82,7 +86,7 @@ export interface Transaction {
   date: string;
   
   subtotal: number;
-  taxAmount: number; // Sum of all item taxes
+  taxAmount: number; 
   discount: number;
   shipping: number;
   total: number;
@@ -94,7 +98,6 @@ export interface Transaction {
   amountPaid: number;
   dueDate?: string;
   
-  // For transfers not received immediately
   transferReference?: string;
   isTransferConfirmed?: boolean;
 
@@ -103,13 +106,12 @@ export interface Transaction {
     other: number;
   };
   customerId?: string;
-  customerName?: string; // Cached for sync
+  customerName?: string; 
   status: 'completed' | 'cancelled' | 'returned'; 
   
-  // Return Tracking
-  originalTransactionId?: string; // If this is a return transaction
-  isReturn?: boolean; // Flag to identify return records
-  returnedItems?: { itemId: string, variantId?: string, quantity: number }[]; // Track what was returned
+  originalTransactionId?: string; 
+  isReturn?: boolean; 
+  returnedItems?: { itemId: string, variantId?: string, quantity: number }[]; 
 }
 
 export interface Order {
@@ -129,7 +131,7 @@ export type BudgetCategory = 'OPERATIONAL' | 'INVESTMENT' | 'PROFIT' | 'SALES' |
 
 export interface ZReportData {
     openingFund: number;
-    grossSales: number; // Total sold regardless of payment
+    grossSales: number; 
     cashSales: number;
     cardSales: number;
     transferSales: number;
@@ -151,9 +153,8 @@ export interface CashMovement {
   category?: BudgetCategory;
   customerId?: string;
   
-  // Z-Cut Details
   isZCut?: boolean;
-  zReportData?: ZReportData; // Store full snapshot for re-printing
+  zReportData?: ZReportData; 
 }
 
 export interface BusinessInsight {
@@ -189,8 +190,8 @@ export interface BusinessSettings {
   website: string;
   taxId: string;
   currency: string;
-  taxRate: number; // Default Global Tax
-  enableTax: boolean; // TOGGLE: Show/Hide Tax features
+  taxRate: number; 
+  enableTax: boolean; 
   logo: string | null;
   receiptLogo: string | null;
   receiptHeader: string;
@@ -201,9 +202,9 @@ export interface BusinessSettings {
   notificationsEnabled: boolean; 
   sequences: SequenceConfig;
   productionDoc: ProductionDocConfig;
-  googleWebAppUrl?: string; // URL for sync
+  googleWebAppUrl?: string; 
   enableCloudSync?: boolean;
-  cloudSecret?: string; // NEW: Password for the cloud backend
+  cloudSecret?: string; 
 }
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER';
@@ -231,7 +232,7 @@ export interface UserInvite {
     code: string;
     role: UserRole;
     createdAt: string;
-    createdBy: string; // Admin username
+    createdBy: string; 
 }
 
 export interface ActivityLog {

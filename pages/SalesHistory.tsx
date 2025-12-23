@@ -62,6 +62,7 @@ const ManualEntryModal: React.FC<{
     const addCustomItem = () => {
         if (!searchTerm) return;
         const price = parseFloat(customItemPrice) || 0;
+        // FIX: Added required unit and isActive properties to the manual entry item
         const newItem: CartItem = {
             id: `manual-${Date.now()}`,
             name: searchTerm,
@@ -71,7 +72,9 @@ const ManualEntryModal: React.FC<{
             category: 'Manual',
             sku: 'MANUAL',
             taxRate: 0,
-            hasVariants: false
+            hasVariants: false,
+            unit: 'PIECE',
+            isActive: true
         };
         setItems(prev => [...prev, newItem]);
         setSearchTerm('');

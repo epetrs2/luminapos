@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useStore } from '../components/StoreContext';
 import { DollarSign, ShoppingCart, Package, Users, TrendingUp, AlertTriangle, ArrowRight, Clock, Box, Wallet } from 'lucide-react';
@@ -11,7 +12,9 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
   const todaysTransactions = transactions.filter(t => new Date(t.date).toDateString() === today);
   const todaysSales = todaysTransactions.reduce((acc, t) => acc + t.total, 0);
   
-  const lowStockProducts = products.filter(p => p.stock < 5);
+  // IGNORE INACTIVE PRODUCTS IN DASHBOARD LOW STOCK INDICATOR
+  const lowStockProducts = products.filter(p => p.isActive !== false && p.stock < 5);
+  
   const totalProducts = products.length;
   const totalCustomers = customers.length;
   

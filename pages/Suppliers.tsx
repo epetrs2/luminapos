@@ -151,6 +151,7 @@ export const Suppliers: React.FC = () => {
   const saveQuickProduct = () => {
       if (!quickProduct.name) return;
       
+      // FIX: Added required unit and isActive properties to the new product object
       const newProd: Product = {
           id: crypto.randomUUID(),
           name: quickProduct.name,
@@ -161,7 +162,9 @@ export const Suppliers: React.FC = () => {
           sku: quickProduct.sku,
           taxRate: 0,
           hasVariants: false,
-          type: quickProduct.type
+          type: quickProduct.type,
+          unit: 'PIECE',
+          isActive: true
       };
 
       addProduct(newProd);
