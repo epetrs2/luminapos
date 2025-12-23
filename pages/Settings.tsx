@@ -1,8 +1,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Database, Download, AlertTriangle, PieChart, Bell, Volume2, Printer, Trash2, Hash, FileInput, Info, CreditCard, Percent, Cloud, CloudOff, RefreshCw, LayoutTemplate, Eye, Calendar, Phone, DollarSign, ToggleLeft, ToggleRight, Check, Lock, RotateCw, ShieldCheck, Loader2 } from 'lucide-react';
+import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Database, Download, AlertTriangle, PieChart, Bell, Volume2, Printer, Trash2, Hash, FileInput, Info, CreditCard, Percent, Cloud, CloudOff, RefreshCw, LayoutTemplate, Eye, Calendar, Phone, DollarSign, ToggleLeft, ToggleRight, Check, Lock, RotateCw, ShieldCheck, Loader2, Zap } from 'lucide-react';
 import { processLogoImage } from '../utils/imageHelper';
+import { pushFullDataToCloud } from '../services/syncService';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, products, categories, transactions, cashMovements, customers, suppliers, users, importData, requestNotificationPermission, notify, pullFromCloud, pushToCloud, isSyncing, hardReset } = useStore();
@@ -11,6 +12,7 @@ export const Settings: React.FC = () => {
   const [isSaved, setIsSaved] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState<NotificationPermission>('default');
   const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const receiptLogoInputRef = useRef<HTMLInputElement>(null);
@@ -118,6 +120,20 @@ export const Settings: React.FC = () => {
     }
     
     setTimeout(() => setIsSaved(false), 3000);
+  };
+
+  const handleTestConnection = async () => {
+      if (!formData.googleWebAppUrl) return;
+      setIsTestingConnection(true);
+      try {
+          const testPayload = { test: "connection_check", time: new Date().toISOString() };
+          await pushFullDataToCloud(formData.googleWebAppUrl, formData.cloudSecret, testPayload);
+          alert("✅ CONEXIÓN EXITOSA\n\nEl sistema pudo escribir en la nube correctamente. Los datos se guardarán automáticamente al hacer cambios.");
+      } catch (e: any) {
+          alert(`❌ ERROR DE CONEXIÓN\n\n${e.message}\n\nVerifica:\n1. La URL es correcta (termina en /exec)\n2. La implementación en Google está como "Cualquier persona"\n3. La contraseña (si usas) es correcta.`);
+      } finally {
+          setIsTestingConnection(false);
+      }
   };
 
   const handleNotificationToggle = async (checked: boolean) => {
@@ -767,12 +783,21 @@ export const Settings: React.FC = () => {
                                         </button>
                                         
                                         <button 
+                                            onClick={handleTestConnection}
+                                            disabled={isTestingConnection || !formData.googleWebAppUrl}
+                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold transition-all shadow-md disabled:opacity-50"
+                                        >
+                                            <Zap className="w-4 h-4" /> {isTestingConnection ? 'Probando...' : 'Probar Conexión'}
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="pt-2">
+                                        <button 
                                             onClick={hardReset}
-                                            disabled={isSyncing || !formData.googleWebAppUrl}
-                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold transition-all shadow-md disabled:opacity-50"
+                                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition-all"
                                             title="Usa esto si los datos no aparecen en este dispositivo."
                                         >
-                                            <Database className="w-4 h-4" /> Resetear y Descargar de Nube
+                                            <Trash2 className="w-3 h-3" /> Resetear BD Local y Descargar de Nube
                                         </button>
                                     </div>
                                 </div>

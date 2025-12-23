@@ -1,11 +1,11 @@
 
 /*
  * ==========================================
- *  LUMINA POS - BACKEND SEGURO (VERSION 3.1)
+ *  LUMINA POS - BACKEND SEGURO (VERSION 3.2)
  * ==========================================
  */
 
-const SCRIPT_VERSION = "3.1.0";
+const SCRIPT_VERSION = "3.2.0";
 const API_SECRET = ""; // <--- ¡CONFIGURA TU CONTRASEÑA AQUÍ (Opcional)!
 
 function doGet(e) {
@@ -25,20 +25,19 @@ function handleRequest(e) {
       var incomingSecret = '';
       var payloadData = null;
 
-      // 1. Try reading as JSON body (Normal API behavior)
+      // 1. Intentar leer desde el cuerpo (POST)
       if (e.postData && e.postData.contents) {
          try {
-             var content = e.postData.contents;
-             var body = JSON.parse(content);
+             var body = JSON.parse(e.postData.contents);
              if (body.action) action = body.action;
              if (body.secret) incomingSecret = body.secret;
              if (body.payload) payloadData = body.payload;
          } catch(err) {
-             // If JSON parse fails, maybe it's just raw data? 
+             // No es JSON, ignorar o procesar como texto plano
          }
       } 
 
-      // 2. Try reading parameters (GET or URL-Encoded)
+      // 2. Intentar leer desde parámetros (GET o Query String)
       if (e.parameter) {
           if (e.parameter.action) action = e.parameter.action;
           if (e.parameter.secret) incomingSecret = e.parameter.secret;
@@ -46,7 +45,7 @@ function handleRequest(e) {
       
       action = action.toString().toLowerCase().trim();
 
-      // Security Check: Only if API_SECRET is configured in the script
+      // Validación de Seguridad
       if (API_SECRET && API_SECRET.length > 0) {
           if (incomingSecret !== API_SECRET) {
               return createJSONOutput({ status: 'error', message: '⛔ ACCESO DENEGADO: Clave incorrecta.' });
@@ -57,34 +56,31 @@ function handleRequest(e) {
       var dbSheet = getOrCreateSheet(ss, "Database");
       var backupSheet = getOrCreateSheet(ss, "Backups");
       
-      // --- READ (PULL) ---
+      // --- ACCIÓN: PULL (DESCARGAR) ---
       if (action === 'pull') {
-        var lastRow = dbSheet.getLastRow();
-        if (lastRow < 1) return createJSONOutput({}); 
         var data = dbSheet.getRange(1, 1).getValue();
-        if (!data) return createJSONOutput({});
-        
-        // Ensure we return a JSON structure that the frontend expects
-        // If data is already a JSON string (base64 encoded typically), wrap it
-        return createJSONOutput({ status: 'success', payload: data });
+        return createJSONOutput({ status: 'success', payload: data || null });
       }
       
-      // --- WRITE (PUSH) ---
+      // --- ACCIÓN: PUSH (GUARDAR) ---
       if (action === 'push') {
-        if (!payloadData || payloadData.length < 10) {
-           return createJSONOutput({ status: 'error', message: 'Datos inválidos o vacíos.' });
+        if (!payloadData || payloadData.length < 5) {
+           return createJSONOutput({ status: 'success', message: 'Conexión verificada correctamente.' });
         }
-        // Backup
+        
+        // Crear Respaldo antes de sobrescribir
         var currentData = dbSheet.getRange(1, 1).getValue();
-        if (currentData) {
+        if (currentData && currentData.length > 10) {
           backupSheet.insertRowBefore(1); 
           backupSheet.getRange(1, 1).setValue(new Date()); 
           backupSheet.getRange(1, 2).setValue(currentData); 
           if (backupSheet.getLastRow() > 50) backupSheet.deleteRow(51);
         }
-        // Save
+        
+        // Guardar Datos Nuevos
         dbSheet.getRange(1, 1).setValue(payloadData);
-        dbSheet.getRange(1, 2).setValue("Última sincronización: " + new Date().toLocaleString());
+        dbSheet.getRange(1, 2).setValue("Sincronizado: " + new Date().toLocaleString());
+        
         return createJSONOutput({ status: 'success', version: SCRIPT_VERSION });
       }
       
