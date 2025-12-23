@@ -21,8 +21,13 @@ export interface Product {
   
   // Advanced Features
   type?: ProductType;
-  unit: MeasurementUnit; // New field
-  isActive: boolean; // New field for disabling products
+  unit: MeasurementUnit; // Sales unit (how it's sold)
+  
+  // Presentation / Net Content Details
+  presentationValue?: number; // e.g. 600
+  presentationUnit?: string; // e.g. 'ml', 'g', 'kg'
+
+  isActive: boolean; // For disabling products
   cost?: number; // Last purchase cost
   taxRate: number; // Per product tax (0, 8, 16, etc.)
   hasVariants: boolean;

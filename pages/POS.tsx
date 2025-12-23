@@ -233,7 +233,14 @@ export const POS: React.FC = () => {
                                     <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">{product.category}</span>
                                     <span className="text-[9px] font-black bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-500">{product.unit || 'PZ'}</span>
                                 </div>
-                                <h3 className="font-bold text-slate-800 dark:text-white mb-1 line-clamp-2">{product.name}</h3>
+                                <h3 className="font-bold text-slate-800 dark:text-white mb-1 line-clamp-2">
+                                    {product.name}
+                                    {product.presentationValue && (
+                                        <span className="ml-2 text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                                            {product.presentationValue}{product.presentationUnit}
+                                        </span>
+                                    )}
+                                </h3>
                                 {product.unit && product.unit !== 'PIECE' && <p className="text-[10px] text-indigo-500 font-bold uppercase mb-2">Venta a granel</p>}
                                 <div className="flex justify-between items-end mt-2"><p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">${product.price}</p><div className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors"><Plus className="w-5 h-5" /></div></div>
                                 {product.hasVariants && (<div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">{product.variants?.map(v => (<button key={v.id} onClick={(e) => { e.stopPropagation(); addToCart(product, v.id); }} className="w-full flex justify-between items-center text-xs p-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"><span className="text-slate-700 dark:text-slate-300">{v.name}</span><span className="font-bold text-indigo-600 dark:text-indigo-400">${v.price}</span></button>))}</div>)}

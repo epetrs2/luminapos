@@ -13,6 +13,10 @@ const UNITS: { label: string, value: MeasurementUnit }[] = [
     { label: 'Metro (Mt)', value: 'METER' }
 ];
 
+const PRESENTATION_UNITS = [
+    'g', 'kg', 'ml', 'L', 'oz', 'lb', 'm', 'cm', 'pz', 'caja', 'paq'
+];
+
 export const Inventory: React.FC = () => {
   const { products, transactions, categories, addProduct, updateProduct, deleteProduct, adjustStock, addCategory, removeCategory, settings } = useStore();
   
@@ -73,7 +77,9 @@ export const Inventory: React.FC = () => {
           type: inventoryType,
           unit: 'PIECE',
           isActive: true,
-          description: ''
+          description: '',
+          presentationValue: undefined,
+          presentationUnit: 'ml'
       });
       setTempVariants([]);
     }
@@ -254,6 +260,11 @@ export const Inventory: React.FC = () => {
                     <td className="px-6 py-4">
                         <div className="font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2">
                             {product.name}
+                            {product.presentationValue && (
+                                <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-1.5 py-0.5 rounded">
+                                    {product.presentationValue} {product.presentationUnit}
+                                </span>
+                            )}
                         </div>
                         <div className="text-xs text-slate-400 mt-0.5">{product.category}</div>
                     </td>
@@ -363,24 +374,46 @@ export const Inventory: React.FC = () => {
                     <div className="space-y-4">
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
                             <h4 className="text-xs font-black text-indigo-500 uppercase mb-3 flex items-center gap-2"><Scale className="w-4 h-4"/> Medición y Venta</h4>
-                            <div className="mb-4">
-                                <label className="block text-xs font-bold text-slate-500 mb-1">Unidad de Medida</label>
-                                <select className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold" value={formData.unit || 'PIECE'} onChange={e => setFormData({ ...formData, unit: e.target.value as any })}>
-                                    {UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
-                                </select>
-                            </div>
                             
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-2 gap-4 mb-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 mb-1">{formData.type === 'SUPPLY' ? 'Costo' : 'Precio Venta'}</label>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                                        <input type="number" step="0.01" className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-black text-indigo-600" value={formData.type === 'SUPPLY' ? formData.cost : formData.price} onChange={e => setFormData({ ...formData, [formData.type === 'SUPPLY' ? 'cost' : 'price']: parseFloat(e.target.value) })} />
-                                    </div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Se vende por</label>
+                                    <select className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold" value={formData.unit || 'PIECE'} onChange={e => setFormData({ ...formData, unit: e.target.value as any })}>
+                                        {UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+                                    </select>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Stock Actual</label>
                                     <input type="number" disabled={!!editingProduct} className={`w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 outline-none font-bold ${editingProduct ? 'bg-slate-100 text-slate-400' : 'bg-white dark:bg-slate-800'}`} value={formData.stock || 0} onChange={e => setFormData({ ...formData, stock: parseFloat(e.target.value) })} />
+                                </div>
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Presentación / Contenido (Opcional)</label>
+                                <div className="flex gap-2">
+                                    <input 
+                                        type="number" 
+                                        placeholder="Ej. 600" 
+                                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none" 
+                                        value={formData.presentationValue || ''}
+                                        onChange={e => setFormData({ ...formData, presentationValue: parseFloat(e.target.value) })}
+                                    />
+                                    <select 
+                                        className="w-24 px-2 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium"
+                                        value={formData.presentationUnit || 'ml'}
+                                        onChange={e => setFormData({ ...formData, presentationUnit: e.target.value })}
+                                    >
+                                        {PRESENTATION_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                                    </select>
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1">Ej: Si vendes por "Pieza", especifica si son 600ml, 250g, etc.</p>
+                            </div>
+                            
+                            <div className="mb-2">
+                                <label className="block text-xs font-bold text-slate-500 mb-1">{formData.type === 'SUPPLY' ? 'Costo' : 'Precio Venta'}</label>
+                                <div className="relative">
+                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                    <input type="number" step="0.01" className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-black text-indigo-600" value={formData.type === 'SUPPLY' ? formData.cost : formData.price} onChange={e => setFormData({ ...formData, [formData.type === 'SUPPLY' ? 'cost' : 'price']: parseFloat(e.target.value) })} />
                                 </div>
                             </div>
                         </div>
