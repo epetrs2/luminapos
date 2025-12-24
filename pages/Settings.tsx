@@ -1,10 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Database, Download, AlertTriangle, PieChart, Bell, Volume2, Printer, Trash2, Hash, FileInput, Info, CreditCard, Percent, Cloud, CloudOff, RefreshCw, LayoutTemplate, Eye, Calendar, Phone, DollarSign, ToggleLeft, ToggleRight, Check, Lock, RotateCw, ShieldCheck, Loader2, Zap, X, Move, ZoomIn, Link as LinkIcon, FileCheck, Server, AlertCircle } from 'lucide-react';
+import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, RefreshCw, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 
-// --- IMAGE CROPPER COMPONENT (UNCHANGED BUT INCLUDED FOR COMPLETENESS) ---
+// --- IMAGE CROPPER COMPONENT ---
 interface ImageCropperProps {
     imageSrc: string;
     onCancel: () => void;
@@ -51,11 +51,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
         ctx.save();
         ctx.translate(centerX + offset.x, centerY + offset.y);
         ctx.scale(scale, scale);
-        ctx.drawImage(
-            imgRef.current, 
-            -imgRef.current.width / 2, 
-            -imgRef.current.height / 2
-        );
+        ctx.drawImage(imgRef.current, -imgRef.current.width / 2, -imgRef.current.height / 2);
         ctx.restore();
 
     }, [imgLoaded, scale, offset]);
@@ -95,13 +91,9 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
             ctx.save();
             ctx.translate(centerX + (offset.x * ratio), centerY + (offset.y * ratio));
             ctx.scale(scale * ratio, scale * ratio);
-            ctx.drawImage(
-                imgRef.current, 
-                -imgRef.current.width / 2, 
-                -imgRef.current.height / 2
-            );
+            ctx.drawImage(imgRef.current, -imgRef.current.width / 2, -imgRef.current.height / 2);
             ctx.restore();
-            onSave(outputCanvas.toDataURL('image/jpeg', 0.7)); // Higher compression for cloud
+            onSave(outputCanvas.toDataURL('image/jpeg', 0.7)); 
         }
     };
 
@@ -109,36 +101,18 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
         <div className="fixed inset-0 z-[200] bg-black/80 flex flex-col items-center justify-center p-4 backdrop-blur-sm animate-[fadeIn_0.2s]">
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700">
                 <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                        <Move className="w-5 h-5 text-indigo-500" /> Ajustar Logo
-                    </h3>
+                    <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><Move className="w-5 h-5 text-indigo-500" /> Ajustar Logo</h3>
                     <button onClick={onCancel}><X className="w-6 h-6 text-slate-400 hover:text-slate-600" /></button>
                 </div>
                 <div className="relative w-[300px] h-[300px] mx-auto bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden shadow-inner border-2 border-dashed border-slate-300 dark:border-slate-600 cursor-move touch-none">
-                    <canvas 
-                        ref={canvasRef}
-                        width={300}
-                        height={300}
-                        className="w-full h-full"
-                        onMouseDown={handleMouseDown}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onMouseLeave={handleMouseUp}
-                        onTouchStart={handleMouseDown}
-                        onTouchMove={handleMouseMove}
+                    <canvas ref={canvasRef} width={300} height={300} className="w-full h-full"
+                        onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
+                        onTouchStart={handleMouseDown} onTouchMove={handleMouseMove}
                     />
                 </div>
                 <div className="flex items-center gap-4 my-6">
                     <ZoomIn className="w-5 h-5 text-slate-400" />
-                    <input 
-                        type="range" 
-                        min="0.1" 
-                        max="3" 
-                        step="0.1" 
-                        value={scale} 
-                        onChange={(e) => setScale(parseFloat(e.target.value))} 
-                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700"
-                    />
+                    <input type="range" min="0.1" max="3" step="0.1" value={scale} onChange={(e) => setScale(parseFloat(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700" />
                 </div>
                 <div className="flex gap-3">
                     <button onClick={onCancel} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">Cancelar</button>
@@ -163,7 +137,7 @@ export const Settings: React.FC = () => {
 
   const handleSave = () => {
     updateSettings(formData);
-    // Force a push immediately after saving settings
+    // Trigger immediate push to save changes to cloud
     pushToCloud({ settings: formData });
     notify("Configuración Guardada", "Los cambios se han guardado y sincronizado.", "success");
   };
