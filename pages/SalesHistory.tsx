@@ -798,9 +798,11 @@ export const SalesHistory: React.FC = () => {
       notify("Venta Registrada", "Historial actualizado correctamente.", "success");
   };
 
+  // FIX: FILTER OUT CANCELLED TRANSACTIONS
   const filteredTransactions = transactions.filter(t => 
-      t.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      getCustomerName(t.customerId).toLowerCase().includes(searchTerm.toLowerCase())
+      t.status !== 'cancelled' &&
+      (t.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      getCustomerName(t.customerId).toLowerCase().includes(searchTerm.toLowerCase()))
   ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (

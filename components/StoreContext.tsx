@@ -410,6 +410,23 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         markLocalChange();
     };
 
+    const deleteTransaction = (id: string, items: any[]) => {
+        // SOFT DELETE: Mark as cancelled instead of removing to fix cloud sync bouncing
+        setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled', amountPaid: 0 } : t));
+        
+        // Remove associated cash movement to balance cash register
+        setCashMovements(prev => prev.filter(m => m.id !== `mv_${id}`));
+        
+        // Restore stock
+        items.forEach(i => adjustStock(i.id, i.quantity, 'IN', i.variantId));
+        
+        logActivity('SALE', `Anuló Venta #${id}`);
+        markLocalChange();
+        
+        // FORCE PUSH to ensure deletion propagates to cloud immediately
+        setTimeout(() => pushToCloud(), 100);
+    };
+
     const addCustomer = (c: Customer) => {
         const currentMaxId = customers.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
@@ -463,7 +480,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return (
         <StoreContext.Provider value={{
             products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing, hasPendingChanges,
-            addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), addTransaction, deleteTransaction: (id)=>setTransactions(p=>p.filter(t=>t.id!==id)), registerTransactionPayment: (id, am)=>setTransactions(p=>p.map(t=>t.id===id?{...t, amountPaid: (t.amountPaid||0)+am}:t)), updateStockAfterSale: (its)=>its.forEach(i=>adjustStock(i.id, i.quantity, 'OUT', i.variantId)),
+            addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), addTransaction, deleteTransaction, registerTransactionPayment: (id, am)=>setTransactions(p=>p.map(t=>t.id===id?{...t, amountPaid: (t.amountPaid||0)+am}:t)), updateStockAfterSale: (its)=>its.forEach(i=>adjustStock(i.id, i.quantity, 'OUT', i.variantId)),
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), addSupplier: (s)=>console.log(s), updateSupplier: (s)=>console.log(s), deleteSupplier: async (id)=>true, addPurchase: (p)=>console.log(p), addCashMovement, deleteCashMovement,
             addOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale: (id, m)=>{}, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
             notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset

@@ -7,9 +7,9 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView }) => {
   const { transactions, products, customers, currentUser, cashMovements } = useStore();
 
-  // Metrics
+  // Metrics (Filtered: Exclude cancelled)
   const today = new Date().toDateString();
-  const todaysTransactions = transactions.filter(t => new Date(t.date).toDateString() === today);
+  const todaysTransactions = transactions.filter(t => t.status !== 'cancelled' && new Date(t.date).toDateString() === today);
   const todaysSales = todaysTransactions.reduce((acc, t) => acc + t.total, 0);
   
   // IGNORE INACTIVE PRODUCTS IN DASHBOARD LOW STOCK INDICATOR
@@ -34,7 +34,7 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
   const chartData = last7Days.map(date => {
       const dateStr = date.toDateString();
       const daySales = transactions
-        .filter(t => new Date(t.date).toDateString() === dateStr)
+        .filter(t => t.status !== 'cancelled' && new Date(t.date).toDateString() === dateStr)
         .reduce((acc, t) => acc + t.total, 0);
       return {
           name: date.toLocaleDateString('es-ES', { weekday: 'short' }),
@@ -42,8 +42,11 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
       };
   });
 
-  // Recent Transactions
-  const recentTransactions = [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
+  // Recent Transactions (Filtered)
+  const recentTransactions = [...transactions]
+    .filter(t => t.status !== 'cancelled')
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5);
 
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
