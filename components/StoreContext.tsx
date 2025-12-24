@@ -257,7 +257,25 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (Array.isArray(safeData.users)) setUsers(safeData.users);
             if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
             if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
-            if (safeData.settings) setSettings({ ...DEFAULT_SETTINGS, ...safeData.settings, googleWebAppUrl: url, cloudSecret: secret });
+            
+            // --- SMART SETTINGS MERGE TO PROTECT LOGOS ---
+            if (safeData.settings) {
+                setSettings(currentSettings => {
+                    const incomingSettings = { ...DEFAULT_SETTINGS, ...safeData.settings, googleWebAppUrl: url, cloudSecret: secret };
+                    
+                    // CRITICAL FIX: If local has a logo but cloud doesn't, KEEP LOCAL.
+                    // This prevents the logo from disappearing if cloud sync hasn't caught up yet.
+                    if (currentSettings.logo && !incomingSettings.logo) {
+                        incomingSettings.logo = currentSettings.logo;
+                    }
+                    if (currentSettings.receiptLogo && !incomingSettings.receiptLogo) {
+                        incomingSettings.receiptLogo = currentSettings.receiptLogo;
+                    }
+                    
+                    return incomingSettings;
+                });
+            }
+
             dataLoadedRef.current = true;
             lastCloudSyncTimestamp.current = cloudTs;
             setHasPendingChanges(false); 
