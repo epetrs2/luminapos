@@ -151,6 +151,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [toasts, setToasts] = useState<ToastNotification[]>([]);
     const [isSyncing, setIsSyncing] = useState(false);
     const [hasPendingChanges, setHasPendingChanges] = useState(false);
+    
+    // Ref to track pending changes instantly during async operations (fixes overwrite race condition)
+    const hasPendingChangesRef = useRef(false);
 
     const lastLocalUpdate = useRef<number>(0); 
     const lastCloudSyncTimestamp = useRef<number>(0);
@@ -167,7 +170,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             products, transactions, customers, suppliers, cashMovements, 
             orders, purchases, users, userInvites, categories, activityLogs, settings
         };
-    }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, settings]);
+    }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, categories, activityLogs]);
 
     // AUTO-SEED ADMIN
     useEffect(() => {
@@ -196,6 +199,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const markLocalChange = () => {
         dataLoadedRef.current = true;
         lastLocalUpdate.current = Date.now();
+        hasPendingChangesRef.current = true; // Immediate update for race conditions
         setHasPendingChanges(true); 
     };
 
@@ -234,6 +238,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             
             lastCloudSyncTimestamp.current = Date.now();
             lastPushSuccessAt.current = Date.now();
+            hasPendingChangesRef.current = false;
             setHasPendingChanges(false); 
         } catch (e) {
             console.error("Sync Error (Push):", e);
@@ -248,7 +253,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const secret = overrideSecret !== undefined ? overrideSecret : storeRef.current.settings.cloudSecret;
         if (!url) return false;
         
-        if (!force && hasPendingChanges) {
+        // Use ref for immediate check
+        if (!force && hasPendingChangesRef.current) {
             // Pending changes take precedence
             pushToCloud();
             return false;
@@ -269,8 +275,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
             const cloudTs = cloudData.timestamp ? new Date(cloudData.timestamp).getTime() : 0;
             
-            // RELAXED STALE CHECK: Only skip if we have pending changes
-            if (!force && hasPendingChanges) {
+            // SECONDARY RACE CONDITION CHECK: 
+            // If user made changes WHILE fetch was awaiting, hasPendingChangesRef will be true now.
+            // We must abort update to prevent overwriting local changes.
+            if (!force && hasPendingChangesRef.current) {
+                console.warn("Pull abortado: Cambios locales detectados durante la descarga.");
                 return false;
             }
 
@@ -312,6 +321,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
             dataLoadedRef.current = true;
             lastCloudSyncTimestamp.current = cloudTs;
+            hasPendingChangesRef.current = false;
             setHasPendingChanges(false); 
             if (!silent) notify('Sincronizado', 'Datos actualizados desde la nube.', 'success');
             return true;
@@ -324,6 +334,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const hardReset = async () => {
         if (!window.confirm("¿Restablecer y descargar todo de la nube? Se perderán cambios no guardados.")) return;
         lastLocalUpdate.current = 0;
+        hasPendingChangesRef.current = false;
         setHasPendingChanges(false);
         lastPushSuccessAt.current = 0; 
         await pullFromCloud(undefined, undefined, false, true);
