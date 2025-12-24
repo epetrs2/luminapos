@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, Search, Users, Mail, Phone, DollarSign, Wallet, Infinity, Building2, User, Clock, FileText, ArrowRight, X, Hash } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Users, Mail, Phone, DollarSign, Wallet, Infinity, Building2, User, Clock, FileText, ArrowRight, X, Hash, ShoppingBag, CheckCircle } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Customer } from '../types';
 
@@ -473,28 +473,33 @@ El equipo de LuminaPOS`;
                   {/* History Timeline */}
                   <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-6">
                       <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                          <Clock className="w-5 h-5 text-indigo-500" /> Historial de Movimientos
+                          <Clock className="w-5 h-5 text-indigo-500" /> Historial Completo
                       </h3>
                       
-                      {/* 
-                          Combine Transactions (Credit) and CashMovements (Payments) 
-                          Filter: Transactions by this customer AND type=credit
-                          Filter: CashMovements by this customer
-                      */}
                       {(() => {
-                          const creditPurchases = transactions
-                              .filter(t => t.customerId === historyCustomer.id && t.paymentMethod === 'credit')
-                              .map(t => ({
-                                  id: t.id,
-                                  date: t.date,
-                                  type: 'PURCHASE',
-                                  amount: t.total,
-                                  details: `Nota #${t.id} - ${t.items.length} items`,
-                                  raw: t
-                              }));
+                          // Updated logic to show ALL transactions for this customer
+                          const customerTransactions = transactions
+                              .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled')
+                              .map(t => {
+                                  // Determine type based on status, not just method
+                                  // If pending or partial, it's a DEBT transaction (Red)
+                                  // If paid fully, it's a SALE (Neutral/Green) but still history
+                                  const isDebt = t.paymentStatus === 'pending' || t.paymentStatus === 'partial';
+                                  const isManual = t.id.includes('manual');
+                                  
+                                  return {
+                                      id: t.id,
+                                      date: t.date,
+                                      type: isDebt ? 'DEBT' : 'SALE',
+                                      amount: t.total,
+                                      pendingAmount: t.total - (t.amountPaid || 0),
+                                      details: `${isManual ? 'Nota Manual' : 'Ticket'} #${t.id} - ${t.items.length} items`,
+                                      raw: t
+                                  };
+                              });
 
                           const payments = cashMovements
-                              .filter(m => m.customerId === historyCustomer.id || (m.description.includes(historyCustomer.name) && m.type === 'DEPOSIT')) // Fallback to name search if ID missing in old data
+                              .filter(m => m.customerId === historyCustomer.id && m.type === 'DEPOSIT')
                               .map(m => ({
                                   id: m.id,
                                   date: m.date,
@@ -504,7 +509,7 @@ El equipo de LuminaPOS`;
                                   raw: m
                               }));
 
-                          const timeline = [...creditPurchases, ...payments].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                          const timeline = [...customerTransactions, ...payments].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
                           if (timeline.length === 0) {
                               return (
@@ -517,30 +522,57 @@ El equipo de LuminaPOS`;
 
                           return (
                               <div className="space-y-4">
-                                  {timeline.map((item) => (
-                                      <div key={item.id} className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                          <div className="flex items-start gap-4">
-                                              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${item.type === 'PURCHASE' ? 'bg-red-100 text-red-600 dark:bg-red-900/30' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30'}`}>
-                                                  {item.type === 'PURCHASE' ? <ShoppingBag className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}
+                                  {timeline.map((item) => {
+                                      const isDebt = item.type === 'DEBT';
+                                      const isPayment = item.type === 'PAYMENT';
+                                      
+                                      let icon = <ShoppingBag className="w-5 h-5" />;
+                                      let bgColor = 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400';
+                                      let title = 'Compra de Contado';
+                                      let amountColor = 'text-slate-800 dark:text-white';
+                                      let sign = '';
+
+                                      if (isDebt) {
+                                          bgColor = 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400';
+                                          title = 'Compra / Nota Pendiente';
+                                          amountColor = 'text-red-500';
+                                          sign = '+'; // Adds to debt logic visually
+                                      } else if (isPayment) {
+                                          icon = <DollarSign className="w-5 h-5" />;
+                                          bgColor = 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400';
+                                          title = 'Abono / Pago';
+                                          amountColor = 'text-emerald-500';
+                                          sign = '-'; // Reduces debt
+                                      }
+
+                                      return (
+                                          <div key={item.id} className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                              <div className="flex items-start gap-4">
+                                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${bgColor}`}>
+                                                      {icon}
+                                                  </div>
+                                                  <div>
+                                                      <p className="font-bold text-slate-800 dark:text-white">{title}</p>
+                                                      <p className="text-sm text-slate-500 dark:text-slate-400">{item.details}</p>
+                                                      <p className="text-xs text-slate-400 mt-1">{new Date(item.date).toLocaleString()}</p>
+                                                  </div>
                                               </div>
-                                              <div>
-                                                  <p className="font-bold text-slate-800 dark:text-white">
-                                                      {item.type === 'PURCHASE' ? 'Compra a Crédito' : 'Abono Recibido'}
+                                              <div className="text-right pl-14 md:pl-0">
+                                                  <p className={`text-lg font-black ${amountColor}`}>
+                                                      {sign}${item.amount.toFixed(2)}
                                                   </p>
-                                                  <p className="text-sm text-slate-500 dark:text-slate-400">{item.details}</p>
-                                                  <p className="text-xs text-slate-400 mt-1">{new Date(item.date).toLocaleString()}</p>
+                                                  {isDebt && (item as any).pendingAmount > 0 && (
+                                                      <span className="text-xs font-bold text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded">
+                                                          Pendiente: ${(item as any).pendingAmount.toFixed(2)}
+                                                      </span>
+                                                  )}
+                                                  {!isDebt && !isPayment && (
+                                                      <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Pagado</span>
+                                                  )}
                                               </div>
                                           </div>
-                                          <div className="text-right pl-14 md:pl-0">
-                                              <p className={`text-lg font-black ${item.type === 'PURCHASE' ? 'text-red-500' : 'text-emerald-500'}`}>
-                                                  {item.type === 'PURCHASE' ? '+' : '-'}${item.amount.toFixed(2)}
-                                              </p>
-                                              <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-                                                  {item.type === 'PURCHASE' ? 'Aumenta Deuda' : 'Disminuye Deuda'}
-                                              </span>
-                                          </div>
-                                      </div>
-                                  ))}
+                                      );
+                                  })}
                               </div>
                           );
                       })()}
@@ -551,16 +583,3 @@ El equipo de LuminaPOS`;
     </div>
   );
 };
-
-// Simple icon for history timeline
-function ShoppingBag({className}: {className?:string}) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-    )
-}
-
-function CheckCircle({className}: {className?:string}) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
-    )
-}

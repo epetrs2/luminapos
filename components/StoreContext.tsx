@@ -241,15 +241,26 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const url = overrideUrl || storeRef.current.settings.googleWebAppUrl;
         const secret = overrideSecret !== undefined ? overrideSecret : storeRef.current.settings.cloudSecret;
         if (!url) return;
+        
+        // CRITICAL FIX: IF WE HAVE PENDING LOCAL CHANGES, DO NOT PULL (unless forced)
+        // This prevents the "new note disappears" bug where a pull overwrites a recent push that hasn't propagated yet.
+        if (!force && hasPendingChanges) {
+            // Push instead to ensure safety
+            pushToCloud();
+            return;
+        }
+
         if (!silent) setIsSyncing(true);
         try {
             const cloudData = await fetchFullDataFromCloud(url, secret);
             if (!cloudData) return;
             const cloudTs = cloudData.timestamp ? new Date(cloudData.timestamp).getTime() : 0;
-            if (!force && hasPendingChanges && lastLocalUpdate.current > cloudTs + 10000) {
-                pushToCloud();
+            
+            // Double check: If local updated while we were fetching
+            if (!force && hasPendingChanges) {
                 return;
             }
+
             const safeData = sanitizeDataStructure(cloudData);
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
