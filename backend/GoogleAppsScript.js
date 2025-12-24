@@ -1,11 +1,11 @@
 
 /*
  * ==========================================
- *  LUMINA POS - BACKEND SEGURO (VERSION 3.2)
+ *  LUMINA POS - BACKEND ROBUSTO (CHUNKED)
  * ==========================================
  */
 
-const SCRIPT_VERSION = "3.2.0";
+const SCRIPT_VERSION = "3.3.0";
 const API_SECRET = ""; // <--- ¡CONFIGURA TU CONTRASEÑA AQUÍ (Opcional)!
 
 function doGet(e) {
@@ -19,6 +19,7 @@ function doPost(e) {
 function handleRequest(e) {
   var lock = LockService.getScriptLock();
   
+  // Wait up to 30s for other processes to finish
   if (lock.tryLock(30000)) {
     try {
       var action = 'pull'; 
@@ -33,17 +34,17 @@ function handleRequest(e) {
              if (body.secret) incomingSecret = body.secret;
              if (body.payload) payloadData = body.payload;
          } catch(err) {
-             // No es JSON, ignorar o procesar como texto plano
+             // No es JSON válido
          }
       } 
 
-      // 2. Intentar leer desde parámetros (GET o Query String)
+      // 2. Intentar leer desde parámetros (GET)
       if (e.parameter) {
           if (e.parameter.action) action = e.parameter.action;
           if (e.parameter.secret) incomingSecret = e.parameter.secret;
       }
       
-      action = action.toString().toLowerCase().trim();
+      action = action ? action.toString().toLowerCase().trim() : 'pull';
 
       // Validación de Seguridad
       if (API_SECRET && API_SECRET.length > 0) {
@@ -58,41 +59,74 @@ function handleRequest(e) {
       
       // --- ACCIÓN: PULL (DESCARGAR) ---
       if (action === 'pull') {
-        var data = dbSheet.getRange(1, 1).getValue();
+        var lastCol = dbSheet.getLastColumn();
+        var data = "";
+        
+        if (lastCol > 0) {
+            // Leer todos los chunks de la fila 1 y unirlos
+            var values = dbSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+            data = values.join("");
+        }
+        
         return createJSONOutput({ status: 'success', payload: data || null });
       }
       
       // --- ACCIÓN: PUSH (GUARDAR) ---
       if (action === 'push') {
-        if (!payloadData || payloadData.length < 5) {
-           return createJSONOutput({ status: 'success', message: 'Conexión verificada correctamente.' });
+        if (!payloadData) {
+           return createJSONOutput({ status: 'success', message: 'Ping recibido (sin datos).' });
         }
         
-        // Crear Respaldo antes de sobrescribir
-        var currentData = dbSheet.getRange(1, 1).getValue();
-        if (currentData && currentData.length > 10) {
-          backupSheet.insertRowBefore(1); 
-          backupSheet.getRange(1, 1).setValue(new Date()); 
-          backupSheet.getRange(1, 2).setValue(currentData); 
-          if (backupSheet.getLastRow() > 50) backupSheet.deleteRow(51);
+        // 1. Crear Respaldo (Si hay datos previos)
+        var lastCol = dbSheet.getLastColumn();
+        if (lastCol > 0) {
+            var currentData = dbSheet.getRange(1, 1, 1, lastCol).getValues()[0].join("");
+            if (currentData.length > 20) {
+                // Guardar en Backups (Fecha | Datos)
+                backupSheet.insertRowBefore(1); 
+                backupSheet.getRange(1, 1).setValue(new Date()); 
+                // Los backups antiguos se guardan truncados si son muy grandes para evitar errores, o en celda 2
+                // Para robustez simple, guardamos solo los primeros 50k chars en backup visual
+                backupSheet.getRange(1, 2).setValue(currentData.substring(0, 49000)); 
+                
+                // Limpiar backups viejos
+                if (backupSheet.getLastRow() > 20) backupSheet.deleteRow(21);
+            }
         }
         
-        // Guardar Datos Nuevos
-        dbSheet.getRange(1, 1).setValue(payloadData);
-        dbSheet.getRange(1, 2).setValue("Sincronizado: " + new Date().toLocaleString());
+        // 2. Guardar Datos Nuevos (CHUNK STRATEGY)
+        // Google Sheets tiene limite de 50,000 caracteres por celda.
+        // Dividimos el payload en chunks de 49,000 para estar seguros.
+        var CHUNK_SIZE = 49000;
+        var chunks = [];
+        for (var i = 0; i < payloadData.length; i += CHUNK_SIZE) {
+            chunks.push(payloadData.substring(i, i + CHUNK_SIZE));
+        }
         
-        return createJSONOutput({ status: 'success', version: SCRIPT_VERSION });
+        // Limpiar fila 1 completamente
+        dbSheet.getRange(1, 1, 1, Math.max(lastCol, 1)).clearContent();
+        
+        // Escribir chunks horizontalmente
+        if (chunks.length > 0) {
+            dbSheet.getRange(1, 1, 1, chunks.length).setValues([chunks]);
+        }
+        
+        // Timestamp en fila 2 (meta info)
+        dbSheet.getRange(2, 1).setValue("Última Sincronización: " + new Date().toLocaleString());
+        dbSheet.getRange(2, 2).setValue("Tamaño Total: " + (payloadData.length / 1024).toFixed(2) + " KB");
+        
+        return createJSONOutput({ status: 'success', version: SCRIPT_VERSION, chunks: chunks.length });
       }
       
       return createJSONOutput({ status: 'error', message: 'Acción desconocida: ' + action });
 
     } catch (error) {
-      return createJSONOutput({ status: 'error', message: error.toString() });
+      return createJSONOutput({ status: 'error', message: "Script Error: " + error.toString() });
     } finally {
       lock.releaseLock();
     }
   } else {
-    return createJSONOutput({ status: 'busy', message: 'Servidor ocupado.' });
+    return createJSONOutput({ status: 'busy', message: 'Servidor ocupado, intentando de nuevo...' });
   }
 }
 
@@ -105,7 +139,9 @@ function getOrCreateSheet(ss, name) {
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
-    if (name === "Database") sheet.clear();
+    if (name === "Database") {
+       sheet.clear();
+    }
   }
   return sheet;
 }

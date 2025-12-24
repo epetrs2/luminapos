@@ -75,6 +75,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
 
     const handleFinalSave = () => {
         if (!canvasRef.current) return;
+        // Optimization: Reduce size to 180x180 and quality to 0.6 to ensure Base64 string is small enough for syncing
         const outputSize = 180; 
         const outputCanvas = document.createElement('canvas');
         outputCanvas.width = outputSize;
@@ -93,7 +94,8 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
             ctx.scale(scale * ratio, scale * ratio);
             ctx.drawImage(imgRef.current, -imgRef.current.width / 2, -imgRef.current.height / 2);
             ctx.restore();
-            onSave(outputCanvas.toDataURL('image/jpeg', 0.7)); 
+            // Lower quality slightly to ensure sync robustness
+            onSave(outputCanvas.toDataURL('image/jpeg', 0.6)); 
         }
     };
 
