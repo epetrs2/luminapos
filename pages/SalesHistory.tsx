@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Package, Trash2, Loader2, AlertTriangle, Smartphone, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
@@ -39,6 +39,9 @@ const ManualEntryModal: React.FC<{
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer' | 'credit'>('cash');
     const [deductStock, setDeductStock] = useState(false);
     
+    // Debt / Status Logic
+    const [paidAmount, setPaidAmount] = useState<string>('');
+    
     // Item Logic
     const [items, setItems] = useState<CartItem[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -48,6 +51,17 @@ const ManualEntryModal: React.FC<{
         if (!searchTerm) return [];
         return products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 5);
     }, [searchTerm, products]);
+
+    const total = useMemo(() => items.reduce((acc, item) => acc + (item.price * item.quantity), 0), [items]);
+
+    // Update paid amount when total changes (defaults to full payment usually)
+    useEffect(() => {
+        if (paymentMethod !== 'credit') {
+            setPaidAmount(total.toString());
+        } else {
+            setPaidAmount('0');
+        }
+    }, [total, paymentMethod]);
 
     const addItem = (product: Product) => {
         setItems(prev => {
@@ -63,7 +77,6 @@ const ManualEntryModal: React.FC<{
     const addCustomItem = () => {
         if (!searchTerm) return;
         const price = parseFloat(customItemPrice) || 0;
-        // FIX: Added required unit and isActive properties to the manual entry item
         const newItem: CartItem = {
             id: `manual-${Date.now()}`,
             name: searchTerm,
@@ -90,27 +103,41 @@ const ManualEntryModal: React.FC<{
         setItems(prev => prev.filter((_, idx) => idx !== index));
     };
 
-    const total = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-
     const handleSave = () => {
         if (items.length === 0) {
             alert('Agrega al menos un ítem o concepto.');
             return;
         }
 
+        const paid = parseFloat(paidAmount) || 0;
+        let finalStatus: Transaction['paymentStatus'] = 'paid';
+        
+        if (paid >= total) {
+            finalStatus = 'paid';
+        } else if (paid <= 0) {
+            finalStatus = 'pending';
+        } else {
+            finalStatus = 'partial';
+        }
+
+        if ((finalStatus === 'pending' || finalStatus === 'partial') && !customerId) {
+            alert("Para registrar una deuda o pago parcial, debes seleccionar un Cliente registrado.");
+            return;
+        }
+
         const transaction: Transaction = {
-            id: customTicketId || '', // Pass custom ID if provided
+            id: customTicketId || '', 
             date: new Date(date).toISOString(),
             customerId: customerId || undefined,
             items: items,
             subtotal: total,
-            taxAmount: 0, // Simplified for manual entry
+            taxAmount: 0, 
             discount: 0,
             shipping: 0,
             total: total,
             paymentMethod: paymentMethod,
-            paymentStatus: paymentMethod === 'credit' ? 'pending' : 'paid',
-            amountPaid: paymentMethod === 'credit' ? 0 : total,
+            paymentStatus: finalStatus,
+            amountPaid: paid,
             status: 'completed'
         };
 
@@ -258,41 +285,59 @@ const ManualEntryModal: React.FC<{
                     </div>
                 </div>
 
-                <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 rounded-b-2xl">
-                    <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
-                        <div className="flex items-center gap-4">
-                            <label className="text-sm font-bold text-slate-600 dark:text-slate-300">Pago:</label>
+                <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 rounded-b-2xl space-y-4">
+                    <div className="flex flex-col md:flex-row gap-4">
+                        <div className="flex-1">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-300 block mb-1">Forma de Pago:</label>
                             <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-slate-200 dark:border-slate-700">
                                 {['cash', 'card', 'transfer', 'credit'].map((m: any) => (
                                     <button 
                                         key={m} 
                                         onClick={() => setPaymentMethod(m)} 
-                                        className={`px-3 py-1.5 rounded-md text-xs font-bold capitalize transition-colors ${paymentMethod === m ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                                        className={`flex-1 px-3 py-1.5 rounded-md text-xs font-bold capitalize transition-colors ${paymentMethod === m ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                                     >
                                         {m === 'transfer' ? 'Transf.' : m === 'credit' ? 'Crédito' : m === 'card' ? 'Tarjeta' : 'Efectivo'}
                                     </button>
                                 ))}
                             </div>
                         </div>
+                        <div className="flex-1">
+                            <label className="text-xs font-bold text-slate-600 dark:text-slate-300 block mb-1">Monto Pagado Real ($):</label>
+                            <input 
+                                type="number"
+                                className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                                value={paidAmount}
+                                onChange={(e) => setPaidAmount(e.target.value)}
+                                placeholder={total.toFixed(2)}
+                            />
+                            {(parseFloat(paidAmount) || 0) < total && (
+                                <p className="text-[10px] text-red-500 mt-1 font-bold">
+                                    * Se registrará como deuda (Pendiente: ${(total - (parseFloat(paidAmount)||0)).toFixed(2)})
+                                </p>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-700">
                         <div className="flex items-center gap-2 cursor-pointer" onClick={() => setDeductStock(!deductStock)}>
                             <div className={`w-5 h-5 rounded border flex items-center justify-center ${deductStock ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600'}`}>
                                 {deductStock && <Check className="w-3.5 h-3.5" />}
                             </div>
-                            <span className="text-sm text-slate-600 dark:text-slate-300 select-none">Descontar del Stock Actual</span>
+                            <span className="text-sm text-slate-600 dark:text-slate-300 select-none">Descontar del Stock</span>
                         </div>
-                    </div>
 
-                    <div className="flex justify-between items-center">
-                        <div className="text-left">
-                            <p className="text-xs text-slate-500 uppercase font-bold">Total Venta</p>
-                            <p className="text-3xl font-black text-slate-800 dark:text-white">${total.toFixed(2)}</p>
+                        <div className="text-right flex items-center gap-4">
+                            <div>
+                                <p className="text-xs text-slate-500 uppercase font-bold">Total Venta</p>
+                                <p className="text-2xl font-black text-slate-800 dark:text-white">${total.toFixed(2)}</p>
+                            </div>
+                            <button 
+                                onClick={handleSave}
+                                className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none flex items-center gap-2 transition-all"
+                            >
+                                <Archive className="w-5 h-5" /> Guardar Venta
+                            </button>
                         </div>
-                        <button 
-                            onClick={handleSave}
-                            className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none flex items-center gap-2 transition-all"
-                        >
-                            <Archive className="w-5 h-5" /> Guardar Venta
-                        </button>
                     </div>
                 </div>
             </div>
