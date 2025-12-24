@@ -254,6 +254,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
             if (Array.isArray(safeData.customers)) setCustomers(safeData.customers);
+            if (Array.isArray(safeData.suppliers)) setSuppliers(safeData.suppliers);
+            if (Array.isArray(safeData.purchases)) setPurchases(safeData.purchases);
             if (Array.isArray(safeData.users)) setUsers(safeData.users);
             if (Array.isArray(safeData.categories)) setCategories(safeData.categories);
             if (Array.isArray(safeData.activityLogs)) setActivityLogs(safeData.activityLogs);
@@ -264,7 +266,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     const incomingSettings = { ...DEFAULT_SETTINGS, ...safeData.settings, googleWebAppUrl: url, cloudSecret: secret };
                     
                     // CRITICAL FIX: If local has a logo but cloud doesn't, KEEP LOCAL.
-                    // This prevents the logo from disappearing if cloud sync hasn't caught up yet.
                     if (currentSettings.logo && !incomingSettings.logo) {
                         incomingSettings.logo = currentSettings.logo;
                     }
@@ -404,17 +405,22 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // --- STABILIZED ADD FUNCTIONS ---
     
     const addTransaction = (t: Transaction) => {
-        const currentMaxId = transactions.reduce((max, curr) => {
-            const idNum = parseInt(curr.id);
-            return !isNaN(idNum) && idNum > max ? idNum : max;
-        }, settings.sequences.ticketStart - 1);
+        // If ID provided (e.g. from manual entry), use it. Else generate.
+        let newId = t.id;
         
-        const newId = t.id || (currentMaxId + 1).toString();
+        if (!newId) {
+            const currentMaxId = transactions.reduce((max, curr) => {
+                const idNum = parseInt(curr.id);
+                return !isNaN(idNum) && idNum > max ? idNum : max;
+            }, settings.sequences.ticketStart - 1);
+            newId = (currentMaxId + 1).toString();
+        }
+        
         const final = { ...t, id: newId };
         
         setTransactions(prev => [final, ...prev]);
         
-        if (t.paymentStatus === 'paid' && !t.isReturn) {
+        if (t.paymentStatus === 'paid' && !t.isReturn && !t.id.startsWith('manual-')) {
              addCashMovement({ 
                  id: `mv_${final.id}`, 
                  type: 'DEPOSIT', 
@@ -458,6 +464,49 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         logActivity('CRM', `Nuevo cliente: ${c.name}`);
     };
 
+    // --- SUPPLIERS & PURCHASES IMPL ---
+    const addSupplier = (s: Supplier) => {
+        setSuppliers(prev => [...prev, s]);
+        markLocalChange();
+        logActivity('CRM', `Nuevo proveedor: ${s.name}`);
+    };
+
+    const updateSupplier = (s: Supplier) => {
+        setSuppliers(prev => prev.map(sup => sup.id === s.id ? s : sup));
+        markLocalChange();
+        logActivity('CRM', `Actualizó proveedor: ${s.name}`);
+    };
+
+    const deleteSupplier = async (id: string) => {
+        const s = suppliers.find(sup => sup.id === id);
+        setSuppliers(prev => prev.filter(sup => sup.id !== id));
+        markLocalChange();
+        logActivity('CRM', `Eliminó proveedor: ${s?.name}`);
+        return true;
+    };
+
+    const addPurchase = (p: Purchase) => {
+        setPurchases(prev => [...prev, p]);
+        
+        // Update Stock based on purchase
+        p.items.forEach(item => {
+            adjustStock(item.productId, item.quantity, 'IN', item.variantId);
+        });
+
+        // Add expense to cash register
+        addCashMovement({
+            id: `purch_${p.id}`,
+            type: 'EXPENSE',
+            amount: p.total,
+            description: `Compra a ${p.supplierName}`,
+            date: p.date,
+            category: 'OPERATIONAL'
+        });
+
+        markLocalChange();
+        logActivity('INVENTORY', `Nueva compra a ${p.supplierName}: $${p.total}`);
+    };
+
     const addOrder = (o: Order) => {
         const currentMaxId = orders.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
@@ -499,7 +548,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         <StoreContext.Provider value={{
             products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing, hasPendingChanges,
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), addTransaction, deleteTransaction, registerTransactionPayment: (id, am)=>setTransactions(p=>p.map(t=>t.id===id?{...t, amountPaid: (t.amountPaid||0)+am}:t)), updateStockAfterSale: (its)=>its.forEach(i=>adjustStock(i.id, i.quantity, 'OUT', i.variantId)),
-            addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), addSupplier: (s)=>console.log(s), updateSupplier: (s)=>console.log(s), deleteSupplier: async (id)=>true, addPurchase: (p)=>console.log(p), addCashMovement, deleteCashMovement,
+            addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
+            addSupplier, updateSupplier, deleteSupplier, addPurchase,
+            addCashMovement, deleteCashMovement,
             addOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale: (id, m)=>{}, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
             notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset
         }}>

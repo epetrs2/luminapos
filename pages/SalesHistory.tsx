@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Package, Trash2, Loader2, AlertTriangle, Smartphone, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive } from 'lucide-react';
+import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Package, Trash2, Loader2, AlertTriangle, Smartphone, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
 import { printInvoice, printThermalTicket } from '../utils/printService';
@@ -35,6 +35,7 @@ const ManualEntryModal: React.FC<{
     // Form State
     const [date, setDate] = useState(new Date().toISOString().slice(0, 16));
     const [customerId, setCustomerId] = useState('');
+    const [customTicketId, setCustomTicketId] = useState('');
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer' | 'credit'>('cash');
     const [deductStock, setDeductStock] = useState(false);
     
@@ -98,7 +99,7 @@ const ManualEntryModal: React.FC<{
         }
 
         const transaction: Transaction = {
-            id: '', // Will be auto-generated
+            id: customTicketId || '', // Pass custom ID if provided
             date: new Date(date).toISOString(),
             customerId: customerId || undefined,
             items: items,
@@ -142,6 +143,19 @@ const ManualEntryModal: React.FC<{
                             />
                         </div>
                         <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Folio / ID de Ticket (Opcional)</label>
+                            <div className="relative">
+                                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                <input 
+                                    type="text" 
+                                    placeholder="Ej. A-100 o Déjalo vacío"
+                                    value={customTicketId} 
+                                    onChange={(e) => setCustomTicketId(e.target.value)} 
+                                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-mono"
+                                />
+                            </div>
+                        </div>
+                        <div className="md:col-span-2">
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cliente (Opcional)</label>
                             <select 
                                 value={customerId} 
