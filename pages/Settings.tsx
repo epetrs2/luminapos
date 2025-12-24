@@ -1,9 +1,178 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Database, Download, AlertTriangle, PieChart, Bell, Volume2, Printer, Trash2, Hash, FileInput, Info, CreditCard, Percent, Cloud, CloudOff, RefreshCw, LayoutTemplate, Eye, Calendar, Phone, DollarSign, ToggleLeft, ToggleRight, Check, Lock, RotateCw, ShieldCheck, Loader2, Zap } from 'lucide-react';
-import { processLogoImage } from '../utils/imageHelper';
+import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Database, Download, AlertTriangle, PieChart, Bell, Volume2, Printer, Trash2, Hash, FileInput, Info, CreditCard, Percent, Cloud, CloudOff, RefreshCw, LayoutTemplate, Eye, Calendar, Phone, DollarSign, ToggleLeft, ToggleRight, Check, Lock, RotateCw, ShieldCheck, Loader2, Zap, X, Move, ZoomIn } from 'lucide-react';
 import { pushFullDataToCloud } from '../services/syncService';
+
+// --- IMAGE CROPPER COMPONENT ---
+interface ImageCropperProps {
+    imageSrc: string;
+    onCancel: () => void;
+    onSave: (processedImage: string) => void;
+}
+
+const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const [scale, setScale] = useState(1);
+    const [offset, setOffset] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const [startPan, setStartPan] = useState({ x: 0, y: 0 });
+    const imgRef = useRef<HTMLImageElement>(new Image());
+    const [imgLoaded, setImgLoaded] = useState(false);
+
+    // Load image initially
+    useEffect(() => {
+        imgRef.current.src = imageSrc;
+        imgRef.current.onload = () => {
+            setImgLoaded(true);
+            // Center image initially
+            const canvasSize = 300;
+            const aspect = imgRef.current.width / imgRef.current.height;
+            let initialScale = 1;
+            
+            // Fit logic
+            if (imgRef.current.width > imgRef.current.height) {
+                initialScale = canvasSize / imgRef.current.height;
+            } else {
+                initialScale = canvasSize / imgRef.current.width;
+            }
+            setScale(initialScale * 0.8); // Start slightly zoomed out to see full image
+        };
+    }, [imageSrc]);
+
+    // Draw Loop
+    useEffect(() => {
+        if (!imgLoaded || !canvasRef.current) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // 1. Clear & Fill White (Handles Transparency)
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 2. Draw Image with Transforms
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+
+        ctx.save();
+        ctx.translate(centerX + offset.x, centerY + offset.y);
+        ctx.scale(scale, scale);
+        // Draw image centered at origin
+        ctx.drawImage(
+            imgRef.current, 
+            -imgRef.current.width / 2, 
+            -imgRef.current.height / 2
+        );
+        ctx.restore();
+
+    }, [imgLoaded, scale, offset]);
+
+    const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
+        setIsDragging(true);
+        const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+        const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+        setStartPan({ x: clientX - offset.x, y: clientY - offset.y });
+    };
+
+    const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
+        if (!isDragging) return;
+        e.preventDefault(); 
+        const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+        const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+        setOffset({ x: clientX - startPan.x, y: clientY - startPan.y });
+    };
+
+    const handleMouseUp = () => setIsDragging(false);
+
+    const handleFinalSave = () => {
+        if (!canvasRef.current) return;
+        
+        // Create a high-res output canvas (500x500)
+        const outputCanvas = document.createElement('canvas');
+        outputCanvas.width = 500;
+        outputCanvas.height = 500;
+        const ctx = outputCanvas.getContext('2d');
+        
+        if (ctx) {
+            // Fill White
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, 500, 500);
+
+            // Calculate ratio between preview (300px) and output (500px)
+            const ratio = 500 / 300; 
+
+            const centerX = 250;
+            const centerY = 250;
+
+            ctx.save();
+            ctx.translate(centerX + (offset.x * ratio), centerY + (offset.y * ratio));
+            ctx.scale(scale * ratio, scale * ratio);
+            ctx.drawImage(
+                imgRef.current, 
+                -imgRef.current.width / 2, 
+                -imgRef.current.height / 2
+            );
+            ctx.restore();
+
+            // Export as JPEG
+            onSave(outputCanvas.toDataURL('image/jpeg', 0.92));
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] bg-black/80 flex flex-col items-center justify-center p-4 backdrop-blur-sm animate-[fadeIn_0.2s]">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        <Move className="w-5 h-5 text-indigo-500" /> Ajustar Logo
+                    </h3>
+                    <button onClick={onCancel}><X className="w-6 h-6 text-slate-400 hover:text-slate-600" /></button>
+                </div>
+
+                <div className="relative w-[300px] h-[300px] mx-auto bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden shadow-inner border-2 border-dashed border-slate-300 dark:border-slate-600 cursor-move touch-none">
+                    <canvas 
+                        ref={canvasRef}
+                        width={300}
+                        height={300}
+                        className="w-full h-full"
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={handleMouseUp}
+                        onTouchStart={handleMouseDown}
+                        onTouchMove={handleMouseMove}
+                        onTouchEnd={handleMouseUp}
+                    />
+                    {/* Visual Guide Overlay (Circular for Main Logo, Square for Receipt?) let's do Square with rounded corners visual aid */}
+                    <div className="absolute inset-0 pointer-events-none border-2 border-indigo-500/30 rounded-full" style={{boxShadow: '0 0 0 100px rgba(0,0,0,0.5)'}}></div>
+                </div>
+                
+                <div className="mt-6 px-4">
+                    <div className="flex items-center gap-4 text-slate-500">
+                        <ZoomIn className="w-5 h-5" />
+                        <input 
+                            type="range" 
+                            min="0.1" 
+                            max="5" 
+                            step="0.1" 
+                            value={scale} 
+                            onChange={(e) => setScale(parseFloat(e.target.value))}
+                            className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                        />
+                    </div>
+                    <p className="text-[10px] text-center text-slate-400 mt-2">Arrastra para mover • Usa la barra para zoom</p>
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                    <button onClick={onCancel} className="flex-1 py-3 text-slate-600 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl">Cancelar</button>
+                    <button onClick={handleFinalSave} className="flex-[2] py-3 text-white font-bold bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-lg">Aplicar Foto</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, products, categories, transactions, cashMovements, customers, suppliers, users, importData, requestNotificationPermission, notify, pullFromCloud, pushToCloud, isSyncing, hardReset } = useStore();
@@ -11,8 +180,11 @@ export const Settings: React.FC = () => {
   const [formData, setFormData] = useState(settings);
   const [isSaved, setIsSaved] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState<NotificationPermission>('default');
-  const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  
+  // Cropper State
+  const [cropImage, setCropImage] = useState<string | null>(null);
+  const [cropTarget, setCropTarget] = useState<'logo' | 'receiptLogo' | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const receiptLogoInputRef = useRef<HTMLInputElement>(null);
@@ -23,12 +195,8 @@ export const Settings: React.FC = () => {
     if ('Notification' in window) {
         const status = Notification.permission;
         setPermissionStatus(status);
-        
-        // AUTO-SYNC: If browser says YES, we force the switch to ON.
         if (status === 'granted') {
              setFormData(prev => ({...prev, notificationsEnabled: true}));
-             
-             // Ensure global settings are in sync without triggering infinite loops
              if (!settings.notificationsEnabled) {
                  updateSettings({ ...settings, notificationsEnabled: true });
              }
@@ -48,10 +216,7 @@ export const Settings: React.FC = () => {
   const handleBudgetChange = (field: keyof typeof formData.budgetConfig, value: number) => {
       setFormData(prev => ({
           ...prev,
-          budgetConfig: {
-              ...prev.budgetConfig,
-              [field]: value
-          }
+          budgetConfig: { ...prev.budgetConfig, [field]: value }
       }));
       setIsSaved(false);
   };
@@ -59,10 +224,7 @@ export const Settings: React.FC = () => {
   const handleSequenceChange = (field: keyof typeof formData.sequences, value: number) => {
       setFormData(prev => ({
           ...prev,
-          sequences: {
-              ...prev.sequences,
-              [field]: value
-          }
+          sequences: { ...prev.sequences, [field]: value }
       }));
       setIsSaved(false);
   };
@@ -70,37 +232,39 @@ export const Settings: React.FC = () => {
   const handleProductionDocChange = (field: keyof typeof formData.productionDoc, value: any) => {
       setFormData(prev => ({
           ...prev,
-          productionDoc: {
-              ...prev.productionDoc,
-              [field]: value
-          }
+          productionDoc: { ...prev.productionDoc, [field]: value }
       }));
       setIsSaved(false);
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logo' | 'receiptLogo') => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, field: 'logo' | 'receiptLogo') => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5000000) { // 5MB limit check before processing
-          alert("La imagen es demasiado grande. Intenta con una menor a 5MB.");
+      if (file.size > 10000000) { // 10MB limit
+          alert("La imagen es demasiado grande. Intenta con una menor a 10MB.");
           return;
       }
       
-      setIsProcessingImage(true);
-      try {
-          // Use the new helper to process: resize + white background
-          const processedImage = await processLogoImage(file);
-          handleInputChange(field, processedImage);
-          notify("Imagen Procesada", "Se ha ajustado el tamaño y el fondo correctamente.", "success");
-      } catch (error) {
-          console.error("Error processing image", error);
-          notify("Error de Imagen", "No se pudo procesar la imagen. Intenta con otro archivo.", "error");
-      } finally {
-          setIsProcessingImage(false);
-          // Reset input so same file can be selected again if needed
-          if (e.target) e.target.value = '';
-      }
+      // Read file as DataURL for the cropper
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+          setCropImage(ev.target?.result as string);
+          setCropTarget(field);
+      };
+      reader.readAsDataURL(file);
+      
+      // Reset input
+      e.target.value = '';
     }
+  };
+
+  const handleCropSave = (processedImage: string) => {
+      if (cropTarget) {
+          handleInputChange(cropTarget, processedImage);
+          notify("Imagen Actualizada", "El logo se ha ajustado y procesado correctamente.", "success");
+      }
+      setCropImage(null);
+      setCropTarget(null);
   };
 
   const handleSave = async () => {
@@ -114,7 +278,6 @@ export const Settings: React.FC = () => {
     updateSettings(formData);
     setIsSaved(true);
     
-    // Force immediate push to cloud if enabled, using the NEW form data to avoid race condition
     if (formData.enableCloudSync) {
         await pushToCloud({ settings: formData });
     }
@@ -145,7 +308,7 @@ export const Settings: React.FC = () => {
 
           if (Notification.permission === 'granted') {
               handleInputChange('notificationsEnabled', true);
-              updateSettings({ ...settings, notificationsEnabled: true }); // Instant save
+              updateSettings({ ...settings, notificationsEnabled: true });
               setPermissionStatus('granted');
               notify('Sistema Activado', 'Las notificaciones de escritorio están habilitadas.', 'success', true);
               return;
@@ -162,14 +325,14 @@ export const Settings: React.FC = () => {
           
           if (granted) {
               handleInputChange('notificationsEnabled', true);
-              updateSettings({ ...settings, notificationsEnabled: true }); // Instant save
+              updateSettings({ ...settings, notificationsEnabled: true });
               notify('Sistema Activado', 'Las notificaciones de escritorio están habilitadas.', 'success', true);
           } else {
               handleInputChange('notificationsEnabled', false);
           }
       } else {
           handleInputChange('notificationsEnabled', false);
-          updateSettings({ ...settings, notificationsEnabled: false }); // Instant save
+          updateSettings({ ...settings, notificationsEnabled: false });
       }
   };
 
@@ -260,11 +423,11 @@ export const Settings: React.FC = () => {
           </div>
           <button
             onClick={handleSave}
-            disabled={isSaved || isSyncing || isProcessingImage}
+            disabled={isSaved || isSyncing}
             className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold shadow-lg transition-all ${isSaved ? 'bg-emerald-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 dark:shadow-none disabled:opacity-70'}`}
           >
-            {isSyncing || isProcessingImage ? <Loader2 className="w-5 h-5 animate-spin" /> : isSaved ? <CheckCircle className="w-5 h-5" /> : <Save className="w-5 h-5" />}
-            {isProcessingImage ? 'Procesando img...' : isSyncing ? 'Sincronizando...' : isSaved ? '¡Guardado!' : 'Guardar Cambios'}
+            {isSyncing ? <Loader2 className="w-5 h-5 animate-spin" /> : isSaved ? <CheckCircle className="w-5 h-5" /> : <Save className="w-5 h-5" />}
+            {isSyncing ? 'Sincronizando...' : isSaved ? '¡Guardado!' : 'Guardar Cambios'}
           </button>
         </div>
 
@@ -302,8 +465,8 @@ export const Settings: React.FC = () => {
                             )}
                             <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium">Cambiar</div>
                         </div>
-                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'logo')}/>
-                        <p className="text-[10px] text-slate-400 mt-2">Se ajustará y pondrá fondo blanco automáticamente.</p>
+                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, 'logo')}/>
+                        <p className="text-[10px] text-slate-400 mt-2">Haz clic para ajustar la imagen.</p>
                     </div>
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                         <div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nombre del Negocio</label><input type="text" value={formData.name} onChange={(e) => handleInputChange('name', e.target.value)} className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"/></div>
@@ -383,7 +546,7 @@ export const Settings: React.FC = () => {
                                         {formData.receiptLogo ? <img src={formData.receiptLogo} alt="Receipt Logo" className="w-full h-full object-contain p-1 filter grayscale contrast-150" /> : <Upload className="w-6 h-6 text-slate-300" />}
                                         <div className="absolute inset-0 bg-black/10 hidden group-hover:flex items-center justify-center text-[10px]">Cambiar</div>
                                     </div>
-                                    <input type="file" ref={receiptLogoInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'receiptLogo')} />
+                                    <input type="file" ref={receiptLogoInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, 'receiptLogo')} />
                                 </div>
                                 <div className="flex-1">
                                     <p className="text-xs text-slate-500 mb-2">Ancho de Papel</p>
@@ -830,6 +993,15 @@ export const Settings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* CROPPER MODAL - Rendered Conditionally */}
+      {cropImage && (
+          <ImageCropper 
+              imageSrc={cropImage} 
+              onCancel={() => { setCropImage(null); setCropTarget(null); }} 
+              onSave={handleCropSave} 
+          />
+      )}
     </div>
   );
 };
