@@ -229,13 +229,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         
         setIsSyncing(true);
         try {
+            // Strictly await success. If this throws, hasPendingChanges remains true.
             await pushFullDataToCloud(config.googleWebAppUrl, config.cloudSecret, { ...currentData, ...overrides });
+            
             lastCloudSyncTimestamp.current = Date.now();
             lastPushSuccessAt.current = Date.now();
             setHasPendingChanges(false); 
         } catch (e) {
-            console.error("Sync Error", e);
-        } finally { setIsSyncing(false); }
+            console.error("Sync Error (Push):", e);
+            // We do NOT set hasPendingChanges to false here, so it retries later.
+        } finally { 
+            setIsSyncing(false); 
+        }
     }, []); 
 
     const pullFromCloud = async (overrideUrl?: string, overrideSecret?: string, silent: boolean = false, force: boolean = false) => {
@@ -252,12 +257,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (!silent) setIsSyncing(true);
         try {
             const cloudData = await fetchFullDataFromCloud(url, secret);
+            
+            // Critical check: Ensure we actually got data, not null (busy) or undefined
             if (!cloudData) return false;
+            
+            // Check for expected structure to avoid overwriting with garbage
+            if (!cloudData.products && !cloudData.settings && !cloudData.users) {
+                console.warn("Pull ignorado: Estructura de datos inválida o vacía.");
+                return false;
+            }
+
             const cloudTs = cloudData.timestamp ? new Date(cloudData.timestamp).getTime() : 0;
             
-            // RELAXED STALE CHECK: Only skip if we have pending changes or if cloud is REALLY old
-            // We removed the strict check against lastPushSuccessAt because small clock skews were blocking updates.
-            // Now we rely on 'hasPendingChanges' as the main gate.
+            // RELAXED STALE CHECK: Only skip if we have pending changes
             if (!force && hasPendingChanges) {
                 return false;
             }
@@ -301,7 +313,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             dataLoadedRef.current = true;
             lastCloudSyncTimestamp.current = cloudTs;
             setHasPendingChanges(false); 
-            if (!silent) notify('Sincronizado', 'Datos actualizados.', 'success');
+            if (!silent) notify('Sincronizado', 'Datos actualizados desde la nube.', 'success');
             return true;
         } catch (e: any) {
             if (!silent) notify("Error Sincro", e.message, "error");
