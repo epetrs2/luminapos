@@ -154,6 +154,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     const lastLocalUpdate = useRef<number>(0); 
     const lastCloudSyncTimestamp = useRef<number>(0);
+    const lastPushSuccessAt = useRef<number>(0); // NEW: Track last successful push time
     const dataLoadedRef = useRef(false);
     
     const storeRef = useRef({
@@ -233,6 +234,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         try {
             await pushFullDataToCloud(config.googleWebAppUrl, config.cloudSecret, { ...currentData, ...overrides });
             lastCloudSyncTimestamp.current = Date.now();
+            lastPushSuccessAt.current = Date.now(); // TRACK SUCCESSFUL PUSH
             setHasPendingChanges(false); 
         } catch (e) {} finally { setIsSyncing(false); }
     }, []); 
@@ -259,6 +261,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             // Double check: If local updated while we were fetching
             if (!force && hasPendingChanges) {
                 return;
+            }
+
+            // STALE DATA PROTECTION: 
+            // If the cloud returns data OLDER than our last successful PUSH, it means Google Sheets hasn't processed the update yet.
+            // We ignore this incoming data to prevent overwriting the new data we just sent.
+            if (!force && lastPushSuccessAt.current > 0 && cloudTs < lastPushSuccessAt.current) {
+                if (!silent) console.log("⏳ Ignorando datos de nube antiguos (latencia de Google).");
+                return; 
             }
 
             const safeData = sanitizeDataStructure(cloudData);
@@ -301,6 +311,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (!window.confirm("¿Restablecer y descargar todo de la nube?")) return;
         lastLocalUpdate.current = 0;
         setHasPendingChanges(false);
+        lastPushSuccessAt.current = 0; // Reset protection
         await pullFromCloud(undefined, undefined, false, true);
     };
 
