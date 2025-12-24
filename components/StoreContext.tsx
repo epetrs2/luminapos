@@ -91,7 +91,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     theme: 'light',
     budgetConfig: { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20 },
     notificationsEnabled: false,
-    sequences: { customerStart: 1001, ticketStart: 10001, orderStart: 5001 },
+    sequences: { customerStart: 1001, ticketStart: 10001, orderStart: 5001, productStart: 100 },
     productionDoc: { title: 'ORDEN DE TRABAJO', showPrices: true, showCustomerContact: true, showDates: true, customFooter: '' },
     enableCloudSync: true,
     googleWebAppUrl: '',
@@ -348,7 +348,23 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const logout = () => { setCurrentUser(null); localStorage.removeItem('currentUser'); };
-    const addProduct = (p: Product) => { setProducts(prev => [...prev, p]); markLocalChange(); logActivity('INVENTORY', `Agregó producto: ${p.name}`); };
+    
+    // --- STABILIZED ADD PRODUCT ---
+    const addProduct = (p: Product) => {
+        // Generate Safe ID based on current max + 1
+        const currentMaxId = products.reduce((max, curr) => {
+            const idNum = parseInt(curr.id);
+            return !isNaN(idNum) && idNum > max ? idNum : max;
+        }, (settings.sequences.productStart || 100) - 1);
+        
+        const newId = (currentMaxId + 1).toString();
+        const finalProduct = { ...p, id: newId };
+
+        setProducts(prev => [...prev, finalProduct]); 
+        markLocalChange(); 
+        logActivity('INVENTORY', `Agregó producto: ${p.name} (ID: ${newId})`); 
+    };
+
     const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); markLocalChange(); logActivity('INVENTORY', `Actualizó producto: ${p.name}`); };
     const deleteProduct = async (id: string) => { const p = products.find(prod=>prod.id===id); setProducts(prev => prev.filter(p => p.id !== id)); markLocalChange(); logActivity('INVENTORY', `Eliminó producto: ${p?.name}`); return true; };
     const adjustStock = (id: string, qty: number, type: 'IN' | 'OUT', vId?: string) => {
@@ -370,7 +386,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // --- STABILIZED ADD FUNCTIONS ---
     
     const addTransaction = (t: Transaction) => {
-        // Safe ID generation based on current max
         const currentMaxId = transactions.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;
@@ -396,7 +411,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const addCustomer = (c: Customer) => {
-        // Safe ID generation based on current max
         const currentMaxId = customers.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;
@@ -410,7 +424,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const addOrder = (o: Order) => {
-        // Safe ID generation based on current max
         const currentMaxId = orders.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;

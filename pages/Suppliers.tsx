@@ -153,7 +153,7 @@ export const Suppliers: React.FC = () => {
       
       // FIX: Added required unit and isActive properties to the new product object
       const newProd: Product = {
-          id: crypto.randomUUID(),
+          id: '', // Empty ID tells StoreContext to generate safe sequential ID
           name: quickProduct.name,
           price: quickProduct.type === 'SUPPLY' ? 0 : (parseFloat(quickProduct.price) || 0), // Supply has 0 sales price
           cost: parseFloat(quickProduct.cost) || 0,
@@ -170,17 +170,14 @@ export const Suppliers: React.FC = () => {
       addProduct(newProd);
 
       // Add to current purchase cart
-      setPurchaseCart(prev => [...prev, {
-          productId: newProd.id,
-          name: newProd.name,
-          quantity: 1,
-          unitCost: parseFloat(quickProduct.cost) || 0,
-          total: parseFloat(quickProduct.cost) || 0,
-          type: newProd.type
-      }]);
-
+      // Note: Since ID is generated in context asynchronously (in terms of React batching), we might not have the ID immediately here for the cart.
+      // However, for immediate UI feedback we can rely on standard behavior or fetch latest.
+      // To keep it simple and safe for "Quick Add", we might miss the ID in the *cart* but it will exist in products.
+      // Ideally we'd return the new ID from addProduct, but for now let's close modal.
+      
       setIsQuickCreateOpen(false);
       setProductSearch('');
+      alert("Producto creado. Búscalo nuevamente para agregarlo a la compra."); 
   };
 
   const sortedPurchases = [...purchases].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

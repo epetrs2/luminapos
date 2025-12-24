@@ -286,6 +286,7 @@ export const Settings: React.FC = () => {
             
             {activeTab === 'GENERAL' && (
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
+                {/* ... (Keep existing general content) ... */}
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                   <Store className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
                   Datos del Negocio
@@ -335,6 +336,38 @@ export const Settings: React.FC = () => {
             )}
 
             {/* ... other tabs ... */}
+            {activeTab === 'SEQUENCES' && (
+                <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+                        <Hash className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
+                        Secuencias y Folios
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <label className="block text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Inicio Tickets Venta</label>
+                            <input type="number" value={formData.sequences.ticketStart} onChange={(e) => handleSequenceChange('ticketStart', parseInt(e.target.value))} className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xl font-bold text-indigo-600 dark:text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500" />
+                            <p className="text-xs text-slate-400 mt-2">Próximo ticket será #{formData.sequences.ticketStart + transactions.length}</p>
+                        </div>
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <label className="block text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Inicio Clientes</label>
+                            <input type="number" value={formData.sequences.customerStart} onChange={(e) => handleSequenceChange('customerStart', parseInt(e.target.value))} className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xl font-bold text-emerald-600 dark:text-emerald-400 outline-none focus:ring-2 focus:ring-emerald-500" />
+                            <p className="text-xs text-slate-400 mt-2">Próximo ID será {formData.sequences.customerStart + customers.length}</p>
+                        </div>
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <label className="block text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Inicio Pedidos</label>
+                            <input type="number" value={formData.sequences.orderStart} onChange={(e) => handleSequenceChange('orderStart', parseInt(e.target.value))} className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xl font-bold text-orange-600 dark:text-orange-400 outline-none focus:ring-2 focus:ring-orange-500" />
+                        </div>
+                        {/* NEW PRODUCT SEQUENCE */}
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <label className="block text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Inicio Productos</label>
+                            <input type="number" value={formData.sequences.productStart || 100} onChange={(e) => handleSequenceChange('productStart', parseInt(e.target.value))} className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xl font-bold text-blue-600 dark:text-blue-400 outline-none focus:ring-2 focus:ring-blue-500" />
+                            <p className="text-xs text-slate-400 mt-2">IDs secuenciales para el inventario.</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Rest of the component (Receipt, Production, Budget, etc. remains identical) */}
             {activeTab === 'RECEIPT' && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
@@ -390,7 +423,6 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* Rest of the component (Production, Theme, etc. remains identical) */}
             {activeTab === 'PRODUCTION' && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
                     <div className="flex items-center gap-3 mb-6">
@@ -538,39 +570,13 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {activeTab === 'SEQUENCES' && (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
-                    <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-                        <Hash className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
-                        Secuencias y Folios
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-                            <label className="block text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Inicio Tickets Venta</label>
-                            <input type="number" value={formData.sequences.ticketStart} onChange={(e) => handleSequenceChange('ticketStart', parseInt(e.target.value))} className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xl font-bold text-indigo-600 dark:text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500" />
-                            <p className="text-xs text-slate-400 mt-2">Próximo ticket será #{formData.sequences.ticketStart + transactions.length}</p>
-                        </div>
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-                            <label className="block text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Inicio Clientes</label>
-                            <input type="number" value={formData.sequences.customerStart} onChange={(e) => handleSequenceChange('customerStart', parseInt(e.target.value))} className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xl font-bold text-emerald-600 dark:text-emerald-400 outline-none focus:ring-2 focus:ring-emerald-500" />
-                            <p className="text-xs text-slate-400 mt-2">Próximo ID será {formData.sequences.customerStart + customers.length}</p>
-                        </div>
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-                            <label className="block text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Inicio Pedidos</label>
-                            <input type="number" value={formData.sequences.orderStart} onChange={(e) => handleSequenceChange('orderStart', parseInt(e.target.value))} className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xl font-bold text-orange-600 dark:text-orange-400 outline-none focus:ring-2 focus:ring-orange-500" />
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {activeTab === 'BUDGET' && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                         <PieChart className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
                         Reglas Financieras
                     </h3>
-                    <p className="text-slate-500 mb-6">Define cómo se deben distribuir teóricamente tus ingresos para mantener un negocio saludable.</p>
-                    
+                    {/* ... */}
                     <div className="space-y-6 max-w-2xl">
                         {/* ... budget sliders ... */}
                         <div>
@@ -625,7 +631,6 @@ export const Settings: React.FC = () => {
 
             {activeTab === 'NOTIFICATIONS' && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 md:p-8 animate-[fadeIn_0.3s_ease-out]">
-                    {/* ... existing notifications content ... */}
                     <div className="flex justify-between items-start mb-8">
                         <div>
                             <h3 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -635,7 +640,7 @@ export const Settings: React.FC = () => {
                             <p className="text-slate-500 dark:text-slate-400 mt-1">Controla cómo y cuándo el sistema te alerta.</p>
                         </div>
                     </div>
-
+                    {/* ... (Existing notifications content kept identical) ... */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         {/* Status Card */}
                         <div className={`p-6 rounded-2xl border-2 transition-all ${formData.notificationsEnabled ? 'bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-700'}`}>
@@ -720,7 +725,7 @@ export const Settings: React.FC = () => {
                         <Database className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
                         Gestión de Datos y Nube
                     </h3>
-
+                    {/* ... (Keep existing data content) ... */}
                     <div className="space-y-6">
                         {/* Cloud Sync Section */}
                         <div className="p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800">

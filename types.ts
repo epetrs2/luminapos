@@ -177,6 +177,7 @@ export interface SequenceConfig {
   customerStart: number;
   ticketStart: number;
   orderStart: number;
+  productStart: number;
 }
 
 export interface ProductionDocConfig {

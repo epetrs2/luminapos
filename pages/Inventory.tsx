@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, Search, Package, AlertTriangle, ArrowLeftRight, Sparkles, X, BrainCircuit, Loader2, Filter, Check, Layers, Tag, Percent, DollarSign, Archive, Box, Eye, EyeOff, Scale, Info } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Package, AlertTriangle, ArrowLeftRight, Sparkles, X, BrainCircuit, Loader2, Filter, Check, Layers, Tag, Percent, DollarSign, Archive, Box, Eye, EyeOff, Scale, Info, Hash } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Product, ProductVariant, MeasurementUnit } from '../types';
 import { generateStockRecommendations, StockRecommendation } from '../services/geminiService';
@@ -95,7 +95,7 @@ export const Inventory: React.FC = () => {
     const finalProduct: Product = {
         ...(editingProduct || {}),
         ...formData,
-        id: editingProduct?.id || crypto.randomUUID(),
+        id: editingProduct?.id || '', // Empty ID tells StoreContext to generate a SAFE, SEQUENTIAL ID
         stock: formData.hasVariants ? tempVariants.reduce((sum, v) => sum + v.stock, 0) : (formData.stock || 0),
         variants: formData.hasVariants ? tempVariants : undefined,
         taxRate: settings.enableTax ? (formData.taxRate ?? 0) : 0,
@@ -173,7 +173,8 @@ export const Inventory: React.FC = () => {
     const itemType = p.type || 'PRODUCT'; 
     const matchesType = itemType === inventoryType;
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          p.sku.toLowerCase().includes(searchTerm.toLowerCase());
+                          p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          p.id.toLowerCase().includes(searchTerm.toLowerCase()); // Added ID search
     const matchesCategory = categoryFilter === 'ALL' || p.category === categoryFilter;
     
     return matchesType && matchesSearch && matchesCategory;
@@ -223,7 +224,7 @@ export const Inventory: React.FC = () => {
           <div className="p-4 md:p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <input type="text" placeholder={`Buscar ${inventoryType === 'PRODUCT' ? 'producto' : 'insumo'}...`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+              <input type="text" placeholder={`Buscar ${inventoryType === 'PRODUCT' ? 'producto' : 'insumo'} (Nombre, SKU, ID)...`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
             </div>
             <div className="relative w-full md:w-64">
               <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
@@ -266,7 +267,10 @@ export const Inventory: React.FC = () => {
                                 </span>
                             )}
                         </div>
-                        <div className="text-xs text-slate-400 mt-0.5">{product.category}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-slate-400">{product.category}</span>
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600 bg-slate-100 dark:bg-slate-800 px-1 rounded flex items-center gap-0.5"><Hash className="w-2.5 h-2.5"/> {product.id}</span>
+                        </div>
                     </td>
                     <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-mono text-xs">{product.sku}</td>
                     <td className="px-6 py-4 text-center">
