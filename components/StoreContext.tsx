@@ -420,7 +420,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         
         setTransactions(prev => [final, ...prev]);
         
-        if (t.paymentStatus === 'paid' && !t.isReturn && !t.id.startsWith('manual-')) {
+        // 1. Logic for Cash Movement (Only if Paid & Not Return & Not Manual Old Entry check)
+        // Note: For manual entries, usually we don't want to affect TODAY's cash drawer if it was a past sale.
+        // We assume manual entries might have ids not purely numeric or date different. 
+        // Simple check: If date is NOT today, do not add to cash register.
+        const isToday = new Date(final.date).toDateString() === new Date().toDateString();
+        
+        if (t.paymentStatus === 'paid' && !t.isReturn && isToday) {
              addCashMovement({ 
                  id: `mv_${final.id}`, 
                  type: 'DEPOSIT', 
@@ -430,25 +436,92 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                  category: 'SALES' 
              });
         }
+
+        // 2. Logic for Customer Debt (Crucial for Accounting)
+        // If there is a pending balance, add it to customer debt
+        const debt = final.total - (final.amountPaid || 0);
+        
+        if (debt > 0.01 && final.customerId && final.status !== 'cancelled' && final.status !== 'returned') {
+            setCustomers(prev => prev.map(c => {
+                if (c.id === final.customerId) {
+                    return { ...c, currentDebt: c.currentDebt + debt };
+                }
+                return c;
+            }));
+        }
+
         logActivity('SALE', `Venta #${final.id} - Total: $${t.total}`);
         markLocalChange();
     };
 
     const deleteTransaction = (id: string, items: any[]) => {
-        // SOFT DELETE: Mark as cancelled instead of removing to fix cloud sync bouncing
+        const tx = transactions.find(t => t.id === id);
+        
+        // SOFT DELETE: Mark as cancelled
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled', amountPaid: 0 } : t));
         
-        // Remove associated cash movement to balance cash register
+        // Remove associated cash movement
         setCashMovements(prev => prev.filter(m => m.id !== `mv_${id}`));
         
         // Restore stock
         items.forEach(i => adjustStock(i.id, i.quantity, 'IN', i.variantId));
+
+        // Restore Customer Debt (Reverse the debt if it was pending)
+        if (tx && tx.customerId) {
+            const debt = tx.total - (tx.amountPaid || 0);
+            if (debt > 0.01) {
+                 setCustomers(prev => prev.map(c => 
+                    c.id === tx.customerId 
+                    ? { ...c, currentDebt: Math.max(0, c.currentDebt - debt) } 
+                    : c
+                ));
+            }
+        }
         
         logActivity('SALE', `Anuló Venta #${id}`);
         markLocalChange();
         
-        // FORCE PUSH to ensure deletion propagates to cloud immediately
         setTimeout(() => pushToCloud(), 100);
+    };
+
+    const registerTransactionPayment = (id: string, amount: number, method: string) => {
+        const tx = transactions.find(t => t.id === id);
+        if (!tx) return;
+
+        setTransactions(prev => prev.map(t => {
+            if (t.id === id) {
+                const newPaid = (t.amountPaid || 0) + amount;
+                let newStatus: Transaction['paymentStatus'] = t.paymentStatus;
+                if (newPaid >= t.total - 0.01) newStatus = 'paid';
+                else if (newPaid > 0) newStatus = 'partial';
+                
+                return { ...t, amountPaid: newPaid, paymentStatus: newStatus };
+            }
+            return t;
+        }));
+
+        // Reduce Customer Debt
+        if (tx.customerId) {
+            setCustomers(prev => prev.map(c => 
+                c.id === tx.customerId 
+                ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } 
+                : c
+            ));
+        }
+
+        // Add to Cash Drawer if money received now
+        if (method !== 'credit') {
+            addCashMovement({
+                id: `pay_${id}_${Date.now()}`,
+                type: 'DEPOSIT',
+                amount: amount,
+                description: `Abono Venta #${id} (${method})`,
+                date: new Date().toISOString(),
+                category: 'SALES'
+            });
+        }
+
+        markLocalChange();
     };
 
     const addCustomer = (c: Customer) => {
@@ -547,7 +620,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return (
         <StoreContext.Provider value={{
             products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing, hasPendingChanges,
-            addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), addTransaction, deleteTransaction, registerTransactionPayment: (id, am)=>setTransactions(p=>p.map(t=>t.id===id?{...t, amountPaid: (t.amountPaid||0)+am}:t)), updateStockAfterSale: (its)=>its.forEach(i=>adjustStock(i.id, i.quantity, 'OUT', i.variantId)),
+            addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), 
+            addTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale: (its)=>its.forEach(i=>adjustStock(i.id, i.quantity, 'OUT', i.variantId)),
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
             addSupplier, updateSupplier, deleteSupplier, addPurchase,
             addCashMovement, deleteCashMovement,
