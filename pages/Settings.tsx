@@ -208,6 +208,12 @@ export const Settings: React.FC = () => {
     checkPermission();
   }, []);
 
+  // Sync settings from store to form data ONLY when settings update (e.g. from cloud) 
+  // but be careful not to overwrite user typing.
+  // Ideally, we trust formData while editing, but for images we trust settings.
+  // Simple fix: We don't auto-sync here to avoid overwriting typing, 
+  // but we ensure handleCropSave uses functional update.
+
   const handleInputChange = (field: keyof typeof formData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setIsSaved(false);
@@ -259,10 +265,31 @@ export const Settings: React.FC = () => {
   };
 
   const handleCropSave = (processedImage: string) => {
-      if (cropTarget) {
-          handleInputChange(cropTarget, processedImage);
-          notify("Imagen Actualizada", "El logo se ha ajustado y procesado correctamente.", "success");
-      }
+      if (!cropTarget) return;
+
+      // FIX: Use functional update to ensure we use the LATEST state
+      setFormData(prev => {
+          const updatedSettings = {
+              ...prev,
+              [cropTarget]: processedImage
+          };
+
+          // SIDE EFFECT: Save immediately to global store & local storage
+          // This ensures that even if we switch tabs or reload, the image is saved
+          updateSettings(updatedSettings);
+
+          // Force cloud push if enabled
+          if (updatedSettings.enableCloudSync) {
+              // Delay slightly to ensure state propagation
+              setTimeout(() => {
+                  pushToCloud({ settings: updatedSettings });
+              }, 100);
+          }
+
+          return updatedSettings;
+      });
+
+      notify("Imagen Guardada", "El logo se ha actualizado correctamente.", "success");
       setCropImage(null);
       setCropTarget(null);
   };
