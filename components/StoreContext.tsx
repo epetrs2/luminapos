@@ -89,6 +89,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     receiptFooter: 'Síguenos en redes sociales',
     ticketPaperWidth: '80mm',
     invoicePadding: 10, // Default padding 10px
+    bluetoothPrinterName: null, // Default
     theme: 'light',
     budgetConfig: { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20 },
     notificationsEnabled: false,

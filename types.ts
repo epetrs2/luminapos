@@ -212,6 +212,7 @@ export interface BusinessSettings {
   receiptFooter: string;
   ticketPaperWidth: '58mm' | '80mm';
   invoicePadding: number; // New: Padding/Margin for letter invoice (in mm approx)
+  bluetoothPrinterName?: string | null; // NEW: Stores name of connected BT printer
   theme: 'light' | 'dark';
   budgetConfig: BudgetConfig; 
   notificationsEnabled: boolean; 

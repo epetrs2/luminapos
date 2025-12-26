@@ -1,7 +1,6 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Smartphone, LayoutTemplate } from 'lucide-react';
+import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Smartphone, LayoutTemplate, Bluetooth, RefreshCw, Power, Search } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 
 // --- IMAGE CROPPER COMPONENT (IMPROVED UX) ---
@@ -190,11 +189,17 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, hardReset, pushToCloud, notify } = useStore();
-  const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA'>('GENERAL');
+  const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA' | 'BLUETOOTH'>('GENERAL');
   const [formData, setFormData] = useState(settings);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [cropTarget, setCropTarget] = useState<'MAIN' | 'RECEIPT'>('MAIN');
   const [testingConnection, setTestingConnection] = useState(false);
+
+  // --- BLUETOOTH STATE ---
+  const [btDevice, setBtDevice] = useState<any>(null);
+  const [isScanningBt, setIsScanningBt] = useState(false);
+  const [btError, setBtError] = useState('');
+  const [btCharacteristic, setBtCharacteristic] = useState<any>(null);
 
   // Sync internal state with context updates
   useEffect(() => {
@@ -267,6 +272,96 @@ export const Settings: React.FC = () => {
       }
   };
 
+  // --- BLUETOOTH FUNCTIONS ---
+  const handleBtScan = async () => {
+      setBtError('');
+      setIsScanningBt(true);
+      try {
+          // Request Web Bluetooth Device
+          const device = await (navigator as any).bluetooth.requestDevice({
+              acceptAllDevices: true,
+              optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb'] // Generic service often used, helps permission flow
+          });
+
+          await connectToDevice(device);
+      } catch (error: any) {
+          console.error("BT Error:", error);
+          setBtError(error.message || 'Error al escanear. Asegúrate de tener Bluetooth encendido.');
+      } finally {
+          setIsScanningBt(false);
+      }
+  };
+
+  const connectToDevice = async (device: any) => {
+      try {
+          const server = await device.gatt.connect();
+          setBtDevice(device);
+          
+          // Store device name in settings automatically
+          if (device.name) {
+              setFormData(prev => ({...prev, bluetoothPrinterName: device.name}));
+          }
+
+          // Try to find a writable characteristic
+          // This is a generic approach for thermal printers
+          const services = await server.getPrimaryServices();
+          let char: any = null;
+
+          for (const service of services) {
+              const characteristics = await service.getCharacteristics();
+              for (const c of characteristics) {
+                  if (c.properties.write || c.properties.writeWithoutResponse) {
+                      char = c;
+                      break;
+                  }
+              }
+              if (char) break;
+          }
+
+          if (char) {
+              setBtCharacteristic(char);
+              notify('Impresora Conectada', `Conectado a ${device.name}`, 'success');
+          } else {
+              setBtError('No se encontró un servicio de escritura compatible en este dispositivo.');
+              device.gatt.disconnect();
+              setBtDevice(null);
+          }
+
+      } catch (error: any) {
+          console.error("Connect Error:", error);
+          setBtError('No se pudo conectar. Verifica que la impresora esté encendida y cerca.');
+      }
+  };
+
+  const handleBtDisconnect = () => {
+      if (btDevice && btDevice.gatt.connected) {
+          btDevice.gatt.disconnect();
+      }
+      setBtDevice(null);
+      setBtCharacteristic(null);
+  };
+
+  const printBtTest = async () => {
+      if (!btCharacteristic) return;
+      try {
+          const encoder = new TextEncoder();
+          const commands = [
+              0x1B, 0x40, // Initialize
+              0x1B, 0x61, 0x01, // Center align
+              ...encoder.encode("LuminaPOS\n"),
+              ...encoder.encode("Prueba Bluetooth\n"),
+              ...encoder.encode("----------------\n"),
+              0x1B, 0x61, 0x00, // Left align
+              ...encoder.encode("Conexion exitosa.\n"),
+              ...encoder.encode("Listo para imprimir.\n\n\n\n"), // Feed
+          ];
+          await btCharacteristic.writeValue(new Uint8Array(commands));
+      } catch (error) {
+          console.error("Print Error:", error);
+          setBtError("Error al enviar datos. Intenta reconectar.");
+      }
+  };
+
   const InputField = ({ label, value, onChange, type = "text", placeholder = "", icon: Icon }: any) => (
       <div className="space-y-1.5">
           <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1">{label}</label>
@@ -305,18 +400,20 @@ export const Settings: React.FC = () => {
         {/* --- NAVIGATION TABS --- */}
         <div className="flex flex-wrap gap-2 mb-8 bg-white dark:bg-slate-900 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-fit">
             {[
-                { id: 'GENERAL', label: 'Identidad y Marca', icon: Store },
-                { id: 'OPERATIONS', label: 'Operación y Tickets', icon: PieChart },
-                { id: 'TICKETS', label: 'Tickets & Impresión', icon: Receipt },
-                { id: 'DATA', label: 'Nube y Datos', icon: Cloud }
+                { id: 'GENERAL', label: 'Identidad', icon: Store },
+                { id: 'OPERATIONS', label: 'Operación', icon: PieChart },
+                { id: 'TICKETS', label: 'Impresión', icon: Receipt },
+                { id: 'BLUETOOTH', label: 'Impresora Bluetooth', icon: Bluetooth },
+                { id: 'DATA', label: 'Nube', icon: Cloud }
             ].map((tab) => (
                 <button 
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)} 
-                    className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-200 ${activeTab === tab.id ? 'bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-white shadow-sm ring-1 ring-indigo-100 dark:ring-slate-700' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 dark:hover:text-slate-300'}`}
+                    className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-200 whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-white shadow-sm ring-1 ring-indigo-100 dark:ring-slate-700' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 dark:hover:text-slate-300'}`}
                 >
                     <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-indigo-500 dark:text-indigo-400' : ''}`} />
-                    {tab.label}
+                    <span className="hidden md:inline">{tab.label}</span>
+                    <span className="md:hidden">{tab.label.split(' ')[0]}</span>
                 </button>
             ))}
         </div>
@@ -647,6 +744,109 @@ export const Settings: React.FC = () => {
                             {/* Footer */}
                             <div className="mt-4 pt-2 border-t border-dashed border-black text-center text-[10px] whitespace-pre-wrap">
                                 {formData.receiptFooter}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- BLUETOOTH PRINTER TAB --- */}
+            {activeTab === 'BLUETOOTH' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Connection Panel */}
+                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Bluetooth className="w-5 h-5"/></div>
+                                Vincular Impresora Portátil
+                            </h3>
+                            <p className="text-sm text-slate-500 mb-6">Conecta tu impresora térmica directamente desde la app sin instalar drivers.</p>
+
+                            <div className="space-y-6">
+                                {btError && (
+                                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl text-xs text-red-600 dark:text-red-300 font-medium flex items-start gap-2">
+                                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                                        {btError}
+                                    </div>
+                                )}
+
+                                {!btDevice ? (
+                                    <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-800/50">
+                                        <div className="w-16 h-16 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                                            <Printer className="w-8 h-8" />
+                                        </div>
+                                        <p className="font-bold text-slate-600 dark:text-slate-300 mb-4">No hay impresora conectada</p>
+                                        <button 
+                                            onClick={handleBtScan}
+                                            disabled={isScanningBt}
+                                            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg flex items-center gap-2 transition-all disabled:opacity-50"
+                                        >
+                                            {isScanningBt ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>}
+                                            {isScanningBt ? 'Buscando...' : 'Buscar Dispositivo'}
+                                        </button>
+                                        <p className="text-[10px] text-slate-400 mt-4 text-center max-w-xs">
+                                            Asegúrate de que la impresora esté encendida y que el Bluetooth de tu dispositivo esté activo.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center p-8 border-2 border-emerald-500/30 rounded-2xl bg-emerald-50 dark:bg-emerald-900/10">
+                                        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-4 text-emerald-600 dark:text-emerald-400 animate-pulse">
+                                            <CheckCircle className="w-8 h-8" />
+                                        </div>
+                                        <h3 className="text-xl font-black text-slate-800 dark:text-white mb-1">{btDevice.name || 'Impresora Genérica'}</h3>
+                                        <p className="text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-6">Conectado</p>
+                                        
+                                        <div className="grid grid-cols-2 gap-3 w-full">
+                                            <button 
+                                                onClick={printBtTest}
+                                                disabled={!btCharacteristic}
+                                                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                                            >
+                                                <Printer className="w-4 h-4" /> Prueba
+                                            </button>
+                                            <button 
+                                                onClick={handleBtDisconnect}
+                                                className="flex-1 py-3 bg-white border border-red-200 text-red-500 hover:bg-red-50 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
+                                            >
+                                                <Power className="w-4 h-4" /> Desconectar
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Instructions Panel */}
+                        <div className="bg-indigo-900 text-white p-6 md:p-8 rounded-3xl shadow-lg relative overflow-hidden flex flex-col justify-between">
+                            <div className="absolute top-0 right-0 p-8 opacity-10">
+                                <Bluetooth className="w-40 h-40" />
+                            </div>
+                            
+                            <div className="relative z-10">
+                                <h4 className="font-bold text-lg mb-4 flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div> Guía Rápida
+                                </h4>
+                                <ul className="space-y-4 text-sm text-indigo-100">
+                                    <li className="flex gap-3">
+                                        <span className="font-bold bg-indigo-800 w-6 h-6 flex items-center justify-center rounded-full text-xs">1</span>
+                                        <span>Enciende tu impresora térmica portátil.</span>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="font-bold bg-indigo-800 w-6 h-6 flex items-center justify-center rounded-full text-xs">2</span>
+                                        <span>Activa el Bluetooth y la Ubicación (GPS) en tu celular o computadora.</span>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="font-bold bg-indigo-800 w-6 h-6 flex items-center justify-center rounded-full text-xs">3</span>
+                                        <span>Presiona "Buscar Dispositivo" y selecciona tu impresora en la lista.</span>
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <div className="mt-8 p-4 bg-white/10 rounded-xl border border-white/10 backdrop-blur-sm relative z-10">
+                                <p className="text-xs font-bold text-indigo-200 uppercase mb-1">Nota de Compatibilidad</p>
+                                <p className="text-xs text-white leading-relaxed">
+                                    Funciona con la mayoría de impresoras térmicas genéricas que soporten protocolo <strong>Bluetooth LE (Low Energy)</strong>. Si tu impresora es muy antigua (Classic Bluetooth), es posible que no aparezca en la lista web.
+                                </p>
                             </div>
                         </div>
                     </div>
