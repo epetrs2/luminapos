@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { generateBusinessInsight } from '../services/geminiService';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon } from 'lucide-react';
+import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 // --- COLORS FOR CHARTS ---
@@ -15,7 +15,7 @@ export const Reports: React.FC = () => {
   const { transactions, products, cashMovements, settings } = useStore();
   
   // --- FILTER STATE ---
-  const [dateRange, setDateRange] = useState<DateRangeOption>('WEEK');
+  const [dateRange, setDateRange] = useState<DateRangeOption>('TODAY');
   const [showFilters, setShowFilters] = useState(false);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -36,49 +36,59 @@ export const Reports: React.FC = () => {
       thirdPartyMetrics
   } = useMemo(() => {
       const now = new Date();
-      let startDate = new Date();
-      let endDate = new Date();
+      // Normalize "now" to end of day for comparisons
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
 
-      // 1. Calculate Date Range (Local Time Logic)
+      let startDate = new Date();
+      startDate.setHours(0, 0, 0, 0); // Default to start of today local time
+      
+      let endDate = endOfToday;
+
+      // 1. Calculate Date Range (Robust Local Time Logic)
       if (dateRange === 'TODAY') {
-          startDate.setHours(0, 0, 0, 0);
-          endDate.setHours(23, 59, 59, 999);
+          // Start date is already set to 00:00 today
+          // End date is already set to 23:59 today
       } else if (dateRange === 'WEEK') {
+          startDate = new Date();
           startDate.setDate(now.getDate() - 6);
           startDate.setHours(0, 0, 0, 0);
-          endDate = now;
       } else if (dateRange === 'MONTH') {
+          startDate = new Date();
           startDate.setDate(now.getDate() - 29);
           startDate.setHours(0, 0, 0, 0);
-          endDate = now;
       } else if (dateRange === 'CUSTOM') {
           if (customStart) {
-              startDate = new Date(customStart + 'T00:00:00');
+              // Create date from string YYYY-MM-DD and set to local 00:00
+              const [y, m, d] = customStart.split('-').map(Number);
+              startDate = new Date(y, m - 1, d, 0, 0, 0, 0);
           } else {
-              startDate = new Date(0); // Beginning of time if not set
+              startDate = new Date(0); // Beginning of time
           }
           
           if (customEnd) {
-              endDate = new Date(customEnd + 'T23:59:59');
-          } else {
-              endDate = now;
+              const [y, m, d] = customEnd.split('-').map(Number);
+              endDate = new Date(y, m - 1, d, 23, 59, 59, 999);
           }
       }
 
+      // Helper to check date range safely
+      const isInRange = (dateStr: string) => {
+          const d = new Date(dateStr);
+          return d.getTime() >= startDate.getTime() && d.getTime() <= endDate.getTime();
+      };
+
       // 2. Filter Transactions
       const validTx = transactions.filter(t => {
-          const tDate = new Date(t.date);
-          const isDateInRange = tDate >= startDate && tDate <= endDate;
+          const isDateInRange = isInRange(t.date);
           const isNotCancelled = t.status !== 'cancelled';
           const matchesPayment = paymentMethodFilter === 'ALL' || t.paymentMethod === paymentMethodFilter;
-          
           return isDateInRange && isNotCancelled && matchesPayment;
       });
 
-      // 3. Filter Cash Movements (For Expenses/CashFlow)
+      // 3. Filter Cash Movements
       const validMovs = cashMovements.filter(m => {
-          const mDate = new Date(m.date);
-          return mDate >= startDate && mDate <= endDate;
+          return isInRange(m.date);
       });
 
       // --- AGGREGATION ---
@@ -86,15 +96,15 @@ export const Reports: React.FC = () => {
       // A. Sales & Expenses Trend Data (Group by Day)
       const daysMap = new Map<string, { date: string, rawDate: number, sales: number, expenses: number }>();
       
-      // Initialize map for continuity
+      // Initialize map for continuity only if range is reasonable
       const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
       
       if (diffDays <= 60) {
-          // Use a fresh date object for iteration to avoid mutating startDate
           const iterDate = new Date(startDate);
           while (iterDate <= endDate) {
               const label = iterDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
-              const key = iterDate.toDateString(); 
+              // Use simplified date string key to avoid timezone offset issues during lookup
+              const key = `${iterDate.getFullYear()}-${iterDate.getMonth()}-${iterDate.getDate()}`; 
               daysMap.set(key, { date: label, rawDate: iterDate.getTime(), sales: 0, expenses: 0 });
               iterDate.setDate(iterDate.getDate() + 1);
           }
@@ -103,7 +113,7 @@ export const Reports: React.FC = () => {
       // Fill Sales
       validTx.forEach(t => {
           const d = new Date(t.date);
-          const key = d.toDateString();
+          const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
           const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
           
           if (!daysMap.has(key)) {
@@ -114,12 +124,11 @@ export const Reports: React.FC = () => {
           entry.sales += t.total;
       });
 
-      // Fill Expenses (Operational + Third Party Payouts)
+      // Fill Expenses
       validMovs.forEach(m => {
-          // We include EXPENSE and THIRD_PARTY withdrawals in the "Expenses" bar for Cash Flow visibility
           if (m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')) {
               const d = new Date(m.date);
-              const key = d.toDateString();
+              const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
               const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
 
               if (!daysMap.has(key)) {
@@ -138,19 +147,23 @@ export const Reports: React.FC = () => {
       let ownSales = 0;
 
       validTx.forEach(t => {
-          t.items.forEach(item => {
-              if (item.isConsignment) {
-                  thirdPartySales += (item.price * item.quantity);
-              } else {
-                  ownSales += (item.price * item.quantity);
-              }
-          });
+          // If transaction has items, loop through them
+          if (t.items && t.items.length > 0) {
+              t.items.forEach(item => {
+                  // Explicit check for true
+                  if (item.isConsignment === true) {
+                      thirdPartySales += (item.price * item.quantity);
+                  } else {
+                      ownSales += (item.price * item.quantity);
+                  }
+              });
+          } else {
+              // Fallback for very old data structure without items (unlikely)
+              ownSales += t.total;
+          }
       });
 
       const totalSales = validTx.reduce((sum, t) => sum + t.total, 0);
-      
-      // Expenses for Net Profit calculation (Strictly Operational)
-      const operationalExpenses = validMovs.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + m.amount, 0);
       
       // Total Money Out (Operational + Third Party Payouts)
       const totalMoneyOut = validMovs
@@ -160,8 +173,9 @@ export const Reports: React.FC = () => {
       const transactionCount = validTx.length;
       const avgTicket = transactionCount > 0 ? totalSales / transactionCount : 0;
       
-      // Net Estimate (Ganancia Real) = Ventas Propias - Gastos Operativos
-      // Excludes Third Party Sales (not our money) and Third Party Payouts (settling that liability)
+      // Operational Expenses Only (for Net Profit)
+      const operationalExpenses = validMovs.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + m.amount, 0);
+      
       const netEstimate = ownSales - operationalExpenses; 
 
       // C. Top Products
@@ -179,7 +193,7 @@ export const Reports: React.FC = () => {
           .sort((a, b) => b.total - a.total)
           .slice(0, 5);
 
-      // D. Product Categories (Pie Chart)
+      // D. Product Categories
       const catMap = new Map<string, number>();
       validTx.forEach(t => {
           t.items.forEach(item => {
@@ -189,21 +203,16 @@ export const Reports: React.FC = () => {
       });
       const categoryArray = Array.from(catMap.entries()).map(([name, value]) => ({ name, value }));
 
-      // E. Expense/Outflow Breakdown (Pie Chart)
+      // E. Expenses
       const expMap = new Map<string, number>();
-      
-      // 1. Operational Expenses
       validMovs.filter(m => m.type === 'EXPENSE').forEach(m => {
           const cat = m.subCategory || (m.category === 'OPERATIONAL' ? 'Gastos Generales' : 'Otros Gastos');
           expMap.set(cat, (expMap.get(cat) || 0) + m.amount);
       });
-
-      // 2. Third Party Payouts (Important for visibility)
       validMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').forEach(m => {
           const cat = m.subCategory ? `${m.subCategory} (Liq.)` : 'Liquidación Terceros';
           expMap.set(cat, (expMap.get(cat) || 0) + m.amount);
       });
-
       const expenseCategoryArray = Array.from(expMap.entries()).map(([name, value]) => ({ name, value }));
 
       return {

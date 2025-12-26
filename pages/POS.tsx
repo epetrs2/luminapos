@@ -112,6 +112,8 @@ export const POS: React.FC = () => {
             const variant = variantId ? product.variants?.find(v => v.id === variantId) : null;
             return [...prev, {
                 ...product,
+                // EXPLICITLY ENSURE isConsignment IS COPIED
+                isConsignment: product.isConsignment === true, 
                 price: variant ? variant.price : product.price,
                 quantity: qtyToAdd,
                 variantId: variant?.id,
@@ -427,6 +429,7 @@ export const POS: React.FC = () => {
                                             </button>
                                         )}
                                         <span className="text-[10px] text-slate-400">/ {item.unit || 'pz'}</span>
+                                        {item.isConsignment && <span className="text-[9px] bg-orange-100 text-orange-700 px-1 rounded border border-orange-200">3ro</span>}
                                     </div>
                                 </div>
                                 <div className="text-right">

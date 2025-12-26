@@ -378,6 +378,29 @@ export const Inventory: React.FC = () => {
                             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Descripción</label>
                             <textarea rows={3} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none resize-none" value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder="Ej. Material 100% algodón, ideal para verano..." />
                         </div>
+
+                        {inventoryType === 'PRODUCT' && (
+                            <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                                <div>
+                                    <p className="text-xs font-bold text-slate-500 uppercase mb-0.5">Tipo de Propiedad</p>
+                                    <p className={`text-sm font-bold ${formData.isConsignment ? 'text-orange-600' : 'text-slate-700 dark:text-slate-300'}`}>
+                                        {formData.isConsignment ? 'Consignación / Tercero' : 'Propio del Negocio'}
+                                    </p>
+                                </div>
+                                <button 
+                                    onClick={() => setFormData({...formData, isConsignment: !formData.isConsignment})}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${formData.isConsignment ? 'bg-orange-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.isConsignment ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </div>
+                        )}
+                        {formData.isConsignment && (
+                            <p className="text-[10px] text-orange-600 mt-1 bg-orange-50 p-2 rounded border border-orange-100 flex gap-1">
+                                <Handshake className="w-3 h-3 mt-0.5" />
+                                Venta se registra como "Recaudo Terceros".
+                            </p>
+                        )}
                     </div>
 
                     <div className="space-y-4">
@@ -429,26 +452,7 @@ export const Inventory: React.FC = () => {
 
                         {inventoryType === 'PRODUCT' && (
                             <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
-                                <h4 className="text-xs font-black text-slate-500 uppercase mb-3 flex items-center gap-2"><Percent className="w-4 h-4"/> Avanzado</h4>
-                                
-                                <div className="flex items-center gap-2 mb-4">
-                                    <input 
-                                        type="checkbox" 
-                                        id="isConsignment" 
-                                        checked={formData.isConsignment || false} 
-                                        onChange={e => setFormData({...formData, isConsignment: e.target.checked})} 
-                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
-                                    />
-                                    <label htmlFor="isConsignment" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
-                                        Es Producto de Tercero / Consignación
-                                    </label>
-                                </div>
-                                {formData.isConsignment && (
-                                    <p className="text-[10px] text-orange-600 mb-4 bg-orange-50 p-2 rounded border border-orange-100">
-                                        El dinero de esta venta se separará en los reportes como "Recaudo Terceros".
-                                    </p>
-                                )}
-
+                                <h4 className="text-xs font-black text-slate-500 uppercase mb-3 flex items-center gap-2"><Percent className="w-4 h-4"/> Impuestos</h4>
                                 <div className="flex gap-2">
                                     {TAX_PRESETS.map(preset => (
                                         <button key={preset.value} onClick={() => setFormData({...formData, taxRate: preset.value})} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${formData.taxRate === preset.value ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}>
