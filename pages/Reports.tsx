@@ -2,8 +2,8 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { generateBusinessInsight } from '../services/geminiService';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock } from 'lucide-react';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ReferenceLine } from 'recharts';
+import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { printFinancialReport, printZCutTicket } from '../utils/printService';
 
@@ -11,12 +11,13 @@ import { printFinancialReport, printZCutTicket } from '../utils/printService';
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#f97316'];
 
 type DateRangeOption = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
+type ReportTab = 'GENERAL' | 'Z_HISTORY' | 'DISTRIBUTION';
 
 export const Reports: React.FC = () => {
   const { transactions, products, cashMovements, settings } = useStore();
   
   // --- NAVIGATION STATE ---
-  const [activeTab, setActiveTab] = useState<'GENERAL' | 'Z_HISTORY'>('GENERAL');
+  const [activeTab, setActiveTab] = useState<ReportTab>('GENERAL');
 
   // --- FILTER STATE ---
   const [dateRange, setDateRange] = useState<DateRangeOption>('TODAY');
@@ -25,6 +26,11 @@ export const Reports: React.FC = () => {
   const [customEnd, setCustomEnd] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('ALL');
 
+  // --- DISTRIBUTION ANALYSIS STATE ---
+  const [distPeriod, setDistPeriod] = useState<'WEEK' | 'MONTH'>('MONTH');
+  const [analysisResult, setAnalysisResult] = useState<{status: 'ok'|'warning'|'critical', messages: {title: string, desc: string, type: 'good'|'bad'|'info'}[]} | null>(null);
+
+  // --- AI STATE ---
   const [insight, setInsight] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
 
@@ -239,12 +245,130 @@ export const Reports: React.FC = () => {
 
   }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
+  // --- DISTRIBUTION METRICS MEMO ---
+  // Calculates data specifically for the "Budget & Distribution" tab
+  const distMetrics = useMemo(() => {
+      const now = new Date();
+      const start = new Date();
+      if (distPeriod === 'WEEK') start.setDate(now.getDate() - 7);
+      else start.setDate(now.getDate() - 30);
+      
+      // Filter relevant data for this period
+      const relevantTx = transactions.filter(t => t.status !== 'cancelled' && new Date(t.date) >= start);
+      const relevantMovs = cashMovements.filter(m => new Date(m.date) >= start);
+
+      // 1. Total Income (Own Sales)
+      let income = 0;
+      relevantTx.forEach(t => {
+          t.items.forEach(i => {
+              if (!i.isConsignment) income += (i.price * i.quantity);
+          });
+      });
+      
+      // 2. Actual Expenses
+      const actualOpEx = relevantMovs.filter(m => m.type === 'EXPENSE').reduce((s, m) => s + m.amount, 0);
+      const actualProfitTaken = relevantMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s, m) => s + m.amount, 0);
+      
+      // 3. Derived Investment (Retained Earnings)
+      // Math: Income - (OpEx + ProfitTaken). This is what's left in the business to grow.
+      const actualInvestment = Math.max(0, income - (actualOpEx + actualProfitTaken));
+
+      // 4. Targets based on Settings
+      const config = settings.budgetConfig;
+      const targetOpEx = income * (config.expensesPercentage / 100);
+      const targetProfit = income * (config.profitPercentage / 100);
+      const targetInvestment = income * (config.investmentPercentage / 100);
+
+      return {
+          income,
+          actual: { opEx: actualOpEx, profit: actualProfitTaken, investment: actualInvestment },
+          target: { opEx: targetOpEx, profit: targetProfit, investment: targetInvestment },
+          config // % values
+      };
+  }, [distPeriod, transactions, cashMovements, settings.budgetConfig]);
+
   // --- AI HANDLER ---
   const handleGenerateInsight = async () => {
     setLoadingAi(true);
     const result = await generateBusinessInsight(products, filteredTransactions, filteredMovements);
     setInsight(result.text);
     setLoadingAi(false);
+  };
+
+  // --- ALGORITHMIC ANALYSIS HANDLER (NON-AI) ---
+  const handleSmartAnalysis = () => {
+      const { income, actual, target, config } = distMetrics;
+      const msgs: {title: string, desc: string, type: 'good'|'bad'|'info'}[] = [];
+      let status: 'ok' | 'warning' | 'critical' = 'ok';
+
+      if (income === 0) {
+          setAnalysisResult({
+              status: 'warning',
+              messages: [{ title: 'Sin Datos Suficientes', desc: 'No hay ventas registradas en este periodo para analizar.', type: 'info' }]
+          });
+          return;
+      }
+
+      // 1. Analyze OpEx
+      const opExRatio = (actual.opEx / income) * 100;
+      const opExDiff = opExRatio - config.expensesPercentage;
+
+      if (opExDiff > 10) {
+          status = 'critical';
+          msgs.push({
+              title: 'Gastos Críticos',
+              desc: `Tus gastos operativos (${opExRatio.toFixed(1)}%) superan por mucho el objetivo (${config.expensesPercentage}%). Revisa fugas o renegocia con proveedores.`,
+              type: 'bad'
+          });
+      } else if (opExDiff > 0) {
+          status = status === 'ok' ? 'warning' : status;
+          msgs.push({
+              title: 'Gastos Elevados',
+              desc: `Estás gastando un ${opExDiff.toFixed(1)}% más de lo planeado. Intenta optimizar consumo de insumos.`,
+              type: 'bad'
+          });
+      } else if (opExDiff < -15) {
+          msgs.push({
+              title: 'Alta Eficiencia Operativa',
+              desc: `Tus gastos son muy bajos. Considera aumentar el % de Inversión en la configuración para crecer más rápido.`,
+              type: 'good'
+          });
+      }
+
+      // 2. Analyze Profit Withdrawals
+      const profitRatio = (actual.profit / income) * 100;
+      if (profitRatio > config.profitPercentage) {
+          status = status === 'ok' ? 'warning' : status;
+          msgs.push({
+              title: 'Exceso de Retiros',
+              desc: `Has retirado más ganancias (${profitRatio.toFixed(1)}%) de las estipuladas. Esto puede descapitalizar el negocio.`,
+              type: 'bad'
+          });
+      } else {
+          msgs.push({
+              title: 'Retiros Saludables',
+              desc: 'Tus retiros personales están dentro del presupuesto. ¡Excelente disciplina!',
+              type: 'good'
+          });
+      }
+
+      // 3. Analyze Investment (Retained)
+      const investRatio = (actual.investment / income) * 100;
+      if (investRatio < 5 && config.investmentPercentage > 10) {
+          msgs.push({
+              title: 'Poca Reinversión',
+              desc: 'Casi no está quedando dinero para invertir. Revisa si los gastos o retiros están consumiendo el flujo.',
+              type: 'info'
+          });
+      } else if (investRatio > config.investmentPercentage + 5) {
+          msgs.push({
+              title: 'Excedente de Flujo',
+              desc: 'Tienes más dinero disponible para invertir del planeado. Considera comprar nuevo inventario o mejorar el local.',
+              type: 'good'
+          });
+      }
+
+      setAnalysisResult({ status, messages: msgs });
   };
 
   // --- PRINT HANDLER ---
@@ -314,6 +438,12 @@ export const Reports: React.FC = () => {
                         className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'GENERAL' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                     >
                         General
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('DISTRIBUTION')}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'DISTRIBUTION' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    >
+                        Distribución y Presupuesto
                     </button>
                     <button 
                         onClick={() => setActiveTab('Z_HISTORY')}
@@ -639,6 +769,127 @@ export const Reports: React.FC = () => {
                     </div>
                 </div>
             </>
+        ) : activeTab === 'DISTRIBUTION' ? (
+            // --- BUDGET & DISTRIBUTION TAB ---
+            <div className="animate-[fadeIn_0.3s_ease-out]">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                            <Target className="w-6 h-6 text-indigo-500" /> Control de Presupuesto
+                        </h3>
+                        <p className="text-sm text-slate-500">Compara tus ingresos reales vs tu plan financiero.</p>
+                    </div>
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <button onClick={() => setDistPeriod('WEEK')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${distPeriod === 'WEEK' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>Semana</button>
+                        <button onClick={() => setDistPeriod('MONTH')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${distPeriod === 'MONTH' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>Mes</button>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* Visual Comparison Cards */}
+                    <div className="space-y-6">
+                        {/* OpEx Card */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <div className="flex justify-between items-center mb-4">
+                                <h4 className="font-bold text-slate-700 dark:text-slate-200">Gastos Operativos</h4>
+                                <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">{distMetrics.config.expensesPercentage}% Objetivo</span>
+                            </div>
+                            <div className="flex items-end gap-2 mb-2">
+                                <span className={`text-2xl font-black ${distMetrics.actual.opEx > distMetrics.target.opEx ? 'text-red-500' : 'text-slate-800 dark:text-white'}`}>${distMetrics.actual.opEx.toFixed(0)}</span>
+                                <span className="text-sm text-slate-400 mb-1">/ ${distMetrics.target.opEx.toFixed(0)} permitidos</span>
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden">
+                                <div 
+                                    className={`h-full rounded-full transition-all duration-500 ${distMetrics.actual.opEx > distMetrics.target.opEx ? 'bg-red-500' : 'bg-emerald-500'}`}
+                                    style={{ width: `${Math.min(100, (distMetrics.actual.opEx / (distMetrics.income || 1)) * 100)}%` }}
+                                ></div>
+                            </div>
+                            {distMetrics.actual.opEx > distMetrics.target.opEx && (
+                                <p className="text-xs text-red-500 mt-2 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Excedido por ${(distMetrics.actual.opEx - distMetrics.target.opEx).toFixed(0)}</p>
+                            )}
+                        </div>
+
+                        {/* Profit Card */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <div className="flex justify-between items-center mb-4">
+                                <h4 className="font-bold text-slate-700 dark:text-slate-200">Retiro de Ganancias</h4>
+                                <span className="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded font-bold">{distMetrics.config.profitPercentage}% Objetivo</span>
+                            </div>
+                            <div className="flex items-end gap-2 mb-2">
+                                <span className={`text-2xl font-black ${distMetrics.actual.profit > distMetrics.target.profit ? 'text-orange-500' : 'text-slate-800 dark:text-white'}`}>${distMetrics.actual.profit.toFixed(0)}</span>
+                                <span className="text-sm text-slate-400 mb-1">/ ${distMetrics.target.profit.toFixed(0)} disponibles</span>
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden">
+                                <div 
+                                    className={`h-full rounded-full transition-all duration-500 ${distMetrics.actual.profit > distMetrics.target.profit ? 'bg-orange-500' : 'bg-pink-500'}`}
+                                    style={{ width: `${Math.min(100, (distMetrics.actual.profit / (distMetrics.income || 1)) * 100)}%` }}
+                                ></div>
+                            </div>
+                        </div>
+
+                        {/* Investment/Retained Card */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <div className="flex justify-between items-center mb-4">
+                                <h4 className="font-bold text-slate-700 dark:text-slate-200">Inversión / Ahorro (Remanente)</h4>
+                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">{distMetrics.config.investmentPercentage}% Objetivo</span>
+                            </div>
+                            <div className="flex items-end gap-2 mb-2">
+                                <span className="text-2xl font-black text-blue-600 dark:text-blue-400">${distMetrics.actual.investment.toFixed(0)}</span>
+                                <span className="text-sm text-slate-400 mb-1">/ ${distMetrics.target.investment.toFixed(0)} ideal</span>
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden">
+                                <div 
+                                    className="h-full rounded-full transition-all duration-500 bg-blue-500"
+                                    style={{ width: `${Math.min(100, (distMetrics.actual.investment / (distMetrics.income || 1)) * 100)}%` }}
+                                ></div>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-2">Calculado como: Ingresos - (Gastos + Retiros). Es el dinero que queda para crecer.</p>
+                        </div>
+                    </div>
+
+                    {/* Analysis Section */}
+                    <div className="flex flex-col h-full">
+                        <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden flex-1">
+                            <div className="absolute top-0 right-0 p-6 opacity-10">
+                                <Target className="w-32 h-32" />
+                            </div>
+                            <h3 className="text-xl font-bold mb-4 relative z-10">Analista Financiero</h3>
+                            <p className="text-indigo-200 text-sm mb-6 relative z-10">
+                                Genera un diagnóstico lógico basado en tus porcentajes configurados y la realidad operativa de este periodo.
+                            </p>
+                            
+                            {!analysisResult ? (
+                                <button 
+                                    onClick={handleSmartAnalysis}
+                                    className="w-full py-4 bg-white text-indigo-900 font-bold rounded-xl shadow-lg hover:bg-indigo-50 transition-colors relative z-10 flex items-center justify-center gap-2"
+                                >
+                                    <Lightbulb className="w-5 h-5" /> Analizar Distribución
+                                </button>
+                            ) : (
+                                <div className="space-y-4 relative z-10 animate-[fadeIn_0.3s]">
+                                    <div className={`p-3 rounded-lg border flex items-center gap-3 ${analysisResult.status === 'critical' ? 'bg-red-500/20 border-red-500/50' : analysisResult.status === 'warning' ? 'bg-orange-500/20 border-orange-500/50' : 'bg-emerald-500/20 border-emerald-500/50'}`}>
+                                        {analysisResult.status === 'critical' ? <AlertTriangle className="w-6 h-6 text-red-300"/> : analysisResult.status === 'warning' ? <AlertCircle className="w-6 h-6 text-orange-300"/> : <CheckCircle2 className="w-6 h-6 text-emerald-300"/>}
+                                        <div>
+                                            <p className="font-bold text-sm uppercase">{analysisResult.status === 'critical' ? 'Atención Crítica' : analysisResult.status === 'warning' ? 'Precaución' : 'Todo en Orden'}</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                                        {analysisResult.messages.map((msg, i) => (
+                                            <div key={i} className="bg-white/10 p-3 rounded-lg border border-white/10">
+                                                <p className={`text-xs font-bold mb-1 ${msg.type === 'bad' ? 'text-red-300' : msg.type === 'good' ? 'text-emerald-300' : 'text-blue-300'}`}>{msg.title}</p>
+                                                <p className="text-xs text-indigo-100 leading-relaxed">{msg.desc}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <button onClick={() => setAnalysisResult(null)} className="text-xs text-indigo-300 hover:text-white underline mt-2">Re-analizar</button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
         ) : (
             // --- Z HISTORY TAB ---
             <div className="animate-[fadeIn_0.3s_ease-out]">
