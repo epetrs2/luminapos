@@ -1,12 +1,12 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Product, CartItem, Transaction } from '../types';
-import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle, Scale } from 'lucide-react';
+import { Product, CartItem, Transaction, Order } from '../types';
+import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle, Scale, Edit2, ClipboardList, Check, AlertTriangle, Clock } from 'lucide-react';
 import { printThermalTicket, printInvoice } from '../utils/printService';
 
 export const POS: React.FC = () => {
-    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify } = useStore();
+    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder } = useStore();
     
     // State
     const [searchTerm, setSearchTerm] = useState('');
@@ -20,10 +20,19 @@ export const POS: React.FC = () => {
     const [discountType, setDiscountType] = useState<'PERCENT' | 'FIXED'>('PERCENT');
     const [shippingCost, setShippingCost] = useState<string>('');
 
+    // Inline Price Editing State
+    const [editingItemId, setEditingItemId] = useState<string | null>(null);
+    const [tempPrice, setTempPrice] = useState<string>('');
+    const editInputRef = useRef<HTMLInputElement>(null);
+
     // Weight/Decimal Input State
     const [weightModalOpen, setWeightModalOpen] = useState(false);
     const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
     const [decimalQty, setDecimalQty] = useState('');
+
+    // Stock Shortage Logic
+    const [shortageModalOpen, setShortageModalOpen] = useState(false);
+    const [shortageItems, setShortageItems] = useState<{item: CartItem, available: number, missing: number}[]>([]);
 
     // Checkout Modal State
     const [showCheckoutModal, setShowCheckoutModal] = useState(false);
@@ -32,6 +41,7 @@ export const POS: React.FC = () => {
     const [amountPaid, setAmountPaid] = useState<string>('');
     const [splitCash, setSplitCash] = useState<string>('');
     const [splitOther, setSplitOther] = useState<string>('');
+    const [isPendingPayment, setIsPendingPayment] = useState(false); // New: Allow marking any sale as pending
     const [lastTransaction, setLastTransaction] = useState<Transaction | null>(null);
 
     // Computed
@@ -64,12 +74,20 @@ export const POS: React.FC = () => {
             setAmountPaid('');
             setSplitCash('');
             setSplitOther('');
+            setIsPendingPayment(false);
             setLastTransaction(null);
         }
     }, [showCheckoutModal]);
 
+    // Focus edit input
+    useEffect(() => {
+        if (editingItemId && editInputRef.current) {
+            editInputRef.current.focus();
+            editInputRef.current.select();
+        }
+    }, [editingItemId]);
+
     const addToCart = (product: Product, variantId?: string, forceQty?: number) => {
-        // If product is sold by Weight (KG, GRAM, LITER, METER) and we don't have a qty, open decimal modal
         if (product.unit && product.unit !== 'PIECE' && !forceQty) {
             setPendingProduct(product);
             setDecimalQty('');
@@ -80,14 +98,9 @@ export const POS: React.FC = () => {
         setCart(prev => {
             const qtyToAdd = forceQty || 1;
             const existing = prev.find(i => i.id === product.id && i.variantId === variantId);
-            const stockAvailable = variantId 
-                ? product.variants?.find(v => v.id === variantId)?.stock 
-                : product.stock;
             
-            if (stockAvailable !== undefined && (existing?.quantity || 0) + qtyToAdd > stockAvailable) {
-                notify("Stock Insuficiente", "No hay unidades suficientes.", "warning");
-                return prev;
-            }
+            // NOTE: We do NOT block adding to cart here anymore to allow "Ordering" logic later.
+            // Stock check happens at "Cobrar"
 
             if (existing) {
                 return prev.map(i => i.id === product.id && i.variantId === variantId 
@@ -122,25 +135,122 @@ export const POS: React.FC = () => {
         setCart(prev => prev.filter(i => !(i.id === itemId && i.variantId === variantId)));
     };
 
+    // --- Price Editing Logic ---
+    const startEditingPrice = (item: CartItem) => {
+        // Construct unique key logic for state
+        const key = item.variantId ? `${item.id}-${item.variantId}` : item.id;
+        setEditingItemId(key);
+        setTempPrice(item.price.toString());
+    };
+
+    const savePriceEdit = (itemId: string, variantId?: string) => {
+        const newPrice = parseFloat(tempPrice);
+        if (!isNaN(newPrice) && newPrice >= 0) {
+            setCart(prev => prev.map(item => 
+                (item.id === itemId && item.variantId === variantId) 
+                ? { ...item, price: newPrice } 
+                : item
+            ));
+        }
+        setEditingItemId(null);
+    };
+
+    // --- Stock Check Logic ---
+    const handleCheckStock = () => {
+        const shortages: {item: CartItem, available: number, missing: number}[] = [];
+        
+        cart.forEach(cartItem => {
+            // Find current stock in products array (to get latest)
+            const product = products.find(p => p.id === cartItem.id);
+            if (!product) return;
+
+            let stock = product.stock;
+            if (cartItem.variantId && product.variants) {
+                const v = product.variants.find(v => v.id === cartItem.variantId);
+                stock = v ? v.stock : 0;
+            }
+
+            if (cartItem.quantity > stock) {
+                shortages.push({
+                    item: cartItem,
+                    available: Math.max(0, stock),
+                    missing: cartItem.quantity - Math.max(0, stock)
+                });
+            }
+        });
+
+        if (shortages.length > 0) {
+            setShortageItems(shortages);
+            setShortageModalOpen(true);
+        } else {
+            setShowCheckoutModal(true);
+        }
+    };
+
+    const handleCreateProductionOrder = () => {
+        if (shortageItems.length === 0) return;
+
+        const customer = customers.find(c => c.id === selectedCustomerId);
+        const orderItems: CartItem[] = shortageItems.map(s => ({
+            ...s.item,
+            quantity: s.missing, // Only order what is missing
+        }));
+
+        const orderTotal = orderItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+
+        const newOrder: Order = {
+            id: '', 
+            customerId: selectedCustomerId,
+            customerName: customer ? customer.name : 'Cliente General (Mostrador)',
+            date: new Date().toISOString(),
+            items: orderItems,
+            total: orderTotal,
+            status: 'PENDING',
+            notes: 'Generado automáticamente desde POS por falta de stock.',
+            priority: 'NORMAL'
+        };
+
+        addOrder(newOrder);
+        notify("Orden Creada", "Se ha generado una orden de producción por los faltantes.", "success");
+
+        // Adjust Cart to only keep available items
+        setCart(prev => {
+            return prev.map(cartItem => {
+                const shortage = shortageItems.find(s => s.item.id === cartItem.id && s.item.variantId === cartItem.variantId);
+                if (shortage) {
+                    return { ...cartItem, quantity: shortage.available };
+                }
+                return cartItem;
+            }).filter(i => i.quantity > 0); // Remove items with 0 available
+        });
+
+        setShortageModalOpen(false);
+        // If cart is not empty after adjustment, proceed to checkout logic (optional, user might want to review)
+    };
+
+    const handleSellAnyway = () => {
+        setShortageModalOpen(false);
+        setShowCheckoutModal(true);
+    };
+
     const initiatePayment = (method: typeof paymentMethod) => {
         setPaymentMethod(method);
+        setIsPendingPayment(false); // Reset pending flag when switching basic method
+        
         if (method === 'split') {
             const half = (total / 2).toFixed(2);
             setSplitCash(half);
             setSplitOther(half);
-        } else if (method === 'credit') {
+        } 
+        // Credit method is essentially just a shortcut for "Pending Payment"
+        if (method === 'credit') {
             if (!selectedCustomerId) {
                 alert("Debes seleccionar un cliente para vender a crédito.");
                 return;
             }
-            const customer = customers.find(c => c.id === selectedCustomerId);
-            if (customer && !customer.hasUnlimitedCredit) {
-                if ((customer.currentDebt + total) > customer.creditLimit) {
-                    alert(`Crédito insuficiente. Disponible: $${(customer.creditLimit - customer.currentDebt).toFixed(2)}`);
-                    return;
-                }
-            }
+            setIsPendingPayment(true); // Auto-enable pending for credit
         }
+        
         setCheckoutStep('PAYMENT');
     };
 
@@ -148,20 +258,41 @@ export const POS: React.FC = () => {
         let finalAmountPaid = 0;
         let paymentStatus: Transaction['paymentStatus'] = 'paid';
 
-        if (paymentMethod === 'cash') {
-            const received = parseFloat(amountPaid) || 0;
-            if (received < total) { alert("El monto recibido es menor al total."); return; }
-            finalAmountPaid = total;
-        } else if (paymentMethod === 'split') {
-            const c = parseFloat(splitCash) || 0;
-            const o = parseFloat(splitOther) || 0;
-            if (Math.abs((c + o) - total) > 0.1) { alert("La suma de pagos no coincide con el total."); return; }
-            finalAmountPaid = total;
-        } else if (paymentMethod === 'credit') {
-            finalAmountPaid = 0;
-            paymentStatus = 'pending';
+        // PENDING PAYMENT LOGIC
+        if (isPendingPayment || paymentMethod === 'credit') {
+            // For pending, we accept whatever amount is entered (even 0)
+            const enteredAmount = parseFloat(amountPaid) || 0;
+            if (enteredAmount >= total) {
+                // User marked pending but entered full amount? Treat as paid.
+                paymentStatus = 'paid';
+                finalAmountPaid = total;
+            } else if (enteredAmount > 0) {
+                paymentStatus = 'partial';
+                finalAmountPaid = enteredAmount;
+            } else {
+                paymentStatus = 'pending';
+                finalAmountPaid = 0;
+            }
+            
+            if (!selectedCustomerId && finalAmountPaid < total) {
+                alert("Para dejar una cuenta pendiente, debes seleccionar un Cliente registrado.");
+                return;
+            }
         } else {
-            finalAmountPaid = total;
+            // STANDARD PAYMENT LOGIC
+            if (paymentMethod === 'cash') {
+                const received = parseFloat(amountPaid) || 0;
+                if (received < total) { alert("El monto recibido es menor al total. Marca 'Pago Pendiente' si deseas dejar deuda."); return; }
+                finalAmountPaid = total;
+            } else if (paymentMethod === 'split') {
+                const c = parseFloat(splitCash) || 0;
+                const o = parseFloat(splitOther) || 0;
+                if (Math.abs((c + o) - total) > 0.1) { alert("La suma de pagos no coincide con el total."); return; }
+                finalAmountPaid = total;
+            } else {
+                // Card / Transfer assumed full payment immediately unless "Pending" checked
+                finalAmountPaid = total;
+            }
         }
 
         const transaction: Transaction = {
@@ -183,7 +314,7 @@ export const POS: React.FC = () => {
 
         addTransaction(transaction);
         updateStockAfterSale(cart);
-        setLastTransaction({ ...transaction, id: 'OK' }); 
+        setLastTransaction({ ...transaction, id: 'OK' }); // ID will be refreshed on receipt print if needed, simplified here
         setCheckoutStep('SUCCESS');
     };
 
@@ -195,6 +326,7 @@ export const POS: React.FC = () => {
         setCheckoutStep('SELECT');
         setDiscountValue('0');
         setShippingCost('');
+        setIsPendingPayment(false);
     };
 
     return (
@@ -258,24 +390,52 @@ export const POS: React.FC = () => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                    {cart.map(item => (
-                        <div key={`${item.id}-${item.variantId}`} className="flex items-center gap-3 group">
-                            <div className="flex flex-col items-center gap-1">
-                                <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? 1 : 0.1)} className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center transition-colors"><Plus className="w-3 h-3"/></button>
-                                <span className={`text-[10px] font-black w-10 text-center ${item.unit !== 'PIECE' ? 'text-indigo-600' : ''}`}>{item.quantity} {item.unit !== 'PIECE' ? item.unit.slice(0,2).toLowerCase() : ''}</span>
-                                <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? -1 : -0.1)} className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors"><Minus className="w-3 h-3"/></button>
+                    {cart.map(item => {
+                        const uniqueKey = item.variantId ? `${item.id}-${item.variantId}` : item.id;
+                        const isEditing = editingItemId === uniqueKey;
+
+                        return (
+                            <div key={uniqueKey} className="flex items-center gap-3 group">
+                                <div className="flex flex-col items-center gap-1">
+                                    <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? 1 : 0.1)} className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center transition-colors"><Plus className="w-3 h-3"/></button>
+                                    <span className={`text-[10px] font-black w-10 text-center ${item.unit !== 'PIECE' ? 'text-indigo-600' : ''}`}>{item.quantity} {item.unit !== 'PIECE' ? item.unit.slice(0,2).toLowerCase() : ''}</span>
+                                    <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? -1 : -0.1)} className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors"><Minus className="w-3 h-3"/></button>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{item.name}</h4>
+                                    {item.variantName && <p className="text-xs text-slate-500">{item.variantName}</p>}
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                        {isEditing ? (
+                                            <div className="flex items-center">
+                                                <input 
+                                                    ref={editInputRef}
+                                                    type="number"
+                                                    className="w-16 p-1 text-xs border border-indigo-300 rounded outline-none"
+                                                    value={tempPrice}
+                                                    onChange={(e) => setTempPrice(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') savePriceEdit(item.id, item.variantId);
+                                                        if (e.key === 'Escape') setEditingItemId(null);
+                                                    }}
+                                                    onBlur={() => savePriceEdit(item.id, item.variantId)}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <button onClick={() => startEditingPrice(item)} className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-1 group/price">
+                                                ${item.price.toFixed(2)}
+                                                <Edit2 className="w-2.5 h-2.5 opacity-0 group-hover/price:opacity-100 transition-opacity" />
+                                            </button>
+                                        )}
+                                        <span className="text-[10px] text-slate-400">/ {item.unit || 'pz'}</span>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <p className="font-bold text-slate-800 dark:text-white">${(item.price * item.quantity).toFixed(2)}</p>
+                                    <button onClick={() => removeFromCart(item.id, item.variantId)} className="text-xs text-red-500 hover:underline mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Eliminar</button>
+                                </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                                <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{item.name}</h4>
-                                {item.variantName && <p className="text-xs text-slate-500">{item.variantName}</p>}
-                                <p className="text-xs text-indigo-600 dark:text-indigo-400 font-bold mt-0.5">${item.price.toFixed(2)} / {item.unit || 'pz'}</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="font-bold text-slate-800 dark:text-white">${(item.price * item.quantity).toFixed(2)}</p>
-                                <button onClick={() => removeFromCart(item.id, item.variantId)} className="text-xs text-red-500 hover:underline mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Eliminar</button>
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                     {cart.length === 0 && (<div className="text-center py-10 text-slate-400 flex flex-col items-center"><ShoppingCart className="w-12 h-12 mb-3 opacity-20" /><p>Carrito vacío</p><p className="text-xs mt-1">Agrega productos para comenzar</p></div>)}
                 </div>
 
@@ -286,7 +446,8 @@ export const POS: React.FC = () => {
                         {settings.enableTax && (<div className="flex justify-between"><span>Impuestos Totales</span><span className="font-medium">${taxAmount.toFixed(2)}</span></div>)}
                         <div className="flex justify-between items-center py-1"><span className="flex items-center gap-1.5 font-bold text-slate-600 dark:text-slate-300"><Truck className="w-3.5 h-3.5"/> Envío</span><div className="relative w-20"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400">$</span><input type="number" value={shippingCost} onChange={(e) => setShippingCost(e.target.value)} className="w-full pl-5 pr-2 py-1 text-right border border-slate-200 rounded-md dark:bg-slate-800 dark:border-slate-700 outline-none focus:border-indigo-500 text-slate-800 dark:text-white font-bold" placeholder="0" /></div></div>
                     </div>
-                    <div className="flex justify-between items-end mb-4"><div><p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Total a Pagar</p><h3 className="text-3xl font-black text-slate-900 dark:text-white leading-none">${total.toFixed(2)}</h3></div><button onClick={() => setShowCheckoutModal(true)} disabled={cart.length === 0} className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex items-center gap-2">Cobrar <ArrowRight className="w-5 h-5" /></button></div>
+                    <div className="flex justify-between items-end mb-4"><div><p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Total a Pagar</p><h3 className="text-3xl font-black text-slate-900 dark:text-white leading-none">${total.toFixed(2)}</h3></div>
+                    <button onClick={handleCheckStock} disabled={cart.length === 0} className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex items-center gap-2">Cobrar <ArrowRight className="w-5 h-5" /></button></div>
                 </div>
             </div>
 
@@ -325,6 +486,46 @@ export const POS: React.FC = () => {
                 </div>
             )}
 
+            {/* SHORTAGE MODAL */}
+            {shortageModalOpen && (
+                <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-md w-full p-6 border border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3 mb-4 text-orange-600 dark:text-orange-400">
+                            <AlertTriangle className="w-8 h-8" />
+                            <h3 className="text-xl font-bold">Stock Insuficiente</h3>
+                        </div>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Algunos productos superan el inventario disponible. ¿Qué deseas hacer?</p>
+                        
+                        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 mb-6 max-h-48 overflow-y-auto">
+                            {shortageItems.map((s, idx) => (
+                                <div key={idx} className="flex justify-between items-center text-sm py-2 border-b border-slate-100 dark:border-slate-700 last:border-0">
+                                    <span className="font-bold text-slate-700 dark:text-slate-300">{s.item.name}</span>
+                                    <div className="text-right">
+                                        <div className="text-xs text-slate-400">Pides: {s.item.quantity} | Hay: {s.available}</div>
+                                        <div className="text-red-500 font-bold">Faltan: {s.missing}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="flex flex-col gap-3">
+                            <button 
+                                onClick={handleCreateProductionOrder}
+                                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2"
+                            >
+                                <ClipboardList className="w-4 h-4" /> Generar Orden de Producción por Faltantes
+                            </button>
+                            <p className="text-[10px] text-center text-slate-400">Se creará un Pedido con lo que falta y se cobrará solo lo disponible.</p>
+                            
+                            <div className="flex gap-3 mt-2">
+                                <button onClick={handleSellAnyway} className="flex-1 py-3 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 font-bold rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 text-xs">Vender Todo (Negativo)</button>
+                                <button onClick={() => setShortageModalOpen(false)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold rounded-xl hover:bg-slate-200 text-xs">Cancelar / Editar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* FULL CHECKOUT WIZARD MODAL */}
             {showCheckoutModal && (
                 <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4">
@@ -341,14 +542,14 @@ export const POS: React.FC = () => {
                                     <button onClick={() => initiatePayment('cash')} className="p-4 rounded-xl border flex flex-col items-center gap-2 border-slate-200 dark:border-slate-700 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-slate-600 dark:text-slate-300 transition-all"><Banknote className="w-8 h-8 text-emerald-500" /><span className="text-sm font-bold">Efectivo</span></button>
                                     <button onClick={() => initiatePayment('card')} className="p-4 rounded-xl border flex flex-col items-center gap-2 border-slate-200 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-600 dark:text-slate-300 transition-all"><CreditCard className="w-8 h-8 text-blue-500" /><span className="text-sm font-bold">Tarjeta</span></button>
                                     <button onClick={() => initiatePayment('transfer')} className="p-4 rounded-xl border flex flex-col items-center gap-2 border-slate-200 dark:border-slate-700 hover:border-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 text-slate-600 dark:text-slate-300 transition-all"><Smartphone className="w-8 h-8 text-violet-500" /><span className="text-sm font-bold">Transferencia</span></button>
-                                    <button onClick={() => initiatePayment('credit')} className="p-4 rounded-xl border flex flex-col items-center gap-2 border-slate-200 dark:border-slate-700 hover:border-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 text-slate-600 dark:text-slate-300 transition-all"><Wallet className="w-8 h-8 text-pink-500" /><span className="text-sm font-bold">Crédito</span></button>
+                                    <button onClick={() => initiatePayment('credit')} className="p-4 rounded-xl border flex flex-col items-center gap-2 border-slate-200 dark:border-slate-700 hover:border-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 text-slate-600 dark:text-slate-300 transition-all"><Wallet className="w-8 h-8 text-pink-500" /><span className="text-sm font-bold">Crédito / Fiado</span></button>
                                 </div>
                                 <button onClick={() => initiatePayment('split')} className="w-full py-3 mt-2 text-indigo-600 font-bold text-sm hover:underline flex items-center justify-center gap-2"><PieChart className="w-4 h-4"/> Pago Dividido</button>
                             </div>
                         )}
 
                         {checkoutStep === 'PAYMENT' && (
-                            <div className="p-6">
+                            <div className="p-6 overflow-y-auto">
                                 <div className="flex justify-between items-center mb-4">
                                     <button onClick={() => setCheckoutStep('SELECT')} className="text-slate-400 hover:text-slate-600"><ArrowRight className="w-6 h-6 rotate-180" /></button>
                                     <h3 className="text-lg font-bold text-slate-800 dark:text-white capitalize">{paymentMethod === 'split' ? 'Pago Dividido' : paymentMethod === 'credit' ? 'Crédito' : `Pago en ${paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'card' ? 'Tarjeta' : 'Transferencia'}`}</h3>
@@ -360,20 +561,45 @@ export const POS: React.FC = () => {
                                     <h2 className="text-3xl font-black text-slate-800 dark:text-white">${total.toFixed(2)}</h2>
                                 </div>
 
+                                {/* Pending Switch Logic */}
+                                {paymentMethod !== 'credit' && paymentMethod !== 'split' && (
+                                    <div className="flex items-center justify-between mb-6 p-3 bg-orange-50 dark:bg-orange-900/10 rounded-xl border border-orange-100 dark:border-orange-900/30">
+                                        <div className="flex items-center gap-2">
+                                            <Clock className="w-4 h-4 text-orange-600" />
+                                            <span className="text-sm font-bold text-orange-800 dark:text-orange-300">Dejar Pendiente de Pago</span>
+                                        </div>
+                                        <div 
+                                            onClick={() => setIsPendingPayment(!isPendingPayment)}
+                                            className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${isPendingPayment ? 'bg-orange-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                        >
+                                            <div className={`w-3 h-3 bg-white rounded-full absolute top-1 transition-all ${isPendingPayment ? 'left-6' : 'left-1'}`} />
+                                        </div>
+                                    </div>
+                                )}
+
                                 {paymentMethod === 'cash' && (
                                     <>
                                         <div className="mb-6">
-                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Dinero Recibido</label>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">{isPendingPayment ? 'Anticipo / Abono Inicial (Opcional)' : 'Dinero Recibido'}</label>
                                             <div className="relative">
                                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-lg">$</span>
-                                                <input type="number" autoFocus value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} className="w-full pl-8 pr-4 py-4 rounded-xl border-2 border-indigo-100 dark:border-slate-700 bg-white dark:bg-slate-800 text-2xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder={total.toFixed(2)} />
+                                                <input type="number" autoFocus value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} className="w-full pl-8 pr-4 py-4 rounded-xl border-2 border-indigo-100 dark:border-slate-700 bg-white dark:bg-slate-800 text-2xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder={isPendingPayment ? "0.00" : total.toFixed(2)} />
                                             </div>
                                         </div>
-                                        <div className={`p-4 rounded-xl flex justify-between items-center mb-6 ${parseFloat(amountPaid) >= total ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>
-                                            <span className="font-bold">Cambio</span>
-                                            <span className="text-xl font-black">${Math.max(0, (parseFloat(amountPaid) || 0) - total).toFixed(2)}</span>
-                                        </div>
+                                        {!isPendingPayment && (
+                                            <div className={`p-4 rounded-xl flex justify-between items-center mb-6 ${parseFloat(amountPaid) >= total ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>
+                                                <span className="font-bold">Cambio</span>
+                                                <span className="text-xl font-black">${Math.max(0, (parseFloat(amountPaid) || 0) - total).toFixed(2)}</span>
+                                            </div>
+                                        )}
                                     </>
+                                )}
+
+                                {paymentMethod === 'transfer' && isPendingPayment && (
+                                    <div className="mb-6">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Anticipo (Opcional)</label>
+                                        <input type="number" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-lg outline-none" placeholder="0.00" />
+                                    </div>
                                 )}
 
                                 {paymentMethod === 'split' && (
@@ -384,12 +610,12 @@ export const POS: React.FC = () => {
                                     </div>
                                 )}
 
-                                {paymentMethod === 'credit' && (
+                                {(paymentMethod === 'credit' || isPendingPayment) && (
                                     <div className="mb-6 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-100 dark:border-orange-800 text-sm text-orange-800 dark:text-orange-300 flex gap-3">
                                         <AlertCircle className="w-5 h-5 shrink-0" />
                                         <div>
-                                            <p className="font-bold">Venta a Crédito</p>
-                                            <p className="mt-1">Se generará una nota pendiente por <strong>${total.toFixed(2)}</strong> al cliente seleccionado.</p>
+                                            <p className="font-bold">Nota por Cobrar</p>
+                                            <p className="mt-1">Se generará un saldo pendiente al cliente seleccionado. Podrás registrar el pago después.</p>
                                         </div>
                                     </div>
                                 )}
@@ -406,7 +632,7 @@ export const POS: React.FC = () => {
                                 <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2">¡Venta Exitosa!</h2>
                                 <p className="text-slate-500 mb-6">La transacción ha sido registrada.</p>
 
-                                {(paymentMethod === 'cash' || paymentMethod === 'split') && (parseFloat(amountPaid) > total || splitCash) && (
+                                {(paymentMethod === 'cash' || paymentMethod === 'split') && !isPendingPayment && (parseFloat(amountPaid) > total || splitCash) && (
                                     <div className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl mb-6">
                                         <p className="text-xs text-slate-500 uppercase tracking-wider font-bold mb-1">Cambio a Entregar</p>
                                         <p className="text-3xl font-black text-slate-800 dark:text-white">
