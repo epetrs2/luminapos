@@ -1,10 +1,29 @@
 
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle, Tag } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle, Tag, List } from 'lucide-react';
 import { CashMovement, BudgetCategory, ZReportData } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { printZCutTicket } from '../utils/printService';
+
+// Consistent colors for financial categories
+const CAT_COLORS: Record<string, string> = {
+    'SALES': '#10b981', // Emerald
+    'OPERATIONAL': '#ef4444', // Red
+    'EQUITY': '#3b82f6', // Blue
+    'PROFIT': '#ec4899', // Pink
+    'THIRD_PARTY': '#f97316', // Orange
+    'OTHER': '#64748b' // Slate
+};
+
+const CAT_LABELS: Record<string, string> = {
+    'SALES': 'Ventas',
+    'OPERATIONAL': 'Gastos Op.',
+    'EQUITY': 'Aporte Dueño',
+    'PROFIT': 'Retiro Ganancia',
+    'THIRD_PARTY': 'Liq. Terceros',
+    'OTHER': 'Otros'
+};
 
 export const CashRegister: React.FC = () => {
   const { cashMovements, addCashMovement, deleteCashMovement, settings, transactions } = useStore();
@@ -59,21 +78,30 @@ export const CashRegister: React.FC = () => {
 
   // Filter movements for today
   const today = new Date().toDateString();
-  const todaysMovements = cashMovements.filter(m => new Date(m.date).toDateString() === today);
+  const todaysMovements = cashMovements.filter(m => new Date(m.date).toDateString() === today && !m.isZCut);
 
   // Totals for today (Cash Flow)
   const incomeToday = todaysMovements.filter(m => m.type === 'OPEN' || m.type === 'DEPOSIT').reduce((a, b) => a + b.amount, 0);
   const expenseToday = todaysMovements.filter(m => m.type === 'EXPENSE' || m.type === 'WITHDRAWAL').reduce((a, b) => a + b.amount, 0);
 
-  // Chart Data
-  const donutData = [
-    { name: 'Ingresos', value: incomeToday, color: '#10b981' }, 
-    { name: 'Egresos', value: expenseToday, color: '#ef4444' }, 
-  ].filter(d => d.value > 0);
+  // --- DETAILED CHART DATA (By Category) ---
+  const categoryData = useMemo(() => {
+      const grouped: Record<string, number> = {};
+      
+      todaysMovements.forEach(m => {
+          // Skip opening fund to see pure movement distribution
+          if (m.type === 'OPEN') return;
+          
+          const catKey = m.category || 'OTHER';
+          grouped[catKey] = (grouped[catKey] || 0) + m.amount;
+      });
 
-  const barData = [
-      { name: 'Flujo de Hoy', Ingresos: incomeToday, Egresos: expenseToday }
-  ];
+      return Object.keys(grouped).map(key => ({
+          name: CAT_LABELS[key] || key,
+          value: grouped[key],
+          color: CAT_COLORS[key] || '#94a3b8'
+      }));
+  }, [todaysMovements]);
 
   const handleTypeChange = (newType: CashMovement['type'], specificCategory?: BudgetCategory) => {
       setType(newType);
@@ -219,7 +247,7 @@ export const CashRegister: React.FC = () => {
             </div>
         </div>
 
-        {/* Top Cards (Same as before) */}
+        {/* Top Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className={`rounded-2xl p-6 text-white shadow-lg relative overflow-hidden transition-colors ${isRegisterOpen ? 'bg-gradient-to-br from-indigo-600 to-violet-700' : 'bg-slate-700'}`}>
                 <div className="absolute right-0 top-0 p-6 opacity-10">
@@ -253,37 +281,59 @@ export const CashRegister: React.FC = () => {
             </div>
         </div>
 
-        {/* Visualizations & Form Section */}
+        {/* Improved Visualizations & Form Section */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-            <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 min-w-0">
+            <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 min-w-0 flex flex-col">
                  <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                     <PieChartIcon className="w-5 h-5 text-indigo-500" />
-                    Análisis de Flujo Diario
+                    Distribución de Movimientos (Hoy)
                  </h3>
-                 <div className="flex flex-col md:flex-row gap-6">
-                     <div className="w-full h-64 min-w-0">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={barData} layout="vertical">
-                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
-                                <XAxis type="number" hide />
-                                <YAxis type="category" dataKey="name" hide />
-                                <RechartsTooltip contentStyle={{backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff'}} />
-                                <Bar dataKey="Ingresos" fill="#10b981" radius={[0, 4, 4, 0]} barSize={20} />
-                                <Bar dataKey="Egresos" fill="#ef4444" radius={[0, 4, 4, 0]} barSize={20} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                     </div>
-                     <div className="w-full h-64 min-w-0">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie data={donutData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" stroke="none">
-                                    {donutData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                                </Pie>
-                                <RechartsTooltip />
-                                <Legend verticalAlign="bottom"/>
-                            </PieChart>
-                        </ResponsiveContainer>
-                     </div>
+                 <div className="flex-1 flex flex-col md:flex-row items-center gap-8 justify-center">
+                     {categoryData.length > 0 ? (
+                         <>
+                            <div className="w-full md:w-1/2 h-64 relative">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie 
+                                            data={categoryData} 
+                                            cx="50%" 
+                                            cy="50%" 
+                                            innerRadius={60} 
+                                            outerRadius={80} 
+                                            paddingAngle={5} 
+                                            dataKey="value" 
+                                            stroke="none"
+                                        >
+                                            {categoryData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                                        </Pie>
+                                        <RechartsTooltip formatter={(value: number) => `$${value.toFixed(2)}`} contentStyle={{borderRadius:'8px', border:'none'}} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                                {/* Center Text */}
+                                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                    <span className="text-xs text-slate-400 font-medium">Movimiento</span>
+                                    <span className="text-lg font-bold text-slate-800 dark:text-white">${(incomeToday + expenseToday).toFixed(0)}</span>
+                                </div>
+                            </div>
+                            
+                            <div className="w-full md:w-1/2 grid grid-cols-1 gap-3">
+                                {categoryData.map((cat, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-3 h-3 rounded-full" style={{backgroundColor: cat.color}}></div>
+                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{cat.name}</span>
+                                        </div>
+                                        <span className="text-sm font-bold dark:text-white">${cat.value.toFixed(2)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                         </>
+                     ) : (
+                         <div className="text-center py-12 text-slate-400">
+                             <PieChartIcon className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                             <p>Sin movimientos hoy.</p>
+                         </div>
+                     )}
                  </div>
             </div>
 
@@ -393,7 +443,7 @@ export const CashRegister: React.FC = () => {
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal (Same as before) */}
       {deleteId && (
           <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800">

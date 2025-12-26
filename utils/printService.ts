@@ -1,3 +1,4 @@
+
 import { Transaction, BusinessSettings, Order, CashMovement, Customer, CartItem } from '../types';
 
 // Estilos CSS base compartidos
@@ -316,6 +317,37 @@ const PRODUCTION_CSS = `
     .sig-box { width: 30%; border-top: 1px solid #000; padding-top: 5px; text-align: center; }
 `;
 
+const FINANCIAL_REPORT_CSS = `
+    ${BASE_CSS}
+    @page { size: letter portrait; margin: 1cm; }
+    body { font-family: 'Inter', sans-serif; color: #1e293b; background: white; }
+    
+    .header { text-align: center; margin-bottom: 30px; padding-bottom: 10px; border-bottom: 2px solid #cbd5e1; }
+    .logo { max-height: 50px; margin-bottom: 10px; }
+    .title { font-size: 20px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #0f172a; }
+    .subtitle { font-size: 12px; color: #64748b; margin-top: 5px; }
+    
+    .period-box { background: #f1f5f9; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 30px; font-weight: 600; font-size: 12px; border: 1px solid #e2e8f0; }
+
+    .section { margin-bottom: 30px; }
+    .section-title { font-size: 12px; font-weight: 800; text-transform: uppercase; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin-bottom: 10px; display: flex; justify-content: space-between; }
+    
+    .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f8fafc; font-size: 11px; }
+    .row:last-child { border-bottom: none; }
+    .label { color: #334155; }
+    .value { font-weight: 600; color: #0f172a; }
+    
+    .summary-box { background: #fff; border: 2px solid #0f172a; border-radius: 8px; padding: 15px; margin-top: 20px; }
+    .summary-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; }
+    .summary-row.total { font-size: 16px; font-weight: 900; border-top: 1px solid #cbd5e1; padding-top: 10px; margin-bottom: 0; margin-top: 10px; }
+    
+    .income-text { color: #059669; }
+    .expense-text { color: #dc2626; }
+    .net-text { color: #2563eb; }
+
+    .footer { margin-top: 50px; text-align: center; font-size: 9px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+`;
+
 const openPrintWindow = (content: string) => {
     const win = window.open('', '', 'width=1100,height=800');
     if (win) {
@@ -328,6 +360,7 @@ const openPrintWindow = (content: string) => {
     }
 };
 
+// ... (Existing generateInvoiceHalf code remains same) ...
 const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: BusinessSettings) => {
     // 14 rows is a safe number for landscape split view
     const minRows = 14; 
@@ -440,6 +473,7 @@ const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: Bus
     `;
 };
 
+// ... (Existing printInvoice function remains same) ...
 export const printInvoice = (transaction: Transaction, customer: any, settings: BusinessSettings) => {
     const html = `
         <html>
@@ -458,6 +492,7 @@ export const printInvoice = (transaction: Transaction, customer: any, settings: 
     openPrintWindow(html);
 };
 
+// ... (Existing printThermalTicket function remains same) ...
 export const printThermalTicket = (transaction: Transaction, customerName: string, settings: BusinessSettings) => {
     const TICKET_CSS = `
         body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 5px; width: ${settings.ticketPaperWidth}; }
@@ -504,6 +539,7 @@ export const printThermalTicket = (transaction: Transaction, customerName: strin
     openPrintWindow(html);
 };
 
+// ... (Existing printProductionSummary function remains same) ...
 export const printProductionSummary = (orders: Order[], settings: BusinessSettings) => {
     // 1. Consolidate items
     const summaryItems: Record<string, {
@@ -650,6 +686,7 @@ export const printProductionSummary = (orders: Order[], settings: BusinessSettin
     openPrintWindow(html);
 };
 
+// ... (Existing printOrderInvoice function remains same) ...
 export const printOrderInvoice = (order: Order, customer: any, settings: BusinessSettings) => {
     // Reutiliza el estilo de factura pero para una sola orden
     const html = `
@@ -714,6 +751,7 @@ export const printOrderInvoice = (order: Order, customer: any, settings: Busines
     openPrintWindow(html);
 };
 
+// ... (Existing printZCutTicket function remains same) ...
 export const printZCutTicket = (movement: CashMovement, settings: BusinessSettings) => {
     if (!movement.zReportData) return;
     const data = movement.zReportData;
@@ -743,6 +781,93 @@ export const printZCutTicket = (movement: CashMovement, settings: BusinessSettin
             <div class="row"><span>Declarado:</span><span>$${data.declaredCash.toFixed(2)}</span></div>
             <div class="row"><span>Diferencia:</span><span>$${data.difference.toFixed(2)}</span></div>
             <br/><br/><div style="text-align:center">_______________________<br/>Firma</div>
+        </body>
+        </html>
+    `;
+    openPrintWindow(html);
+};
+
+export const printFinancialReport = (
+    startDate: Date, 
+    endDate: Date, 
+    categories: {name: string, value: number}[], 
+    summary: {totalSales: number, totalExpenses: number, netProfit: number, thirdParty: number}, 
+    settings: BusinessSettings
+) => {
+    const startStr = startDate.toLocaleDateString();
+    const endStr = endDate.toLocaleDateString();
+    
+    // Group categories for cleaner report
+    const incomes = categories.filter(c => c.name === 'Ventas' || c.name === 'Otros Ingresos');
+    const expenses = categories.filter(c => c.name !== 'Ventas' && c.name !== 'Otros Ingresos');
+
+    const html = `
+        <html>
+        <head>
+            <title>Estado Financiero</title>
+            <style>${FINANCIAL_REPORT_CSS}</style>
+        </head>
+        <body>
+            <div class="header">
+                ${settings.logo ? `<img src="${settings.logo}" class="logo"/>` : ''}
+                <div class="title">Estado Financiero</div>
+                <div class="subtitle">${settings.name}</div>
+            </div>
+
+            <div class="period-box">
+                PERIODO: ${startStr} - ${endStr}
+            </div>
+
+            <!-- INCOMES -->
+            <div class="section">
+                <div class="section-title">INGRESOS Y VENTAS</div>
+                <div class="row">
+                    <span class="label">Ventas Totales Brutas</span>
+                    <span class="value income-text">$${summary.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                </div>
+                ${summary.thirdParty > 0 ? `
+                <div class="row">
+                    <span class="label">Ventas de Terceros (Consignación)</span>
+                    <span class="value" style="color:#f59e0b;">$${summary.thirdParty.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                </div>
+                ` : ''}
+            </div>
+
+            <!-- EXPENSES Breakdown -->
+            <div class="section">
+                <div class="section-title">DESGLOSE DE EGRESOS</div>
+                ${expenses.length === 0 ? '<div class="row"><span class="label">Sin egresos registrados</span></div>' : ''}
+                ${expenses.map(exp => `
+                    <div class="row">
+                        <span class="label">${exp.name}</span>
+                        <span class="value">$${exp.value.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                    </div>
+                `).join('')}
+            </div>
+
+            <!-- SUMMARY -->
+            <div class="summary-box">
+                <div class="summary-row">
+                    <span>Total Ingresos Operativos</span>
+                    <span class="income-text">$${summary.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                </div>
+                <div class="summary-row">
+                    <span>Total Egresos y Salidas</span>
+                    <span class="expense-text">-$${summary.totalExpenses.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                </div>
+                <div class="summary-row total">
+                    <span>UTILIDAD NETA ESTIMADA</span>
+                    <span class="net-text">$${summary.netProfit.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                </div>
+                <p style="font-size:9px; color:#64748b; margin-top:5px;">
+                    * La utilidad se calcula: Ventas Propias - Gastos Operativos. 
+                    (No incluye liquidaciones a terceros en el cálculo de utilidad propia).
+                </p>
+            </div>
+
+            <div class="footer">
+                Generado el ${new Date().toLocaleString()} por LuminaPOS
+            </div>
         </body>
         </html>
     `;
