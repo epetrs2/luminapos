@@ -6,7 +6,7 @@ import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartph
 import { printThermalTicket, printInvoice } from '../utils/printService';
 
 export const POS: React.FC = () => {
-    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder } = useStore();
+    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions } = useStore();
     
     // State
     const [searchTerm, setSearchTerm] = useState('');
@@ -297,8 +297,15 @@ export const POS: React.FC = () => {
             }
         }
 
+        // GENERATE FOLIO (ID) HERE TO ENSURE IT'S READY FOR PRINTING
+        const currentMaxId = transactions.reduce((max, curr) => {
+            const idNum = parseInt(curr.id);
+            return !isNaN(idNum) && idNum > max ? idNum : max;
+        }, settings.sequences.ticketStart - 1);
+        const nextId = (currentMaxId + 1).toString();
+
         const transaction: Transaction = {
-            id: '', 
+            id: nextId, 
             date: new Date().toISOString(),
             subtotal,
             taxAmount,
@@ -316,7 +323,7 @@ export const POS: React.FC = () => {
 
         addTransaction(transaction);
         updateStockAfterSale(cart);
-        setLastTransaction({ ...transaction, id: 'OK' }); // ID will be refreshed on receipt print if needed, simplified here
+        setLastTransaction(transaction);
         setCheckoutStep('SUCCESS');
     };
 

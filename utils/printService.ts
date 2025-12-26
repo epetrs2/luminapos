@@ -64,19 +64,20 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
 
     .brand-row {
         display: flex;
-        height: 45px;
+        height: 55px; /* Increased height for bigger logo */
         border-bottom: 1px solid #334155;
     }
 
     .logo-area {
-        width: 100px;
+        width: 120px;
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 4px;
         border-right: 1px solid #e2e8f0;
     }
-    .logo-area img { max-height: 35px; max-width: 100%; object-fit: contain; }
+    /* Logo increased size */
+    .logo-area img { max-height: 50px; max-width: 100%; object-fit: contain; }
 
     .company-info {
         flex: 1;
