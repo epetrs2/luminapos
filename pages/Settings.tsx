@@ -275,6 +275,13 @@ export const Settings: React.FC = () => {
   // --- BLUETOOTH FUNCTIONS ---
   const handleBtScan = async () => {
       setBtError('');
+      
+      // Check for browser support first
+      if (!(navigator as any).bluetooth) {
+          setBtError("Tu navegador no soporta Bluetooth Web. Usa Chrome o Edge en Android/PC.");
+          return;
+      }
+
       setIsScanningBt(true);
       try {
           // Request Web Bluetooth Device
@@ -286,7 +293,11 @@ export const Settings: React.FC = () => {
           await connectToDevice(device);
       } catch (error: any) {
           console.error("BT Error:", error);
-          setBtError(error.message || 'Error al escanear. Asegúrate de tener Bluetooth encendido.');
+          if (error.name === 'NotFoundError' || error.message?.includes('cancelled')) {
+              // User cancelled the dialog, just ignore
+          } else {
+              setBtError(error.message || 'Error al escanear. Asegúrate de tener Bluetooth encendido.');
+          }
       } finally {
           setIsScanningBt(false);
       }
