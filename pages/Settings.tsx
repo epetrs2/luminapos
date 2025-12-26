@@ -201,6 +201,23 @@ export const Settings: React.FC = () => {
       setFormData(settings);
   }, [settings]);
 
+  // Preview Theme Immediately
+  useEffect(() => {
+      const root = window.document.documentElement;
+      if (formData.theme === 'dark') {
+          root.classList.add('dark');
+      } else {
+          root.classList.remove('dark');
+      }
+      // Revert if navigating away without saving happens via unmount of component
+      return () => {
+          // Re-apply the globally saved setting to ensure consistency
+          const globalIsDark = settings.theme === 'dark';
+          if (globalIsDark) root.classList.add('dark');
+          else root.classList.remove('dark');
+      };
+  }, [formData.theme, settings.theme]);
+
   const handleSave = () => {
     updateSettings(formData);
     pushToCloud({ settings: formData });

@@ -172,6 +172,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         };
     }, [products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, categories, activityLogs]);
 
+    // Apply Theme Effect
+    useEffect(() => {
+        const root = window.document.documentElement;
+        if (settings.theme === 'dark') {
+            root.classList.add('dark');
+        } else {
+            root.classList.remove('dark');
+        }
+    }, [settings.theme]);
+
     // AUTO-SEED ADMIN
     useEffect(() => {
         const initializeAdmin = async () => {
