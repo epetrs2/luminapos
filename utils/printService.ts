@@ -7,12 +7,11 @@ const BASE_CSS = `
     body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; background-color: #fff; }
 `;
 
-// CSS Específico para la Nota de Venta (Estilo Imagen Original/Copia)
-const INVOICE_CSS = `
+const generateInvoiceCss = (settings: BusinessSettings) => `
     ${BASE_CSS}
     @page { 
         size: letter landscape; 
-        margin: 0.4cm; 
+        margin: ${settings.invoicePadding || 10}px; 
     }
     
     .page-container {
@@ -360,7 +359,6 @@ const openPrintWindow = (content: string) => {
     }
 };
 
-// ... (Existing generateInvoiceHalf code remains same) ...
 const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: BusinessSettings) => {
     // 14 rows is a safe number for landscape split view
     const minRows = 14; 
@@ -473,13 +471,12 @@ const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: Bus
     `;
 };
 
-// ... (Existing printInvoice function remains same) ...
 export const printInvoice = (transaction: Transaction, customer: any, settings: BusinessSettings) => {
     const html = `
         <html>
         <head>
             <title>Nota de Venta #${transaction.id}</title>
-            <style>${INVOICE_CSS}</style>
+            <style>${generateInvoiceCss(settings)}</style>
         </head>
         <body>
             <div class="page-container">
@@ -492,7 +489,71 @@ export const printInvoice = (transaction: Transaction, customer: any, settings: 
     openPrintWindow(html);
 };
 
-// ... (Existing printThermalTicket function remains same) ...
+export const printOrderInvoice = (order: Order, customer: any, settings: BusinessSettings) => {
+    const invoiceCss = generateInvoiceCss(settings);
+    // Reutiliza el estilo de factura pero para una sola orden
+    const html = `
+        <html>
+        <head><style>${invoiceCss} .invoice-panel { width: 95%; margin: 0 auto; height: auto; min-height: 80vh; }</style></head>
+        <body>
+            <div class="page-container" style="display:block;">
+                <div class="invoice-panel">
+                    <div class="header-bar">
+                        <span class="header-title">ORDEN DE PEDIDO</span>
+                        <span class="header-tag">PRODUCCIÓN</span>
+                    </div>
+                    
+                    <div class="brand-row">
+                        <div class="company-info">
+                            <div class="company-name">${settings.name}</div>
+                        </div>
+                        <div class="ticket-id-box">
+                            <span class="ticket-label">FOLIO</span>
+                            <span class="ticket-value">#${order.id}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="info-grid">
+                        <div class="info-cell info-label">CLIENTE</div>
+                        <div class="info-cell info-value">${order.customerName}</div>
+                        <div class="info-cell info-label">FECHA</div>
+                        <div class="info-cell info-value" style="justify-content:center;">${new Date(order.date).toLocaleDateString()}</div>
+
+                        <div class="info-cell info-label">ENTREGA</div>
+                        <div class="info-cell info-value" style="font-weight:800">${order.deliveryDate || 'PENDIENTE'}</div>
+                        <div class="info-cell info-label">NOTAS</div>
+                        <div class="info-cell info-value" style="color:#ef4444; font-weight:bold;">${order.notes || '---'}</div>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="col-qty">CANT</th>
+                                    <th>DESCRIPCIÓN</th>
+                                    <th class="col-price">CONTROL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${order.items.map(item => `
+                                    <tr>
+                                        <td class="col-qty" style="font-size:16px;">${item.quantity}</td>
+                                        <td>${item.name}</td>
+                                        <td style="border:1px solid #ccc;"></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="padding:20px;"></div>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+    openPrintWindow(html);
+};
+
 export const printThermalTicket = (transaction: Transaction, customerName: string, settings: BusinessSettings) => {
     const TICKET_CSS = `
         body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 5px; width: ${settings.ticketPaperWidth}; }
@@ -511,6 +572,7 @@ export const printThermalTicket = (transaction: Transaction, customerName: strin
         <body>
             <div class="header">
                 ${settings.receiptLogo ? `<img src="${settings.receiptLogo}" style="max-width:50%; margin-bottom:5px;">` : ''}
+                ${settings.receiptHeader ? `<div style="font-size:10px; margin-bottom:5px;">${settings.receiptHeader}</div>` : ''}
                 <div class="title">${settings.name}</div>
                 <div>${settings.address}</div>
                 <div>${settings.phone}</div>
@@ -539,7 +601,7 @@ export const printThermalTicket = (transaction: Transaction, customerName: strin
     openPrintWindow(html);
 };
 
-// ... (Existing printProductionSummary function remains same) ...
+// ... (Rest of exports remain same)
 export const printProductionSummary = (orders: Order[], settings: BusinessSettings) => {
     // 1. Consolidate items
     const summaryItems: Record<string, {
@@ -679,71 +741,6 @@ export const printProductionSummary = (orders: Order[], settings: BusinessSettin
                 <div class="sig-box">FIRMA SUPERVISOR</div>
                 <div class="sig-box">FIRMA EMPAQUE</div>
                 <div class="sig-box">FECHA / HORA INICIO</div>
-            </div>
-        </body>
-        </html>
-    `;
-    openPrintWindow(html);
-};
-
-// ... (Existing printOrderInvoice function remains same) ...
-export const printOrderInvoice = (order: Order, customer: any, settings: BusinessSettings) => {
-    // Reutiliza el estilo de factura pero para una sola orden
-    const html = `
-        <html>
-        <head><style>${INVOICE_CSS} .invoice-panel { width: 95%; margin: 0 auto; height: auto; min-height: 80vh; }</style></head>
-        <body>
-            <div class="page-container" style="display:block;">
-                <div class="invoice-panel">
-                    <div class="header-bar">
-                        <span class="header-title">ORDEN DE PEDIDO</span>
-                        <span class="header-tag">PRODUCCIÓN</span>
-                    </div>
-                    
-                    <div class="brand-row">
-                        <div class="company-info">
-                            <div class="company-name">${settings.name}</div>
-                        </div>
-                        <div class="ticket-id-box">
-                            <span class="ticket-label">FOLIO</span>
-                            <span class="ticket-value">#${order.id}</span>
-                        </div>
-                    </div>
-                    
-                    <div class="info-grid">
-                        <div class="info-cell info-label">CLIENTE</div>
-                        <div class="info-cell info-value">${order.customerName}</div>
-                        <div class="info-cell info-label">FECHA</div>
-                        <div class="info-cell info-value" style="justify-content:center;">${new Date(order.date).toLocaleDateString()}</div>
-
-                        <div class="info-cell info-label">ENTREGA</div>
-                        <div class="info-cell info-value" style="font-weight:800">${order.deliveryDate || 'PENDIENTE'}</div>
-                        <div class="info-cell info-label">NOTAS</div>
-                        <div class="info-cell info-value" style="color:#ef4444; font-weight:bold;">${order.notes || '---'}</div>
-                    </div>
-
-                    <div class="table-wrapper">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th class="col-qty">CANT</th>
-                                    <th>DESCRIPCIÓN</th>
-                                    <th class="col-price">CONTROL</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${order.items.map(item => `
-                                    <tr>
-                                        <td class="col-qty" style="font-size:16px;">${item.quantity}</td>
-                                        <td>${item.name}</td>
-                                        <td style="border:1px solid #ccc;"></td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div style="padding:20px;"></div>
-                </div>
             </div>
         </body>
         </html>

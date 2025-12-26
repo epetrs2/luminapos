@@ -211,6 +211,7 @@ export interface BusinessSettings {
   receiptHeader: string;
   receiptFooter: string;
   ticketPaperWidth: '58mm' | '80mm';
+  invoicePadding: number; // New: Padding/Margin for letter invoice (in mm approx)
   theme: 'light' | 'dark';
   budgetConfig: BudgetConfig; 
   notificationsEnabled: boolean; 

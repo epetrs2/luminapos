@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt } from 'lucide-react';
+import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Smartphone, LayoutTemplate } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 
 // --- IMAGE CROPPER COMPONENT (IMPROVED UX) ---
@@ -190,7 +190,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, hardReset, pushToCloud, notify } = useStore();
-  const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'DATA'>('GENERAL');
+  const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA'>('GENERAL');
   const [formData, setFormData] = useState(settings);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [cropTarget, setCropTarget] = useState<'MAIN' | 'RECEIPT'>('MAIN');
@@ -284,7 +284,6 @@ export const Settings: React.FC = () => {
   );
 
   // Derived state for Cloud Connection Status
-  // STRICT CHECK: Must be enabled AND have a URL with content
   const isCloudConfigured = formData.enableCloudSync && formData.googleWebAppUrl && formData.googleWebAppUrl.trim().length > 10;
 
   return (
@@ -308,6 +307,7 @@ export const Settings: React.FC = () => {
             {[
                 { id: 'GENERAL', label: 'Identidad y Marca', icon: Store },
                 { id: 'OPERATIONS', label: 'Operación y Tickets', icon: PieChart },
+                { id: 'TICKETS', label: 'Tickets & Impresión', icon: Receipt },
                 { id: 'DATA', label: 'Nube y Datos', icon: Cloud }
             ].map((tab) => (
                 <button 
@@ -375,19 +375,6 @@ export const Settings: React.FC = () => {
                                         <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'MAIN')} />
                                     </div>
                                 </div>
-                            </div>
-
-                            <div className="border-t border-slate-100 dark:border-slate-800 pt-6 text-center">
-                                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Logo para Tickets (B/N)</p>
-                                <div className="relative group mx-auto w-32 h-32 bg-white rounded-2xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 hover:border-slate-900 transition-colors shadow-sm">
-                                    {formData.receiptLogo ? <img src={formData.receiptLogo} className="w-full h-full object-contain p-2" /> : <Printer className="w-10 h-10 text-slate-300" />}
-                                    <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
-                                        <Upload className="w-6 h-6 mb-1" />
-                                        <span className="text-[10px] font-bold">Subir B/N</span>
-                                        <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'RECEIPT')} />
-                                    </div>
-                                </div>
-                                <p className="text-[10px] text-slate-400 mt-2 max-w-[200px] mx-auto leading-tight">Recomendado: Fondo blanco puro y líneas negras para mejor impresión térmica.</p>
                             </div>
                         </div>
                     </div>
@@ -489,22 +476,6 @@ export const Settings: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Pie de Página (Ticket)</label>
-                                <div className="relative">
-                                    <textarea 
-                                        className="w-full px-4 pt-3 pb-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none text-center text-xs font-mono focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none shadow-sm" 
-                                        rows={3} 
-                                        value={formData.receiptFooter} 
-                                        onChange={e => setFormData({ ...formData, receiptFooter: e.target.value })} 
-                                    />
-                                    <div className="absolute bottom-2 left-0 right-0 flex justify-center opacity-20 pointer-events-none">
-                                        <div className="border-t-2 border-dashed border-slate-900 w-1/2"></div>
-                                    </div>
-                                    <Receipt className="absolute top-3 right-3 text-slate-300 w-4 h-4 pointer-events-none" />
-                                </div>
-                            </div>
                         </div>
 
                         <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
@@ -527,6 +498,155 @@ export const Settings: React.FC = () => {
                                         <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${formData.productionDoc?.showCustomerContact ? 'translate-x-6' : ''}`} />
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- TICKETS & PRINTING (NEW TAB) --- */}
+            {activeTab === 'TICKETS' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-[fadeIn_0.3s_ease-out]">
+                    {/* Controls Column */}
+                    <div className="space-y-6">
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Printer className="w-5 h-5"/></div>
+                                Ticket Térmico
+                            </h3>
+
+                            <div className="space-y-6">
+                                {/* Paper Size */}
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1 mb-2 block">Ancho de Papel</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button 
+                                            onClick={() => setFormData({...formData, ticketPaperWidth: '58mm'})}
+                                            className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${formData.ticketPaperWidth === '58mm' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500'}`}
+                                        >
+                                            <Receipt className="w-6 h-6" />
+                                            <span className="font-bold text-sm">58 mm</span>
+                                        </button>
+                                        <button 
+                                            onClick={() => setFormData({...formData, ticketPaperWidth: '80mm'})}
+                                            className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${formData.ticketPaperWidth === '80mm' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500'}`}
+                                        >
+                                            <Receipt className="w-8 h-8" />
+                                            <span className="font-bold text-sm">80 mm</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Logo Uploader for Receipt */}
+                                <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
+                                    <div className="flex items-center gap-4">
+                                        <div className="relative group w-24 h-24 bg-white rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 hover:border-slate-900 transition-colors shadow-sm shrink-0">
+                                            {formData.receiptLogo ? <img src={formData.receiptLogo} className="w-full h-full object-contain p-2" /> : <Printer className="w-8 h-8 text-slate-300" />}
+                                            <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
+                                                <Upload className="w-5 h-5" />
+                                                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'RECEIPT')} />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-sm text-slate-800 dark:text-white">Logo de Ticket</p>
+                                            <p className="text-xs text-slate-500 mt-1 leading-tight">Recomendado: Fondo blanco puro y líneas negras (B/N) para impresión térmica nítida.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <InputField label="Encabezado / Slogan" value={formData.receiptHeader || ''} onChange={(e: any) => setFormData({ ...formData, receiptHeader: e.target.value })} placeholder="Ej. ¡Bienvenido!" />
+                                
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Pie de Página</label>
+                                    <textarea 
+                                        className="w-full px-4 pt-3 pb-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none text-center text-xs font-mono focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none shadow-sm" 
+                                        rows={3} 
+                                        value={formData.receiptFooter} 
+                                        onChange={e => setFormData({ ...formData, receiptFooter: e.target.value })} 
+                                        placeholder="Ej. Gracias por su compra"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><FileText className="w-5 h-5"/></div>
+                                Nota de Venta (Carta)
+                            </h3>
+                            
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Márgenes de Impresión</label>
+                                    <span className="text-xs font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-slate-600 dark:text-slate-300">{formData.invoicePadding || 10}px</span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="50" 
+                                    step="1" 
+                                    value={formData.invoicePadding || 10} 
+                                    onChange={(e) => setFormData({...formData, invoicePadding: parseInt(e.target.value)})}
+                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                />
+                                <p className="text-[10px] text-slate-400 mt-2">Ajusta si el contenido se corta al imprimir en tu impresora.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Live Preview Column */}
+                    <div className="bg-slate-100 dark:bg-black/20 rounded-3xl p-8 flex items-start justify-center overflow-hidden border border-slate-200/50 dark:border-slate-800">
+                        <div 
+                            className="bg-white text-black shadow-2xl transition-all duration-300 flex flex-col"
+                            style={{ 
+                                width: formData.ticketPaperWidth === '58mm' ? '200px' : '300px', 
+                                minHeight: '400px',
+                                padding: '10px',
+                                fontFamily: "'Courier New', monospace",
+                                fontSize: '11px'
+                            }}
+                        >
+                            {/* Thermal Header */}
+                            <div className="text-center mb-4 pb-2 border-b border-dashed border-black">
+                                {formData.receiptLogo ? (
+                                    <img src={formData.receiptLogo} className="max-w-[60%] h-auto mx-auto mb-2 block" alt="Logo Ticket" />
+                                ) : (
+                                    <div className="text-xs font-bold mb-1">[LOGO]</div>
+                                )}
+                                {formData.receiptHeader && <div className="font-bold text-[10px] mb-1 whitespace-pre-wrap">{formData.receiptHeader}</div>}
+                                <div className="font-bold text-sm uppercase">{formData.name}</div>
+                                <div className="text-[10px]">{formData.address}</div>
+                                <div className="text-[10px]">{formData.phone}</div>
+                            </div>
+
+                            {/* Dummy Content */}
+                            <div className="flex justify-between mb-1">
+                                <span>Ticket #12345</span>
+                                <span>{new Date().toLocaleDateString()}</span>
+                            </div>
+                            <div className="border-b border-dashed border-black my-2"></div>
+                            
+                            <div className="space-y-1 mb-4">
+                                <div className="flex justify-between">
+                                    <span>2 x Producto A</span>
+                                    <span>$50.00</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span>1 x Producto B</span>
+                                    <span>$120.00</span>
+                                </div>
+                            </div>
+
+                            <div className="border-t border-dashed border-black pt-2 mt-auto">
+                                <div className="flex justify-between font-bold text-sm">
+                                    <span>TOTAL</span>
+                                    <span>$170.00</span>
+                                </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="mt-4 pt-2 border-t border-dashed border-black text-center text-[10px] whitespace-pre-wrap">
+                                {formData.receiptFooter}
                             </div>
                         </div>
                     </div>

@@ -88,6 +88,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     receiptHeader: '*** GRACIAS POR SU COMPRA ***',
     receiptFooter: 'Síguenos en redes sociales',
     ticketPaperWidth: '80mm',
+    invoicePadding: 10, // Default padding 10px
     theme: 'light',
     budgetConfig: { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20 },
     notificationsEnabled: false,
