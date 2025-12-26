@@ -3,91 +3,156 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { generateBusinessInsight } from '../services/geminiService';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle } from 'lucide-react';
+import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 // --- COLORS FOR CHARTS ---
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
 
+type DateRangeOption = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
+
 export const Reports: React.FC = () => {
   const { transactions, products, cashMovements, settings } = useStore();
-  const [timeRange, setTimeRange] = useState<'WEEK' | 'MONTH'>('WEEK');
+  
+  // --- FILTER STATE ---
+  const [dateRange, setDateRange] = useState<DateRangeOption>('WEEK');
+  const [showFilters, setShowFilters] = useState(false);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('ALL');
+
   const [insight, setInsight] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
 
-  // --- 1. DATA PREPARATION & FILTERING (CRITICAL: EXCLUDE CANCELLED) ---
+  // --- DATA PREPARATION & FILTERING ---
   const { 
       filteredTransactions, 
       filteredMovements, 
-      dateLabels, 
       chartData,
       summaryMetrics,
       topProducts,
-      categoryData
+      categoryData,
+      expenseCategoryData,
+      thirdPartyMetrics
   } = useMemo(() => {
       const now = new Date();
-      // Set start date based on range (start of day)
-      const startDate = new Date();
-      startDate.setDate(now.getDate() - (timeRange === 'WEEK' ? 6 : 29)); // 7 or 30 days inclusive
-      startDate.setHours(0, 0, 0, 0);
+      let startDate = new Date();
+      let endDate = new Date();
 
-      // Filter Transactions (BUG FIX: Exclude cancelled)
+      // 1. Calculate Date Range
+      if (dateRange === 'TODAY') {
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(23, 59, 59, 999);
+      } else if (dateRange === 'WEEK') {
+          startDate.setDate(now.getDate() - 6);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = now;
+      } else if (dateRange === 'MONTH') {
+          startDate.setDate(now.getDate() - 29);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = now;
+      } else if (dateRange === 'CUSTOM') {
+          if (customStart) {
+              startDate = new Date(customStart + 'T00:00:00');
+          } else {
+              startDate = new Date(0); // Beginning of time if not set
+          }
+          
+          if (customEnd) {
+              endDate = new Date(customEnd + 'T23:59:59');
+          } else {
+              endDate = now;
+          }
+      }
+
+      // 2. Filter Transactions
       const validTx = transactions.filter(t => {
           const tDate = new Date(t.date);
-          return t.status !== 'cancelled' && tDate >= startDate && tDate <= now;
+          const isDateInRange = tDate >= startDate && tDate <= endDate;
+          const isNotCancelled = t.status !== 'cancelled';
+          const matchesPayment = paymentMethodFilter === 'ALL' || t.paymentMethod === paymentMethodFilter;
+          
+          return isDateInRange && isNotCancelled && matchesPayment;
       });
 
-      // Filter Cash Movements (For Expenses/CashFlow)
+      // 3. Filter Cash Movements (For Expenses/CashFlow)
       const validMovs = cashMovements.filter(m => {
           const mDate = new Date(m.date);
-          return mDate >= startDate && mDate <= now;
+          return mDate >= startDate && mDate <= endDate;
       });
 
       // --- AGGREGATION ---
       
-      // 1. Sales Trend Data (Group by Day)
-      const daysMap = new Map<string, { date: string, sales: number, expenses: number }>();
+      // A. Sales Trend Data (Group by Day)
+      const daysMap = new Map<string, { date: string, rawDate: number, sales: number, expenses: number }>();
       
-      // Initialize map with all dates in range to avoid gaps in charts
-      for (let d = new Date(startDate); d <= now; d.setDate(d.getDate() + 1)) {
-          const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
-          const key = d.toDateString(); // Unique key
-          daysMap.set(key, { date: label, sales: 0, expenses: 0 });
+      const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (diffDays <= 60) {
+          for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+              const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+              const key = d.toDateString(); 
+              daysMap.set(key, { date: label, rawDate: d.getTime(), sales: 0, expenses: 0 });
+          }
       }
 
       // Fill Sales
       validTx.forEach(t => {
-          const key = new Date(t.date).toDateString();
-          if (daysMap.has(key)) {
-              const entry = daysMap.get(key)!;
-              entry.sales += t.total;
+          const d = new Date(t.date);
+          const key = d.toDateString();
+          const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+          
+          if (!daysMap.has(key)) {
+              daysMap.set(key, { date: label, rawDate: d.getTime(), sales: 0, expenses: 0 });
           }
+          
+          const entry = daysMap.get(key)!;
+          entry.sales += t.total;
       });
 
       // Fill Expenses (Only type EXPENSE)
       validMovs.filter(m => m.type === 'EXPENSE').forEach(m => {
-          const key = new Date(m.date).toDateString();
-          if (daysMap.has(key)) {
-              const entry = daysMap.get(key)!;
-              entry.expenses += m.amount;
+          const d = new Date(m.date);
+          const key = d.toDateString();
+          const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+
+          if (!daysMap.has(key)) {
+              daysMap.set(key, { date: label, rawDate: d.getTime(), sales: 0, expenses: 0 });
           }
+
+          const entry = daysMap.get(key)!;
+          entry.expenses += m.amount;
       });
 
-      const chartDataArray = Array.from(daysMap.values());
+      const chartDataArray = Array.from(daysMap.values()).sort((a, b) => a.rawDate - b.rawDate);
 
-      // 2. Metrics
+      // B. Third Party Sales Calculation
+      let thirdPartySales = 0;
+      let ownSales = 0;
+
+      validTx.forEach(t => {
+          t.items.forEach(item => {
+              if (item.isConsignment) {
+                  thirdPartySales += (item.price * item.quantity);
+              } else {
+                  ownSales += (item.price * item.quantity);
+              }
+          });
+      });
+
       const totalSales = validTx.reduce((sum, t) => sum + t.total, 0);
       const totalExpenses = validMovs.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + m.amount, 0);
       const transactionCount = validTx.length;
       const avgTicket = transactionCount > 0 ? totalSales / transactionCount : 0;
-      // Approximate profit (Sales - Recorded Expenses) - Simple view
-      const netEstimate = totalSales - totalExpenses; 
+      
+      // Net Estimate should exclude Third Party Sales as it's not real revenue
+      const netEstimate = ownSales - totalExpenses; 
 
-      // 3. Top Products
+      // C. Top Products
       const productMap = new Map<string, { name: string, qty: number, total: number }>();
       validTx.forEach(t => {
           t.items.forEach(item => {
-              const key = item.id; // Group by Product ID
+              const key = item.id;
               const current = productMap.get(key) || { name: item.name, qty: 0, total: 0 };
               current.qty += item.quantity;
               current.total += (item.price * item.quantity);
@@ -98,7 +163,7 @@ export const Reports: React.FC = () => {
           .sort((a, b) => b.total - a.total)
           .slice(0, 5);
 
-      // 4. Category Distribution
+      // D. Product Categories (Pie Chart)
       const catMap = new Map<string, number>();
       validTx.forEach(t => {
           t.items.forEach(item => {
@@ -108,22 +173,31 @@ export const Reports: React.FC = () => {
       });
       const categoryArray = Array.from(catMap.entries()).map(([name, value]) => ({ name, value }));
 
+      // E. Expense Categories (Pie Chart)
+      const expMap = new Map<string, number>();
+      validMovs.filter(m => m.type === 'EXPENSE').forEach(m => {
+          // Use subCategory if available, else generic category
+          const cat = m.subCategory || (m.category === 'OPERATIONAL' ? 'Gastos Generales' : 'Otros');
+          expMap.set(cat, (expMap.get(cat) || 0) + m.amount);
+      });
+      const expenseCategoryArray = Array.from(expMap.entries()).map(([name, value]) => ({ name, value }));
+
       return {
           filteredTransactions: validTx,
           filteredMovements: validMovs,
-          dateLabels: Array.from(daysMap.values()).map(d => d.date),
           chartData: chartDataArray,
           summaryMetrics: { totalSales, totalExpenses, avgTicket, transactionCount, netEstimate },
+          thirdPartyMetrics: { total: thirdPartySales, own: ownSales },
           topProducts: topProductsArray,
-          categoryData: categoryArray
+          categoryData: categoryArray,
+          expenseCategoryData: expenseCategoryArray
       };
 
-  }, [transactions, cashMovements, timeRange]);
+  }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
   // --- AI HANDLER ---
   const handleGenerateInsight = async () => {
     setLoadingAi(true);
-    // We pass the filtered (valid) data to the AI for accurate analysis
     const result = await generateBusinessInsight(products, filteredTransactions, filteredMovements);
     setInsight(result.text);
     setLoadingAi(false);
@@ -137,31 +211,100 @@ export const Reports: React.FC = () => {
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       <div className="max-w-7xl mx-auto">
         
-        {/* HEADER & CONTROLS */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-8">
-          <div>
-            <h2 className="text-3xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-              <Activity className="w-8 h-8 text-indigo-500" /> Reportes y Análisis
-            </h2>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">
-                Visualiza el rendimiento de tu negocio. (Ventas anuladas excluidas).
-            </p>
+        {/* HEADER & FILTERS */}
+        <div className="flex flex-col gap-6 mb-8">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+                <h2 className="text-3xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <Activity className="w-8 h-8 text-indigo-500" /> Reportes
+                </h2>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">
+                    Análisis detallado del rendimiento de tu negocio.
+                </p>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-2">
+                <button 
+                    onClick={() => { setDateRange('TODAY'); setShowFilters(false); }}
+                    className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${dateRange === 'TODAY' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}
+                >
+                    Hoy
+                </button>
+                <button 
+                    onClick={() => { setDateRange('WEEK'); setShowFilters(false); }}
+                    className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${dateRange === 'WEEK' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}
+                >
+                    7 Días
+                </button>
+                <button 
+                    onClick={() => { setDateRange('MONTH'); setShowFilters(false); }}
+                    className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${dateRange === 'MONTH' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}
+                >
+                    Mes
+                </button>
+                <button 
+                    onClick={() => setShowFilters(!showFilters)}
+                    className={`p-2 rounded-full transition-all border ${showFilters || dateRange === 'CUSTOM' || paymentMethodFilter !== 'ALL' ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                    title="Filtros Avanzados"
+                >
+                    <Filter className="w-4 h-4" />
+                </button>
+            </div>
           </div>
-          
-          <div className="flex items-center gap-3 bg-white dark:bg-slate-900 p-1.5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800">
-             <button 
-                onClick={() => setTimeRange('WEEK')}
-                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timeRange === 'WEEK' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-             >
-                7 Días
-             </button>
-             <button 
-                onClick={() => setTimeRange('MONTH')}
-                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timeRange === 'MONTH' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-             >
-                30 Días
-             </button>
-          </div>
+
+          {/* ADVANCED FILTERS DRAWER */}
+          {(showFilters || dateRange === 'CUSTOM') && (
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 animate-[slideUp_0.2s_ease-out]">
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                          <Filter className="w-4 h-4" /> Filtros Avanzados
+                      </h3>
+                      {dateRange === 'CUSTOM' && (
+                          <button onClick={() => { setDateRange('WEEK'); setShowFilters(false); setPaymentMethodFilter('ALL'); }} className="text-xs text-red-500 hover:underline flex items-center gap-1">
+                              <X className="w-3 h-3" /> Limpiar Filtros
+                          </button>
+                      )}
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Date Inputs */}
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Desde</label>
+                          <input 
+                              type="date" 
+                              value={customStart} 
+                              onChange={(e) => { setCustomStart(e.target.value); setDateRange('CUSTOM'); }}
+                              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                          <input 
+                              type="date" 
+                              value={customEnd} 
+                              onChange={(e) => { setCustomEnd(e.target.value); setDateRange('CUSTOM'); }}
+                              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+                          />
+                      </div>
+
+                      {/* Payment Method */}
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Método de Pago</label>
+                          <select 
+                              value={paymentMethodFilter}
+                              onChange={(e) => setPaymentMethodFilter(e.target.value)}
+                              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white appearance-none"
+                          >
+                              <option value="ALL">Todos</option>
+                              <option value="cash">Efectivo</option>
+                              <option value="card">Tarjeta</option>
+                              <option value="transfer">Transferencia</option>
+                              <option value="credit">Crédito</option>
+                          </select>
+                      </div>
+                  </div>
+              </div>
+          )}
         </div>
 
         {/* KPI CARDS */}
@@ -175,12 +318,15 @@ export const Reports: React.FC = () => {
                     <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl">
                         <DollarSign className="w-6 h-6" />
                     </div>
-                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Ventas Netas</p>
+                    <div>
+                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Ventas Totales</p>
+                        <p className="text-[10px] text-slate-400">Propias + Terceros</p>
+                    </div>
                 </div>
                 <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">
                     ${summaryMetrics.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                 </h3>
-                <p className="text-xs text-slate-400">{summaryMetrics.transactionCount} transacciones válidas</p>
+                <p className="text-xs text-slate-400">{summaryMetrics.transactionCount} transacciones</p>
             </div>
 
             {/* Expenses */}
@@ -194,7 +340,7 @@ export const Reports: React.FC = () => {
                 <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">
                     ${summaryMetrics.totalExpenses.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                 </h3>
-                <p className="text-xs text-slate-400">Registrados en Caja Chica</p>
+                <p className="text-xs text-slate-400">En periodo seleccionado</p>
             </div>
 
             {/* Net Estimate */}
@@ -203,26 +349,31 @@ export const Reports: React.FC = () => {
                     <div className="p-3 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-xl">
                         <ArrowUpRight className="w-6 h-6" />
                     </div>
-                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Flujo Neto (Aprox)</p>
+                    <div>
+                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Ganancia Real</p>
+                        <p className="text-[10px] text-slate-400">Ventas Propias - Gastos</p>
+                    </div>
                 </div>
                 <h3 className={`text-3xl font-black mb-1 ${summaryMetrics.netEstimate >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
                     ${summaryMetrics.netEstimate.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                 </h3>
-                <p className="text-xs text-slate-400">Ventas - Gastos</p>
             </div>
 
-            {/* Avg Ticket */}
+            {/* Third Party Metrics */}
             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
                 <div className="flex items-center gap-3 mb-4">
-                    <div className="p-3 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl">
-                        <Package className="w-6 h-6" />
+                    <div className="p-3 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-xl">
+                        <Handshake className="w-6 h-6" />
                     </div>
-                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Ticket Promedio</p>
+                    <div>
+                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Recaudo Terceros</p>
+                        <p className="text-[10px] text-slate-400">Dinero por Consignación</p>
+                    </div>
                 </div>
                 <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">
-                    ${summaryMetrics.avgTicket.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    ${thirdPartyMetrics.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                 </h3>
-                <p className="text-xs text-slate-400">Por venta realizada</p>
+                <p className="text-xs text-orange-500 font-medium">Debe liquidarse</p>
             </div>
         </div>
 
@@ -316,30 +467,7 @@ export const Reports: React.FC = () => {
 
         {/* CHARTS ROW 2 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 animate-[slideUp_0.5s_ease-out]">
-            {/* Cash Flow Comparison */}
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-                <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-                    <ArrowUpRight className="w-5 h-5 text-indigo-500" /> Flujo de Caja (Ventas vs Gastos)
-                </h3>
-                <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
-                            <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} dy={10} />
-                            <YAxis axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} tickFormatter={(val) => `$${val}`} width={40} />
-                            <Tooltip 
-                                contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px', backgroundColor: isDark ? '#1e293b' : '#fff', color: isDark ? '#fff' : '#000'}}
-                                cursor={{fill: isDark ? '#334155' : '#f1f5f9'}}
-                            />
-                            <Legend verticalAlign="top" height={36} iconType="circle"/>
-                            <Bar name="Ventas" dataKey="sales" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={20} />
-                            <Bar name="Gastos" dataKey="expenses" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={20} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
-
-            {/* Category Distribution */}
+            {/* Category Distribution (Sales) */}
             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                 <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                     <PieIcon className="w-5 h-5 text-pink-500" /> Ventas por Categoría
@@ -369,6 +497,41 @@ export const Reports: React.FC = () => {
                         <div className="text-center text-slate-400">
                             <PieIcon className="w-12 h-12 mx-auto mb-2 opacity-20" />
                             <p className="text-sm">Sin datos suficientes</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Expense Categories */}
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+                    <Tag className="w-5 h-5 text-red-500" /> Desglose de Gastos
+                </h3>
+                <div className="h-64 w-full flex items-center justify-center">
+                    {expenseCategoryData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={expenseCategoryData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={60}
+                                    outerRadius={80}
+                                    paddingAngle={5}
+                                    dataKey="value"
+                                >
+                                    {expenseCategoryData.map((entry, index) => (
+                                        <Cell key={`cell-exp-${index}`} fill={COLORS[(index + 3) % COLORS.length]} stroke={isDark ? '#0f172a' : '#fff'} strokeWidth={2} />
+                                    ))}
+                                </Pie>
+                                <Tooltip formatter={(val: number) => `$${val.toFixed(2)}`} contentStyle={{borderRadius: '8px', border:'none'}} />
+                                <Legend layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{fontSize: '11px', color: textColor}} />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="text-center text-slate-400">
+                            <ArrowDownRight className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                            <p className="text-sm">Sin gastos registrados</p>
                         </div>
                     )}
                 </div>

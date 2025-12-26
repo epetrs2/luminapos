@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, Search, Package, AlertTriangle, ArrowLeftRight, Sparkles, X, BrainCircuit, Loader2, Filter, Check, Layers, Tag, Percent, DollarSign, Archive, Box, Eye, EyeOff, Scale, Info, Hash } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Package, AlertTriangle, ArrowLeftRight, Sparkles, X, BrainCircuit, Loader2, Filter, Check, Layers, Tag, Percent, DollarSign, Archive, Box, Eye, EyeOff, Scale, Info, Hash, Handshake } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Product, ProductVariant, MeasurementUnit } from '../types';
 import { generateStockRecommendations, StockRecommendation } from '../services/geminiService';
@@ -77,6 +77,7 @@ export const Inventory: React.FC = () => {
           type: inventoryType,
           unit: 'PIECE',
           isActive: true,
+          isConsignment: false,
           description: '',
           presentationValue: undefined,
           presentationUnit: 'ml'
@@ -101,7 +102,8 @@ export const Inventory: React.FC = () => {
         taxRate: settings.enableTax ? (formData.taxRate ?? 0) : 0,
         type: formData.type || inventoryType,
         unit: formData.unit || 'PIECE',
-        isActive: formData.isActive ?? true
+        isActive: formData.isActive ?? true,
+        isConsignment: formData.isConsignment ?? false
     } as Product;
 
     if (editingProduct) {
@@ -256,6 +258,9 @@ export const Inventory: React.FC = () => {
                             <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600"><Eye className="w-3 h-3" /> Activo</span>
                         ) : (
                             <span className="flex items-center gap-1.5 text-xs font-bold text-slate-400"><EyeOff className="w-3 h-3" /> Inactivo</span>
+                        )}
+                        {product.isConsignment && (
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-indigo-500 mt-1"><Handshake className="w-3 h-3"/> Tercero</span>
                         )}
                     </td>
                     <td className="px-6 py-4">
@@ -422,16 +427,37 @@ export const Inventory: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
-                             <h4 className="text-xs font-black text-slate-500 uppercase mb-3 flex items-center gap-2"><Percent className="w-4 h-4"/> Fiscal</h4>
-                             <div className="flex gap-2">
-                                {TAX_PRESETS.map(preset => (
-                                    <button key={preset.value} onClick={() => setFormData({...formData, taxRate: preset.value})} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${formData.taxRate === preset.value ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}>
-                                        {preset.label}
-                                    </button>
-                                ))}
-                             </div>
-                        </div>
+                        {inventoryType === 'PRODUCT' && (
+                            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                <h4 className="text-xs font-black text-slate-500 uppercase mb-3 flex items-center gap-2"><Percent className="w-4 h-4"/> Avanzado</h4>
+                                
+                                <div className="flex items-center gap-2 mb-4">
+                                    <input 
+                                        type="checkbox" 
+                                        id="isConsignment" 
+                                        checked={formData.isConsignment || false} 
+                                        onChange={e => setFormData({...formData, isConsignment: e.target.checked})} 
+                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
+                                    />
+                                    <label htmlFor="isConsignment" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                                        Es Producto de Tercero / Consignación
+                                    </label>
+                                </div>
+                                {formData.isConsignment && (
+                                    <p className="text-[10px] text-orange-600 mb-4 bg-orange-50 p-2 rounded border border-orange-100">
+                                        El dinero de esta venta se separará en los reportes como "Recaudo Terceros".
+                                    </p>
+                                )}
+
+                                <div className="flex gap-2">
+                                    {TAX_PRESETS.map(preset => (
+                                        <button key={preset.value} onClick={() => setFormData({...formData, taxRate: preset.value})} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${formData.taxRate === preset.value ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}>
+                                            {preset.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {!formData.isActive && (
                             <div className="p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 rounded-2xl flex gap-3">

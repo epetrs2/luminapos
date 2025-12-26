@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+
+import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle, Tag } from 'lucide-react';
 import { CashMovement, BudgetCategory, ZReportData } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { printZCutTicket } from '../utils/printService';
@@ -9,6 +10,7 @@ export const CashRegister: React.FC = () => {
   const { cashMovements, addCashMovement, deleteCashMovement, settings, transactions } = useStore();
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
+  const [subCategory, setSubCategory] = useState(''); // New: Specific category input
   const [type, setType] = useState<CashMovement['type']>('EXPENSE');
   const [category, setCategory] = useState<BudgetCategory>('OPERATIONAL'); 
   
@@ -23,6 +25,15 @@ export const CashRegister: React.FC = () => {
 
   // Delete Confirmation State
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // Get unique used subcategories for suggestions
+  const suggestedSubCategories = useMemo(() => {
+      const unique = new Set<string>();
+      cashMovements.forEach(m => {
+          if (m.subCategory) unique.add(m.subCategory);
+      });
+      return Array.from(unique);
+  }, [cashMovements]);
 
   // --- LOGIC TO FIND CURRENT SHIFT BALANCE ---
   const sortedMovements = [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -64,12 +75,16 @@ export const CashRegister: React.FC = () => {
       { name: 'Flujo de Hoy', Ingresos: incomeToday, Egresos: expenseToday }
   ];
 
-  const handleTypeChange = (newType: CashMovement['type']) => {
+  const handleTypeChange = (newType: CashMovement['type'], specificCategory?: BudgetCategory) => {
       setType(newType);
-      if (newType === 'EXPENSE') setCategory('OPERATIONAL');
-      else if (newType === 'WITHDRAWAL') setCategory('PROFIT');
-      else if (newType === 'DEPOSIT') setCategory('SALES');
-      else setCategory('OTHER');
+      if (specificCategory) {
+          setCategory(specificCategory);
+      } else {
+          if (newType === 'EXPENSE') setCategory('OPERATIONAL');
+          else if (newType === 'WITHDRAWAL') setCategory('PROFIT');
+          else if (newType === 'DEPOSIT') setCategory('SALES');
+          else setCategory('OTHER');
+      }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -87,10 +102,12 @@ export const CashRegister: React.FC = () => {
       amount: parseFloat(amount),
       description,
       date: new Date().toISOString(),
-      category 
+      category,
+      subCategory: subCategory.trim() || undefined
     });
     setAmount('');
     setDescription('');
+    setSubCategory('');
   };
 
   const handleOpenRegister = () => {
@@ -236,7 +253,7 @@ export const CashRegister: React.FC = () => {
             </div>
         </div>
 
-        {/* Visualizations & Form Section (Same as before) */}
+        {/* Visualizations & Form Section */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
             <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 min-w-0">
                  <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
@@ -280,16 +297,47 @@ export const CashRegister: React.FC = () => {
                  )}
                  <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-2 gap-2">
-                         <button type="button" onClick={() => handleTypeChange('DEPOSIT')} className={`py-2 rounded-lg text-xs font-medium border transition-all ${type === 'DEPOSIT' ? 'bg-emerald-100 border-emerald-300 text-emerald-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Ingreso</button>
-                         <button type="button" onClick={() => handleTypeChange('EXPENSE')} className={`py-2 rounded-lg text-xs font-medium border transition-all ${type === 'EXPENSE' ? 'bg-red-100 border-red-300 text-red-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Gasto</button>
-                         <button type="button" onClick={() => handleTypeChange('WITHDRAWAL')} className={`py-2 rounded-lg text-xs font-medium border transition-all ${type === 'WITHDRAWAL' ? 'bg-orange-100 border-orange-300 text-orange-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Retiro</button>
+                         {/* BASIC INCOME */}
+                         <button type="button" onClick={() => handleTypeChange('DEPOSIT', 'SALES')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'DEPOSIT' && category === 'SALES' ? 'bg-emerald-100 border-emerald-300 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Ingreso Venta</button>
+                         {/* BASIC EXPENSE */}
+                         <button type="button" onClick={() => handleTypeChange('EXPENSE', 'OPERATIONAL')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'EXPENSE' ? 'bg-red-100 border-red-300 text-red-800 dark:bg-red-900/40 dark:text-red-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Gasto Op.</button>
+                         {/* OWNER EQUITY (NEW) */}
+                         <button type="button" onClick={() => handleTypeChange('DEPOSIT', 'EQUITY')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'DEPOSIT' && category === 'EQUITY' ? 'bg-blue-100 border-blue-300 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Aporte Dueño</button>
+                         {/* PROFIT WITHDRAWAL */}
+                         <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'PROFIT')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'PROFIT' ? 'bg-pink-100 border-pink-300 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Retiro Ganancia</button>
+                         {/* THIRD PARTY PAYOUT (NEW) */}
+                         <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'THIRD_PARTY')} className={`col-span-2 py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'THIRD_PARTY' ? 'bg-orange-100 border-orange-300 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Liquidación Tercero / Consignación</button>
                     </div>
+                    
                     <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
                         <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold outline-none" disabled={!isRegisterOpen} />
                     </div>
-                    <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descripción..." className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm outline-none" disabled={!isRegisterOpen} />
-                    <button type="submit" className="w-full bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled={!isRegisterOpen}>Guardar</button>
+                    
+                    {/* Category Input (Autocomplete) */}
+                    {(type === 'EXPENSE' || category === 'THIRD_PARTY') && (
+                        <div className="relative">
+                            <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                            <input 
+                                list="categories-list"
+                                type="text"
+                                value={subCategory}
+                                onChange={(e) => setSubCategory(e.target.value)}
+                                placeholder={category === 'THIRD_PARTY' ? "Nombre del Proveedor / Dueño..." : "Categoría (Luz, Renta, Limpieza...)"}
+                                className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm outline-none font-medium"
+                                disabled={!isRegisterOpen}
+                            />
+                            <datalist id="categories-list">
+                                {suggestedSubCategories.map((sc, idx) => (
+                                    <option key={idx} value={sc} />
+                                ))}
+                            </datalist>
+                        </div>
+                    )}
+
+                    <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descripción detallada..." className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm outline-none" disabled={!isRegisterOpen} />
+                    
+                    <button type="submit" className="w-full bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled={!isRegisterOpen}>Guardar Movimiento</button>
                  </form>
             </div>
         </div>
@@ -302,33 +350,43 @@ export const CashRegister: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left">Fecha</th>
                   <th className="px-6 py-3 text-left">Tipo</th>
+                  <th className="px-6 py-3 text-left">Categoría</th>
                   <th className="px-6 py-3 text-left">Descripción</th>
                   <th className="px-6 py-3 text-right">Monto</th>
                   <th className="px-6 py-3 text-center">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {cashMovements.map((movement) => (
-                  <tr key={movement.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 group">
-                    <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">{new Date(movement.date).toLocaleDateString()} {new Date(movement.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${movement.isZCut ? 'bg-indigo-100 text-indigo-700' : (movement.type === 'EXPENSE' || movement.type === 'CLOSE' || movement.type === 'WITHDRAWAL' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700')}`}>
-                        {movement.isZCut ? 'CORTE Z' : movement.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-800 dark:text-slate-200 font-medium truncate max-w-[200px]">{movement.description}</td>
-                    <td className={`px-6 py-4 text-right font-bold text-sm ${movement.isZCut ? 'text-indigo-600' : (movement.type === 'EXPENSE' || movement.type === 'WITHDRAWAL' ? 'text-red-600' : 'text-emerald-600')}`}>
-                        {movement.isZCut ? '---' : `$${movement.amount.toFixed(2)}`}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                        {movement.isZCut ? (
-                            <button onClick={() => reprintZReport(movement)} className="text-indigo-500 hover:text-indigo-700 transition-colors" title="Reimprimir Reporte"><Printer className="w-4 h-4" /></button>
-                        ) : (
-                            <button onClick={() => setDeleteId(movement.id)} className="text-slate-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>
-                        )}
-                    </td>
-                  </tr>
-                ))}
+                {cashMovements.map((movement) => {
+                    const isEquity = movement.category === 'EQUITY';
+                    const isThirdParty = movement.category === 'THIRD_PARTY';
+                    const isExpense = movement.type === 'EXPENSE';
+                    
+                    return (
+                      <tr key={movement.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 group">
+                        <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">{new Date(movement.date).toLocaleDateString()} {new Date(movement.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${movement.isZCut ? 'bg-indigo-100 text-indigo-700' : isExpense ? 'bg-red-100 text-red-700' : isThirdParty ? 'bg-orange-100 text-orange-700' : isEquity ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {movement.isZCut ? 'CORTE Z' : isEquity ? 'APORTE' : isThirdParty ? 'LIQ. 3RO' : movement.type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-slate-500">
+                            {movement.subCategory || (movement.category === 'OPERATIONAL' ? 'General' : '-')}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-800 dark:text-slate-200 font-medium truncate max-w-[200px]">{movement.description}</td>
+                        <td className={`px-6 py-4 text-right font-bold text-sm ${movement.isZCut ? 'text-indigo-600' : (isExpense || movement.type === 'WITHDRAWAL' ? 'text-red-600' : 'text-emerald-600')}`}>
+                            {movement.isZCut ? '---' : `$${movement.amount.toFixed(2)}`}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                            {movement.isZCut ? (
+                                <button onClick={() => reprintZReport(movement)} className="text-indigo-500 hover:text-indigo-700 transition-colors" title="Reimprimir Reporte"><Printer className="w-4 h-4" /></button>
+                            ) : (
+                                <button onClick={() => setDeleteId(movement.id)} className="text-slate-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                            )}
+                        </td>
+                      </tr>
+                    );
+                })}
               </tbody>
             </table>
           </div>

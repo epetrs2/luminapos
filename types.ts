@@ -32,6 +32,9 @@ export interface Product {
   taxRate: number; // Per product tax (0, 8, 16, etc.)
   hasVariants: boolean;
   variants?: ProductVariant[];
+
+  // Third Party Logic
+  isConsignment?: boolean; // If true, revenue belongs to a third party
 }
 
 export interface Customer {
@@ -132,7 +135,7 @@ export interface Order {
   priority: 'NORMAL' | 'HIGH';
 }
 
-export type BudgetCategory = 'OPERATIONAL' | 'INVESTMENT' | 'PROFIT' | 'SALES' | 'OTHER';
+export type BudgetCategory = 'OPERATIONAL' | 'INVESTMENT' | 'PROFIT' | 'SALES' | 'EQUITY' | 'THIRD_PARTY' | 'OTHER';
 
 export interface ZReportData {
     openingFund: number;
@@ -155,7 +158,12 @@ export interface CashMovement {
   amount: number;
   description: string;
   date: string;
+  
+  // High level financial bucket
   category?: BudgetCategory;
+  // User defined tag (e.g. "Luz", "Renta", "Proveedor X")
+  subCategory?: string; 
+
   customerId?: string;
   
   isZCut?: boolean;
