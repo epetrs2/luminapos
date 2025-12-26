@@ -1,7 +1,9 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Smartphone, LayoutTemplate, Bluetooth, RefreshCw, Power, Search } from 'lucide-react';
+import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
+import { generateTestTicket } from '../utils/escPosHelper';
 
 // --- IMAGE CROPPER COMPONENT (IMPROVED UX) ---
 interface ImageCropperProps {
@@ -188,7 +190,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
 };
 
 export const Settings: React.FC = () => {
-  const { settings, updateSettings, hardReset, pushToCloud, notify } = useStore();
+  const { settings, updateSettings, hardReset, pushToCloud, notify, btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData } = useStore();
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA' | 'BLUETOOTH'>('GENERAL');
   const [formData, setFormData] = useState(settings);
   const [cropImage, setCropImage] = useState<string | null>(null);
@@ -196,10 +198,8 @@ export const Settings: React.FC = () => {
   const [testingConnection, setTestingConnection] = useState(false);
 
   // --- BLUETOOTH STATE ---
-  const [btDevice, setBtDevice] = useState<any>(null);
   const [isScanningBt, setIsScanningBt] = useState(false);
   const [btError, setBtError] = useState('');
-  const [btCharacteristic, setBtCharacteristic] = useState<any>(null);
 
   // Sync internal state with context updates
   useEffect(() => {
@@ -284,13 +284,7 @@ export const Settings: React.FC = () => {
 
       setIsScanningBt(true);
       try {
-          // Request Web Bluetooth Device
-          const device = await (navigator as any).bluetooth.requestDevice({
-              acceptAllDevices: true,
-              optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb'] // Generic service often used, helps permission flow
-          });
-
-          await connectToDevice(device);
+          await connectBtPrinter();
       } catch (error: any) {
           console.error("BT Error:", error);
           if (error.name === 'NotFoundError' || error.message?.includes('cancelled')) {
@@ -303,70 +297,11 @@ export const Settings: React.FC = () => {
       }
   };
 
-  const connectToDevice = async (device: any) => {
-      try {
-          const server = await device.gatt.connect();
-          setBtDevice(device);
-          
-          // Store device name in settings automatically
-          if (device.name) {
-              setFormData(prev => ({...prev, bluetoothPrinterName: device.name}));
-          }
-
-          // Try to find a writable characteristic
-          // This is a generic approach for thermal printers
-          const services = await server.getPrimaryServices();
-          let char: any = null;
-
-          for (const service of services) {
-              const characteristics = await service.getCharacteristics();
-              for (const c of characteristics) {
-                  if (c.properties.write || c.properties.writeWithoutResponse) {
-                      char = c;
-                      break;
-                  }
-              }
-              if (char) break;
-          }
-
-          if (char) {
-              setBtCharacteristic(char);
-              notify('Impresora Conectada', `Conectado a ${device.name}`, 'success');
-          } else {
-              setBtError('No se encontró un servicio de escritura compatible en este dispositivo.');
-              device.gatt.disconnect();
-              setBtDevice(null);
-          }
-
-      } catch (error: any) {
-          console.error("Connect Error:", error);
-          setBtError('No se pudo conectar. Verifica que la impresora esté encendida y cerca.');
-      }
-  };
-
-  const handleBtDisconnect = () => {
-      if (btDevice && btDevice.gatt.connected) {
-          btDevice.gatt.disconnect();
-      }
-      setBtDevice(null);
-      setBtCharacteristic(null);
-  };
-
   const printBtTest = async () => {
       if (!btCharacteristic) return;
       try {
-          const encoder = new TextEncoder();
-          const commands = [
-              0x1B, 0x40, // Initialize
-              0x1B, 0x61, 0x01, // Center align
-              ...encoder.encode("LuminaPOS\n"),
-              ...encoder.encode("Prueba Bluetooth\n"),
-              ...encoder.encode("----------------\n"),
-              0x1B, 0x61, 0x00, // Left align
-              ...encoder.encode("Conexion exitosa.\n"),
-              ...encoder.encode("Listo para imprimir.\n\n\n\n"), // Feed
-          ];
-          await btCharacteristic.writeValue(new Uint8Array(commands));
+          const data = generateTestTicket();
+          await sendBtData(data);
       } catch (error) {
           console.error("Print Error:", error);
           setBtError("Error al enviar datos. Intenta reconectar.");
@@ -430,7 +365,7 @@ export const Settings: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-            {/* --- GENERAL SETTINGS --- */}
+            {/* ... (GENERAL, OPERATIONS, TICKETS tabs remain mostly unchanged) ... */}
             {activeTab === 'GENERAL' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     {/* Basic Info Column */}
@@ -816,7 +751,7 @@ export const Settings: React.FC = () => {
                                                 <Printer className="w-4 h-4" /> Prueba
                                             </button>
                                             <button 
-                                                onClick={handleBtDisconnect}
+                                                onClick={disconnectBtPrinter}
                                                 className="flex-1 py-3 bg-white border border-red-200 text-red-500 hover:bg-red-50 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
                                             >
                                                 <Power className="w-4 h-4" /> Desconectar

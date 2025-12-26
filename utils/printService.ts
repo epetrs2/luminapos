@@ -1,5 +1,6 @@
 
 import { Transaction, BusinessSettings, Order, CashMovement, Customer, CartItem } from '../types';
+import { generateEscPosTicket } from './escPosHelper';
 
 // Estilos CSS base compartidos
 const BASE_CSS = `
@@ -555,7 +556,24 @@ export const printOrderInvoice = (order: Order, customer: any, settings: Busines
     openPrintWindow(html);
 };
 
-export const printThermalTicket = (transaction: Transaction, customerName: string, settings: BusinessSettings) => {
+export const printThermalTicket = async (
+    transaction: Transaction, 
+    customerName: string, 
+    settings: BusinessSettings,
+    btSendFn?: (data: Uint8Array) => Promise<void>
+) => {
+    // If a Bluetooth send function is provided, generate raw bytes and send them.
+    if (btSendFn) {
+        try {
+            const data = generateEscPosTicket(transaction, customerName, settings);
+            await btSendFn(data);
+            return; // Success, don't open window
+        } catch (e) {
+            console.error("Bluetooth print failed, falling back to window", e);
+            // Fallback to window print if BT fails
+        }
+    }
+
     const TICKET_CSS = `
         body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 5px; width: ${settings.ticketPaperWidth}; }
         .header { text-align: center; margin-bottom: 10px; }

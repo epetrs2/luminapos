@@ -518,7 +518,7 @@ const TransactionDetailModal: React.FC<{
   getCustomerName: (id?: string) => string;
   getCustomer: (id?: string) => any;
 }> = ({ transaction, onClose, onDelete, onPay, onConfirmTransfer, onReturn, getCustomerName, getCustomer }) => {
-  const { settings } = useStore();
+  const { settings, sendBtData } = useStore();
   const [deleteStep, setDeleteStep] = useState<'initial' | 'confirm' | 'processing' | 'success'>('initial');
   const [showReturnModal, setShowReturnModal] = useState(false);
   
@@ -537,7 +537,7 @@ const TransactionDetailModal: React.FC<{
   };
 
   const handlePrint = () => {
-      printThermalTicket(transaction, getCustomerName(transaction.customerId), settings);
+      printThermalTicket(transaction, getCustomerName(transaction.customerId), settings, sendBtData);
   };
   
   const handlePrintInvoice = () => {
@@ -754,7 +754,7 @@ const TransactionDetailModal: React.FC<{
 };
 
 export const SalesHistory: React.FC = () => {
-  const { transactions, customers, deleteTransaction, registerTransactionPayment, addTransaction, updateStockAfterSale, settings, notify, products } = useStore();
+  const { transactions, customers, deleteTransaction, registerTransactionPayment, addTransaction, updateStockAfterSale, settings, notify, products, sendBtData } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -850,110 +850,118 @@ export const SalesHistory: React.FC = () => {
 
   const handleManualEntrySave = (transaction: Transaction, deductStock: boolean) => {
       addTransaction(transaction);
-      if (deductStock) {
+      if(deductStock) {
           updateStockAfterSale(transaction.items);
       }
       setIsManualModalOpen(false);
-      notify("Venta Registrada", "Historial actualizado correctamente.", "success");
+      notify("Registro Exitoso", "Venta manual agregada al historial.", "success");
   };
 
-  // FIX: FILTER OUT CANCELLED TRANSACTIONS
   const filteredTransactions = transactions.filter(t => 
-      t.status !== 'cancelled' &&
-      (t.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      getCustomerName(t.customerId).toLowerCase().includes(searchTerm.toLowerCase()))
+      t.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      getCustomerName(t.customerId).toLowerCase().includes(searchTerm.toLowerCase())
   ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
             <h2 className="text-3xl font-bold text-slate-800 dark:text-white">Historial de Ventas</h2>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">Registro completo de transacciones</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">Consulta y gestiona todas las transacciones pasadas.</p>
           </div>
-          <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-             <button 
-                onClick={() => setIsManualModalOpen(true)}
-                className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl font-bold shadow-sm transition-colors whitespace-nowrap"
-             >
-                 <Archive className="w-4 h-4" /> Registrar Venta Pasada
-             </button>
-             <div className="relative flex-1 md:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Buscar ticket..."
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-             </div>
-          </div>
+          <button 
+            onClick={() => setIsManualModalOpen(true)}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-medium shadow-lg shadow-indigo-200 dark:shadow-none transition-all"
+          >
+            <Plus className="w-5 h-5" /> Registro Manual
+          </button>
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
+          <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+              <input 
+                type="text" 
+                placeholder="Buscar por Folio o Cliente..." 
+                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm uppercase font-semibold">
                 <tr>
-                  <th className="px-6 py-4 text-left">ID Ticket</th>
+                  <th className="px-6 py-4 text-left">Folio</th>
                   <th className="px-6 py-4 text-left">Fecha</th>
                   <th className="px-6 py-4 text-left">Cliente</th>
-                  <th className="px-6 py-4 text-left">Método</th>
-                  <th className="px-6 py-4 text-right">Total</th>
                   <th className="px-6 py-4 text-center">Estado</th>
-                  <th className="px-6 py-4 text-center">Acciones</th>
+                  <th className="px-6 py-4 text-right">Total</th>
+                  <th className="px-6 py-4 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredTransactions.map(t => (
                   <tr 
                     key={t.id} 
-                    className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                     onClick={() => handleOpenDetail(t)}
+                    className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
                   >
-                    <td className="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400">
-                        #{t.id} {t.status === 'returned' && <span className="bg-red-100 text-red-600 text-[10px] px-1 rounded ml-1">DEV</span>}
+                    <td className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">#{t.id}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">
+                      {new Date(t.date).toLocaleDateString()}
+                      <span className="text-xs text-slate-400 block">{new Date(t.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                        <div className="flex flex-col">
-                            <span className="font-medium">{new Date(t.date).toLocaleDateString()}</span>
-                            <span className="text-xs text-slate-400">{new Date(t.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                        </div>
-                    </td>
-                    <td className="px-6 py-4">
-                        <span className="font-medium text-slate-800 dark:text-slate-200">{getCustomerName(t.customerId)}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                        <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 capitalize">
-                            <PaymentIcon method={t.paymentMethod} />
-                            <span>{getPaymentLabel(t.paymentMethod)}</span>
-                        </div>
-                    </td>
-                    <td className={`px-6 py-4 text-right font-bold ${t.status === 'returned' ? 'text-red-500' : 'text-slate-800 dark:text-white'}`}>
-                        ${t.total.toFixed(2)}
+                    <td className="px-6 py-4 font-medium text-slate-800 dark:text-white">
+                      {getCustomerName(t.customerId)}
                     </td>
                     <td className="px-6 py-4 text-center">
-                        {t.status === 'returned' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                                Reembolsado
-                            </span>
-                        ) : t.paymentStatus === 'paid' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                                Pagado
-                            </span>
-                        ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                                {t.paymentMethod === 'transfer' ? 'Transf. Pend.' : 'Pendiente'}
-                            </span>
+                      {t.status === 'returned' ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                            DEVUELTO
+                          </span>
+                      ) : t.status === 'cancelled' ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-400">
+                            CANCELADO
+                          </span>
+                      ) : t.paymentStatus === 'paid' ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            PAGADO
+                          </span>
+                      ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                            PENDIENTE
+                          </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-right font-bold text-slate-800 dark:text-white">
+                      ${t.total.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
+                        {(t.paymentStatus === 'pending' || t.paymentStatus === 'partial') && t.status === 'completed' && (
+                            <button 
+                                onClick={() => handleOpenPayment(t)}
+                                className="p-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 rounded-lg transition-colors"
+                                title="Registrar Pago"
+                            >
+                                <DollarSign className="w-4 h-4" />
+                            </button>
                         )}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                        <button className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium text-sm">Ver</button>
                     </td>
                   </tr>
                 ))}
+                {filteredTransactions.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                      <Archive className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                      No se encontraron transacciones
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -961,26 +969,26 @@ export const SalesHistory: React.FC = () => {
       </div>
 
       {selectedTransaction && (
-          <TransactionDetailModal 
-            transaction={selectedTransaction} 
-            onClose={() => setSelectedTransaction(null)}
-            onDelete={handleDeleteTransaction}
-            onPay={() => handleOpenPayment(selectedTransaction)}
-            onConfirmTransfer={handleOpenConfirmTransfer}
-            onReturn={handleReturnItems}
-            getCustomerName={getCustomerName}
-            getCustomer={getCustomer}
-          />
+        <TransactionDetailModal
+          transaction={selectedTransaction}
+          onClose={() => setSelectedTransaction(null)}
+          onDelete={handleDeleteTransaction}
+          onPay={() => handleOpenPayment(selectedTransaction)}
+          onConfirmTransfer={handleOpenConfirmTransfer}
+          onReturn={handleReturnItems}
+          getCustomerName={getCustomerName}
+          getCustomer={getCustomer}
+        />
       )}
 
       {isPaymentModalOpen && transactionToPay && (
-          <PaymentModal 
-            transaction={transactionToPay} 
-            onClose={() => setIsPaymentModalOpen(false)}
-            onConfirm={handlePaymentConfirm}
-            onConfirmTransfer={handleConfirmTransfer}
-            mode={paymentMode}
-          />
+        <PaymentModal 
+          transaction={transactionToPay}
+          onClose={() => setIsPaymentModalOpen(false)}
+          onConfirm={handlePaymentConfirm}
+          onConfirmTransfer={handleConfirmTransfer}
+          mode={paymentMode}
+        />
       )}
 
       {isManualModalOpen && (

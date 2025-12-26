@@ -6,7 +6,7 @@ import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartph
 import { printThermalTicket, printInvoice } from '../utils/printService';
 
 export const POS: React.FC = () => {
-    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions } = useStore();
+    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData } = useStore();
     
     // State
     const [searchTerm, setSearchTerm] = useState('');
@@ -99,9 +99,6 @@ export const POS: React.FC = () => {
             const qtyToAdd = forceQty || 1;
             const existing = prev.find(i => i.id === product.id && i.variantId === variantId);
             
-            // NOTE: We do NOT block adding to cart here anymore to allow "Ordering" logic later.
-            // Stock check happens at "Cobrar"
-
             if (existing) {
                 return prev.map(i => i.id === product.id && i.variantId === variantId 
                     ? { ...i, quantity: i.quantity + qtyToAdd } 
@@ -112,7 +109,6 @@ export const POS: React.FC = () => {
             const variant = variantId ? product.variants?.find(v => v.id === variantId) : null;
             return [...prev, {
                 ...product,
-                // EXPLICITLY ENSURE isConsignment IS COPIED
                 isConsignment: product.isConsignment === true, 
                 price: variant ? variant.price : product.price,
                 quantity: qtyToAdd,
@@ -139,7 +135,6 @@ export const POS: React.FC = () => {
 
     // --- Price Editing Logic ---
     const startEditingPrice = (item: CartItem) => {
-        // Construct unique key logic for state
         const key = item.variantId ? `${item.id}-${item.variantId}` : item.id;
         setEditingItemId(key);
         setTempPrice(item.price.toString());
@@ -162,7 +157,6 @@ export const POS: React.FC = () => {
         const shortages: {item: CartItem, available: number, missing: number}[] = [];
         
         cart.forEach(cartItem => {
-            // Find current stock in products array (to get latest)
             const product = products.find(p => p.id === cartItem.id);
             if (!product) return;
 
@@ -195,7 +189,7 @@ export const POS: React.FC = () => {
         const customer = customers.find(c => c.id === selectedCustomerId);
         const orderItems: CartItem[] = shortageItems.map(s => ({
             ...s.item,
-            quantity: s.missing, // Only order what is missing
+            quantity: s.missing,
         }));
 
         const orderTotal = orderItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
@@ -215,7 +209,6 @@ export const POS: React.FC = () => {
         addOrder(newOrder);
         notify("Orden Creada", "Se ha generado una orden de producción por los faltantes.", "success");
 
-        // Adjust Cart to only keep available items
         setCart(prev => {
             return prev.map(cartItem => {
                 const shortage = shortageItems.find(s => s.item.id === cartItem.id && s.item.variantId === cartItem.variantId);
@@ -223,11 +216,10 @@ export const POS: React.FC = () => {
                     return { ...cartItem, quantity: shortage.available };
                 }
                 return cartItem;
-            }).filter(i => i.quantity > 0); // Remove items with 0 available
+            }).filter(i => i.quantity > 0); 
         });
 
         setShortageModalOpen(false);
-        // If cart is not empty after adjustment, proceed to checkout logic (optional, user might want to review)
     };
 
     const handleSellAnyway = () => {
@@ -237,20 +229,19 @@ export const POS: React.FC = () => {
 
     const initiatePayment = (method: typeof paymentMethod) => {
         setPaymentMethod(method);
-        setIsPendingPayment(false); // Reset pending flag when switching basic method
+        setIsPendingPayment(false); 
         
         if (method === 'split') {
             const half = (total / 2).toFixed(2);
             setSplitCash(half);
             setSplitOther(half);
         } 
-        // Credit method is essentially just a shortcut for "Pending Payment"
         if (method === 'credit') {
             if (!selectedCustomerId) {
                 alert("Debes seleccionar un cliente para vender a crédito.");
                 return;
             }
-            setIsPendingPayment(true); // Auto-enable pending for credit
+            setIsPendingPayment(true);
         }
         
         setCheckoutStep('PAYMENT');
@@ -260,12 +251,9 @@ export const POS: React.FC = () => {
         let finalAmountPaid = 0;
         let paymentStatus: Transaction['paymentStatus'] = 'paid';
 
-        // PENDING PAYMENT LOGIC
         if (isPendingPayment || paymentMethod === 'credit') {
-            // For pending, we accept whatever amount is entered (even 0)
             const enteredAmount = parseFloat(amountPaid) || 0;
             if (enteredAmount >= total) {
-                // User marked pending but entered full amount? Treat as paid.
                 paymentStatus = 'paid';
                 finalAmountPaid = total;
             } else if (enteredAmount > 0) {
@@ -281,7 +269,6 @@ export const POS: React.FC = () => {
                 return;
             }
         } else {
-            // STANDARD PAYMENT LOGIC
             if (paymentMethod === 'cash') {
                 const received = parseFloat(amountPaid) || 0;
                 if (received < total) { alert("El monto recibido es menor al total. Marca 'Pago Pendiente' si deseas dejar deuda."); return; }
@@ -292,12 +279,10 @@ export const POS: React.FC = () => {
                 if (Math.abs((c + o) - total) > 0.1) { alert("La suma de pagos no coincide con el total."); return; }
                 finalAmountPaid = total;
             } else {
-                // Card / Transfer assumed full payment immediately unless "Pending" checked
                 finalAmountPaid = total;
             }
         }
 
-        // GENERATE FOLIO (ID) HERE TO ENSURE IT'S READY FOR PRINTING
         const currentMaxId = transactions.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;
@@ -652,7 +637,7 @@ export const POS: React.FC = () => {
                                 )}
 
                                 <div className="grid grid-cols-2 gap-4 w-full mb-6">
-                                    <button onClick={() => { if(lastTransaction) printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings) }} className="flex flex-col items-center justify-center p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-colors font-bold text-sm gap-2">
+                                    <button onClick={() => { if(lastTransaction) printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, sendBtData) }} className="flex flex-col items-center justify-center p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-colors font-bold text-sm gap-2">
                                         <Printer className="w-6 h-6"/> Ticket (58mm)
                                     </button>
                                     <button onClick={() => { if(lastTransaction) printInvoice(lastTransaction, customers.find(c => c.id === selectedCustomerId), settings) }} className="flex flex-col items-center justify-center p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-xl hover:bg-blue-100 transition-colors font-bold text-sm gap-2">

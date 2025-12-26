@@ -23,6 +23,13 @@ interface StoreContextType {
   isSyncing: boolean;
   hasPendingChanges: boolean;
   
+  // Bluetooth State
+  btDevice: BluetoothDevice | null;
+  btCharacteristic: BluetoothRemoteGATTCharacteristic | null;
+  connectBtPrinter: () => Promise<void>;
+  disconnectBtPrinter: () => void;
+  sendBtData: (data: Uint8Array) => Promise<void>;
+
   addProduct: (p: Product) => void;
   updateProduct: (p: Product) => void;
   deleteProduct: (id: string) => Promise<boolean>; 
@@ -147,13 +154,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => safeLoad('activityLogs', []));
     const [settings, setSettings] = useState<BusinessSettings>(() => ({ ...DEFAULT_SETTINGS, ...safeLoad('settings', {}) }));
     
-    // FIX: CARGAR USUARIO AL RECARGAR PÁGINA
     const [currentUser, setCurrentUser] = useState<User | null>(() => safeLoad('currentUser', null));
     
     const [toasts, setToasts] = useState<ToastNotification[]>([]);
     const [isSyncing, setIsSyncing] = useState(false);
     const [hasPendingChanges, setHasPendingChanges] = useState(false);
     
+    // --- BLUETOOTH STATE ---
+    const [btDevice, setBtDevice] = useState<BluetoothDevice | null>(null);
+    const [btCharacteristic, setBtCharacteristic] = useState<BluetoothRemoteGATTCharacteristic | null>(null);
+
     // Ref to track pending changes instantly during async operations (fixes overwrite race condition)
     const hasPendingChangesRef = useRef(false);
 
@@ -238,6 +248,87 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
     }, [currentUser]);
 
+    // --- BLUETOOTH FUNCTIONS ---
+    const connectBtPrinter = useCallback(async () => {
+        try {
+            if (!(navigator as any).bluetooth) {
+                throw new Error("Bluetooth no soportado en este navegador.");
+            }
+
+            const device = await (navigator as any).bluetooth.requestDevice({
+                filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }], // Standard Thermal Printer Service
+                optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb'] 
+            });
+
+            const server = await device.gatt.connect();
+            const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+            
+            // Find writable characteristic
+            const characteristics = await service.getCharacteristics();
+            let writer: any = null;
+            
+            for (const c of characteristics) {
+                if (c.properties.write || c.properties.writeWithoutResponse) {
+                    writer = c;
+                    break;
+                }
+            }
+
+            if (!writer) {
+                device.gatt.disconnect();
+                throw new Error("No se encontró característica de escritura.");
+            }
+
+            // Listen for disconnection
+            device.addEventListener('gattserverdisconnected', () => {
+                setBtDevice(null);
+                setBtCharacteristic(null);
+                notify("Impresora Desconectada", "La conexión Bluetooth se perdió.", "warning");
+            });
+
+            setBtDevice(device);
+            setBtCharacteristic(writer);
+            
+            // Save name preference
+            if(device.name) {
+                updateSettings({...settings, bluetoothPrinterName: device.name});
+            }
+
+            notify("Impresora Conectada", `Vinculado a ${device.name}`, "success");
+
+        } catch (error: any) {
+            console.error("BT Connection Error:", error);
+            if (error.name !== 'NotFoundError') { // User cancelled
+                notify("Error Bluetooth", error.message || "No se pudo conectar.", "error");
+            }
+            throw error; // Re-throw so UI can handle state
+        }
+    }, [settings]);
+
+    const disconnectBtPrinter = useCallback(() => {
+        if (btDevice && btDevice.gatt?.connected) {
+            btDevice.gatt.disconnect();
+        }
+        setBtDevice(null);
+        setBtCharacteristic(null);
+    }, [btDevice]);
+
+    const sendBtData = useCallback(async (data: Uint8Array) => {
+        if (!btCharacteristic || !btDevice?.gatt?.connected) {
+            throw new Error("Impresora no conectada.");
+        }
+        
+        // Chunking for stability (max 512 bytes per chunk is safe for BLE)
+        const CHUNK_SIZE = 100; 
+        for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+            const chunk = data.slice(i, i + CHUNK_SIZE);
+            await btCharacteristic.writeValue(chunk);
+            // Small delay to prevent buffer overflow on cheap printers
+            await new Promise(r => setTimeout(r, 20)); 
+        }
+    }, [btCharacteristic, btDevice]);
+
+    // --- SYNC & LOGIC ---
     const pushToCloud = useCallback(async (overrides?: any) => {
         const currentData = storeRef.current;
         const config = overrides?.settings || currentData.settings;
@@ -245,7 +336,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         
         setIsSyncing(true);
         try {
-            // Strictly await success. If this throws, hasPendingChanges remains true.
             await pushFullDataToCloud(config.googleWebAppUrl, config.cloudSecret, { ...currentData, ...overrides });
             
             lastCloudSyncTimestamp.current = Date.now();
@@ -254,7 +344,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             setHasPendingChanges(false); 
         } catch (e) {
             console.error("Sync Error (Push):", e);
-            // We do NOT set hasPendingChanges to false here, so it retries later.
         } finally { 
             setIsSyncing(false); 
         }
@@ -265,9 +354,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const secret = overrideSecret !== undefined ? overrideSecret : storeRef.current.settings.cloudSecret;
         if (!url) return false;
         
-        // Use ref for immediate check
         if (!force && hasPendingChangesRef.current) {
-            // Pending changes take precedence
             pushToCloud();
             return false;
         }
@@ -275,11 +362,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (!silent) setIsSyncing(true);
         try {
             const cloudData = await fetchFullDataFromCloud(url, secret);
-            
-            // Critical check: Ensure we actually got data, not null (busy) or undefined
             if (!cloudData) return false;
             
-            // Check for expected structure to avoid overwriting with garbage
             if (!cloudData.products && !cloudData.settings && !cloudData.users) {
                 console.warn("Pull ignorado: Estructura de datos inválida o vacía.");
                 return false;
@@ -287,9 +371,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
             const cloudTs = cloudData.timestamp ? new Date(cloudData.timestamp).getTime() : 0;
             
-            // SECONDARY RACE CONDITION CHECK: 
-            // If user made changes WHILE fetch was awaiting, hasPendingChangesRef will be true now.
-            // We must abort update to prevent overwriting local changes.
             if (!force && hasPendingChangesRef.current) {
                 console.warn("Pull abortado: Cambios locales detectados durante la descarga.");
                 return false;
@@ -308,25 +389,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (Array.isArray(safeData.orders)) setOrders(safeData.orders);
             if (Array.isArray(safeData.userInvites)) setUserInvites(safeData.userInvites);
             
-            // --- ROBUST SETTINGS MERGE ---
             if (safeData.settings) {
                 setSettings(currentSettings => {
                     const incomingSettings = { 
                         ...DEFAULT_SETTINGS, 
                         ...safeData.settings,
-                        // Deep merge nested objects to ensure we don't lose local defaults or structure
                         budgetConfig: { ...DEFAULT_SETTINGS.budgetConfig, ...(safeData.settings.budgetConfig || {}) },
                         sequences: { ...DEFAULT_SETTINGS.sequences, ...(safeData.settings.sequences || {}) },
                         productionDoc: { ...DEFAULT_SETTINGS.productionDoc, ...(safeData.settings.productionDoc || {}) },
-                        // Preserve critical connection info if cloud sends empty
                         googleWebAppUrl: safeData.settings.googleWebAppUrl || url,
                         cloudSecret: safeData.settings.cloudSecret !== undefined ? safeData.settings.cloudSecret : secret
                     };
-                    
-                    // Logo protection: Keep local if cloud is empty (saves bandwidth sometimes)
                     if (currentSettings.logo && !incomingSettings.logo) incomingSettings.logo = currentSettings.logo;
                     if (currentSettings.receiptLogo && !incomingSettings.receiptLogo) incomingSettings.receiptLogo = currentSettings.receiptLogo;
-                    
                     return incomingSettings;
                 });
             }
@@ -585,6 +660,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return (
         <StoreContext.Provider value={{
             products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing, hasPendingChanges,
+            btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, // BT Exports
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), 
             addTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale: (its)=>its.forEach(i=>adjustStock(i.id, i.quantity, 'OUT', i.variantId)),
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
