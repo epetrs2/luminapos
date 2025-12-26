@@ -1,10 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, RefreshCw, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn } from 'lucide-react';
+import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 
-// --- IMAGE CROPPER COMPONENT ---
+// --- IMAGE CROPPER COMPONENT (IMPROVED UX) ---
 interface ImageCropperProps {
     imageSrc: string;
     onCancel: () => void;
@@ -19,19 +19,21 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
     const [startPan, setStartPan] = useState({ x: 0, y: 0 });
     const imgRef = useRef<HTMLImageElement>(new Image());
     const [imgLoaded, setImgLoaded] = useState(false);
+    const [showGrid, setShowGrid] = useState(true);
 
     useEffect(() => {
         imgRef.current.src = imageSrc;
         imgRef.current.onload = () => {
             setImgLoaded(true);
-            const canvasSize = 300;
+            const canvasSize = 320; // Slightly larger canvas
+            // Initial fit logic
             let initialScale = 1;
             if (imgRef.current.width > imgRef.current.height) {
                 initialScale = canvasSize / imgRef.current.height;
             } else {
                 initialScale = canvasSize / imgRef.current.width;
             }
-            setScale(initialScale * 0.8);
+            setScale(initialScale * 0.6); // Start slightly zoomed out for easier adjustment
         };
     }, [imageSrc]);
 
@@ -41,8 +43,9 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
+        // Clear and set background
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#FFFFFF';
+        ctx.fillStyle = '#FFFFFF'; // Always white background for thermal printer compatibility
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         const centerX = canvas.width / 2;
@@ -54,7 +57,28 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
         ctx.drawImage(imgRef.current, -imgRef.current.width / 2, -imgRef.current.height / 2);
         ctx.restore();
 
-    }, [imgLoaded, scale, offset]);
+        // Draw Guide Grid (Overlay)
+        if (showGrid) {
+            ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            // Vertical lines
+            ctx.moveTo(canvas.width * 0.33, 0); ctx.lineTo(canvas.width * 0.33, canvas.height);
+            ctx.moveTo(canvas.width * 0.66, 0); ctx.lineTo(canvas.width * 0.66, canvas.height);
+            // Horizontal lines
+            ctx.moveTo(0, canvas.height * 0.33); ctx.lineTo(canvas.width, canvas.height * 0.33);
+            ctx.moveTo(0, canvas.height * 0.66); ctx.lineTo(canvas.width, canvas.height * 0.66);
+            ctx.stroke();
+            
+            // Center Crosshair
+            ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)'; // Indigo color
+            ctx.beginPath();
+            ctx.moveTo(centerX - 10, centerY); ctx.lineTo(centerX + 10, centerY);
+            ctx.moveTo(centerX, centerY - 10); ctx.lineTo(centerX, centerY + 10);
+            ctx.stroke();
+        }
+
+    }, [imgLoaded, scale, offset, showGrid]);
 
     const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
         setIsDragging(true);
@@ -73,10 +97,14 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
 
     const handleMouseUp = () => setIsDragging(false);
 
+    const adjustZoom = (delta: number) => {
+        setScale(prev => Math.max(0.1, Math.min(5, prev + delta)));
+    };
+
     const handleFinalSave = () => {
         if (!canvasRef.current) return;
-        // Optimization: Reduce size to 180x180 and quality to 0.6 to ensure Base64 string is small enough for syncing
-        const outputSize = 180; 
+        // Optimization: Standardize to 200x200 for sync efficiency
+        const outputSize = 200; 
         const outputCanvas = document.createElement('canvas');
         outputCanvas.width = outputSize;
         outputCanvas.height = outputSize;
@@ -85,7 +113,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
         if (ctx) {
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, outputSize, outputSize);
-            const ratio = outputSize / 300; 
+            const ratio = outputSize / 320; // 320 is the view canvas size
             const centerX = outputSize / 2;
             const centerY = outputSize / 2;
 
@@ -94,31 +122,66 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
             ctx.scale(scale * ratio, scale * ratio);
             ctx.drawImage(imgRef.current, -imgRef.current.width / 2, -imgRef.current.height / 2);
             ctx.restore();
-            // Lower quality slightly to ensure sync robustness
+            // Lower quality slightly to ensure sync robustness (0.6 is good for logos)
             onSave(outputCanvas.toDataURL('image/jpeg', 0.6)); 
         }
     };
 
     return (
-        <div className="fixed inset-0 z-[200] bg-black/80 flex flex-col items-center justify-center p-4 backdrop-blur-sm animate-[fadeIn_0.2s]">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><Move className="w-5 h-5 text-indigo-500" /> Ajustar Logo</h3>
-                    <button onClick={onCancel}><X className="w-6 h-6 text-slate-400 hover:text-slate-600" /></button>
+        <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-[fadeIn_0.2s]">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col">
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                            <Move className="w-5 h-5 text-indigo-500" /> Ajustar Logo
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Arrastra para mover, usa el slider para zoom.</p>
+                    </div>
+                    <button onClick={onCancel} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><X className="w-6 h-6 text-slate-400 hover:text-slate-600" /></button>
                 </div>
-                <div className="relative w-[300px] h-[300px] mx-auto bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden shadow-inner border-2 border-dashed border-slate-300 dark:border-slate-600 cursor-move touch-none">
-                    <canvas ref={canvasRef} width={300} height={300} className="w-full h-full"
+
+                <div className="relative w-[320px] h-[320px] mx-auto bg-slate-100 dark:bg-slate-800 rounded-2xl overflow-hidden shadow-inner border-2 border-dashed border-slate-300 dark:border-slate-600 cursor-move touch-none group">
+                    <canvas ref={canvasRef} width={320} height={320} className="w-full h-full"
                         onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
                         onTouchStart={handleMouseDown} onTouchMove={handleMouseMove}
                     />
+                    <button 
+                        onClick={() => setShowGrid(!showGrid)} 
+                        className="absolute top-2 right-2 p-2 bg-white/80 dark:bg-slate-900/80 rounded-lg shadow-sm text-slate-500 hover:text-indigo-600 transition-colors"
+                        title="Alternar Cuadrícula"
+                    >
+                        <Grid3X3 className="w-4 h-4" />
+                    </button>
                 </div>
-                <div className="flex items-center gap-4 my-6">
-                    <ZoomIn className="w-5 h-5 text-slate-400" />
-                    <input type="range" min="0.1" max="3" step="0.1" value={scale} onChange={(e) => setScale(parseFloat(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700" />
+
+                {/* Precision Zoom Controls */}
+                <div className="mt-6 mb-8">
+                    <div className="flex items-center gap-4 justify-between">
+                        <button onClick={() => adjustZoom(-0.1)} className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-indigo-100 hover:text-indigo-600 transition-colors"><Minus className="w-4 h-4"/></button>
+                        
+                        <div className="flex-1 flex items-center gap-3">
+                            <ZoomOut className="w-4 h-4 text-slate-400" />
+                            <input 
+                                type="range" 
+                                min="0.1" 
+                                max="4" 
+                                step="0.02" 
+                                value={scale} 
+                                onChange={(e) => setScale(parseFloat(e.target.value))} 
+                                className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600" 
+                            />
+                            <ZoomIn className="w-4 h-4 text-slate-400" />
+                        </div>
+
+                        <button onClick={() => adjustZoom(0.1)} className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-indigo-100 hover:text-indigo-600 transition-colors"><PlusIcon className="w-4 h-4"/></button>
+                    </div>
                 </div>
+
                 <div className="flex gap-3">
-                    <button onClick={onCancel} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">Cancelar</button>
-                    <button onClick={handleFinalSave} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg">Guardar Logo</button>
+                    <button onClick={onCancel} className="flex-1 py-3.5 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors">Cancelar</button>
+                    <button onClick={handleFinalSave} className="flex-[2] py-3.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex items-center justify-center gap-2">
+                        <CheckCircle className="w-5 h-5" /> Aplicar Logo
+                    </button>
                 </div>
             </div>
         </div>
@@ -133,13 +196,13 @@ export const Settings: React.FC = () => {
   const [cropTarget, setCropTarget] = useState<'MAIN' | 'RECEIPT'>('MAIN');
   const [testingConnection, setTestingConnection] = useState(false);
 
+  // Sync internal state with context updates
   useEffect(() => {
       setFormData(settings);
   }, [settings]);
 
   const handleSave = () => {
     updateSettings(formData);
-    // Trigger immediate push to save changes to cloud
     pushToCloud({ settings: formData });
     notify("Configuración Guardada", "Los cambios se han guardado y sincronizado.", "success");
   };
@@ -187,6 +250,22 @@ export const Settings: React.FC = () => {
       }
   };
 
+  const InputField = ({ label, value, onChange, type = "text", placeholder = "", icon: Icon }: any) => (
+      <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1">{label}</label>
+          <div className="relative group">
+              {Icon && <Icon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 group-focus-within:text-indigo-500 transition-colors" />}
+              <input 
+                  type={type} 
+                  value={value} 
+                  onChange={onChange}
+                  placeholder={placeholder}
+                  className={`w-full ${Icon ? 'pl-9' : 'pl-4'} pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all font-medium text-sm shadow-sm`}
+              />
+          </div>
+      </div>
+  );
+
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       {cropImage && <ImageCropper imageSrc={cropImage} onCancel={() => setCropImage(null)} onSave={onCropComplete} />}
@@ -195,21 +274,28 @@ export const Settings: React.FC = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
             <h2 className="text-3xl font-bold text-slate-800 dark:text-white">Configuración</h2>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">Personaliza tu negocio y sincronización.</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">Personaliza la identidad y funcionamiento de tu negocio.</p>
           </div>
-          <button onClick={handleSave} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all">
+          
+          <button onClick={handleSave} className="fixed bottom-6 right-6 md:static z-50 flex items-center gap-2 bg-slate-900 hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-xl shadow-slate-300 dark:shadow-none transition-all active:scale-95">
              <Save className="w-5 h-5" /> Guardar Todo
           </button>
         </div>
 
-        <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 mb-6 overflow-x-auto w-full md:w-fit">
-            {['GENERAL', 'OPERATIONS', 'DATA'].map((tab) => (
+        {/* --- NAVIGATION TABS --- */}
+        <div className="flex flex-wrap gap-2 mb-8 bg-white dark:bg-slate-900 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-fit">
+            {[
+                { id: 'GENERAL', label: 'Identidad y Marca', icon: Store },
+                { id: 'OPERATIONS', label: 'Operación y Tickets', icon: PieChart },
+                { id: 'DATA', label: 'Nube y Datos', icon: Cloud }
+            ].map((tab) => (
                 <button 
-                    key={tab}
-                    onClick={() => setActiveTab(tab as any)} 
-                    className={`px-6 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${activeTab === tab ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)} 
+                    className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-200 ${activeTab === tab.id ? 'bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-white shadow-sm ring-1 ring-indigo-100 dark:ring-slate-700' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 dark:hover:text-slate-300'}`}
                 >
-                    {tab === 'GENERAL' ? 'Identidad' : tab === 'OPERATIONS' ? 'Operación y Presupuesto' : 'Nube y Datos'}
+                    <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-indigo-500 dark:text-indigo-400' : ''}`} />
+                    {tab.label}
                 </button>
             ))}
         </div>
@@ -217,64 +303,70 @@ export const Settings: React.FC = () => {
         <div className="space-y-6">
             {/* --- GENERAL SETTINGS --- */}
             {activeTab === 'GENERAL' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s]">
-                    {/* Basic Info */}
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 space-y-4">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><Store className="w-5 h-5 text-indigo-500"/> Datos del Negocio</h3>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre del Negocio</label>
-                            <input type="text" className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Dirección</label>
-                            <input type="text" className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Teléfono</label>
-                                <input type="text" className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-[fadeIn_0.3s_ease-out]">
+                    {/* Basic Info Column */}
+                    <div className="lg:col-span-2 space-y-6">
+                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Briefcase className="w-5 h-5"/></div>
+                                Información del Negocio
+                            </h3>
+                            <div className="space-y-5">
+                                <InputField label="Nombre del Negocio" value={formData.name} onChange={(e: any) => setFormData({ ...formData, name: e.target.value })} icon={Store} />
+                                <InputField label="Dirección / Ubicación" value={formData.address} onChange={(e: any) => setFormData({ ...formData, address: e.target.value })} />
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                    <InputField label="Teléfono de Contacto" value={formData.phone} onChange={(e: any) => setFormData({ ...formData, phone: e.target.value })} />
+                                    <InputField label="Correo Electrónico" value={formData.email} onChange={(e: any) => setFormData({ ...formData, email: e.target.value })} type="email" />
+                                </div>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
-                                <input type="email" className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg text-pink-600"><Palette className="w-5 h-5"/></div>
+                                Apariencia
+                            </h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <button onClick={() => setFormData({ ...formData, theme: 'light' })} className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${formData.theme === 'light' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-100 dark:border-slate-800 hover:border-slate-300'}`}>
+                                    <Sun className={`w-8 h-8 ${formData.theme === 'light' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                                    <span className="font-bold text-sm">Modo Claro</span>
+                                </button>
+                                <button onClick={() => setFormData({ ...formData, theme: 'dark' })} className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${formData.theme === 'dark' ? 'border-indigo-500 bg-slate-800' : 'border-slate-100 dark:border-slate-800 hover:border-slate-300'}`}>
+                                    <Moon className={`w-8 h-8 ${formData.theme === 'dark' ? 'text-indigo-400' : 'text-slate-400'}`} />
+                                    <span className="font-bold text-sm">Modo Oscuro</span>
+                                </button>
                             </div>
                         </div>
                     </div>
 
-                    {/* Branding */}
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 space-y-4">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><Palette className="w-5 h-5 text-pink-500"/> Marca Visual</h3>
+                    {/* Branding Column */}
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 h-fit">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-6">Logotipos</h3>
                         
-                        <div className="flex gap-6">
-                            <div className="flex-1 text-center">
-                                <p className="text-xs font-bold text-slate-500 mb-2">Logo Principal (App)</p>
-                                <div className="relative group mx-auto w-24 h-24 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700">
-                                    {formData.logo ? <img src={formData.logo} className="w-full h-full object-contain" /> : <Store className="w-8 h-8 text-slate-400" />}
-                                    <label className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                                        <Upload className="w-6 h-6 mb-1" />
-                                        <span className="text-[10px] font-bold">Cambiar</span>
-                                        <input type="file" className="hidden" accept="image/*" onChange={(e) => handleLogoUpload(e, 'MAIN')} />
-                                    </label>
+                        <div className="space-y-8">
+                            <div className="text-center">
+                                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Logo Principal (App & Web)</p>
+                                <div className="relative group mx-auto w-40 h-40 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 transition-colors">
+                                    {formData.logo ? <img src={formData.logo} className="w-full h-full object-contain p-2" /> : <ImageIcon className="w-12 h-12 text-slate-300" />}
+                                    <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
+                                        <Upload className="w-8 h-8 mb-2" />
+                                        <span className="text-xs font-bold">Cambiar Logo</span>
+                                        <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'MAIN')} />
+                                    </div>
                                 </div>
                             </div>
-                            <div className="flex-1 text-center">
-                                <p className="text-xs font-bold text-slate-500 mb-2">Logo Tickets (B/N)</p>
-                                <div className="relative group mx-auto w-24 h-24 bg-white rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300">
-                                    {formData.receiptLogo ? <img src={formData.receiptLogo} className="w-full h-full object-contain p-2" /> : <Printer className="w-8 h-8 text-slate-300" />}
-                                    <label className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                                        <Upload className="w-6 h-6 mb-1" />
-                                        <span className="text-[10px] font-bold">Cambiar</span>
-                                        <input type="file" className="hidden" accept="image/*" onChange={(e) => handleLogoUpload(e, 'RECEIPT')} />
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
 
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tema de la App</label>
-                            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                                <button onClick={() => setFormData({ ...formData, theme: 'light' })} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 text-sm font-bold transition-all ${formData.theme === 'light' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}><Sun className="w-4 h-4"/> Claro</button>
-                                <button onClick={() => setFormData({ ...formData, theme: 'dark' })} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 text-sm font-bold transition-all ${formData.theme === 'dark' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500'}`}><Moon className="w-4 h-4"/> Oscuro</button>
+                            <div className="border-t border-slate-100 dark:border-slate-800 pt-6 text-center">
+                                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Logo para Tickets (B/N)</p>
+                                <div className="relative group mx-auto w-32 h-32 bg-white rounded-2xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 hover:border-slate-900 transition-colors shadow-sm">
+                                    {formData.receiptLogo ? <img src={formData.receiptLogo} className="w-full h-full object-contain p-2" /> : <Printer className="w-10 h-10 text-slate-300" />}
+                                    <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
+                                        <Upload className="w-6 h-6 mb-1" />
+                                        <span className="text-[10px] font-bold">Subir B/N</span>
+                                        <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'RECEIPT')} />
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-2 max-w-[200px] mx-auto leading-tight">Recomendado: Fondo blanco puro y líneas negras para mejor impresión térmica.</p>
                             </div>
                         </div>
                     </div>
@@ -283,77 +375,89 @@ export const Settings: React.FC = () => {
 
             {/* --- OPERATIONS SETTINGS --- */}
             {activeTab === 'OPERATIONS' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s]">
-                    {/* Presupuesto */}
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 space-y-4">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><PieChart className="w-5 h-5 text-emerald-500"/> Configuración de Presupuesto</h3>
-                        <p className="text-xs text-slate-500">Define cómo distribuir tus ingresos automáticamente.</p>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
+                    {/* Budget Config */}
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><PieChart className="w-5 h-5"/></div>
+                            Distribución de Ingresos
+                        </h3>
+                        <p className="text-sm text-slate-500 mb-8">Define automáticamente cómo se dividen tus ganancias.</p>
                         
-                        <div className="space-y-4 pt-2">
-                            <div>
-                                <div className="flex justify-between text-xs font-bold mb-1">
-                                    <span className="text-indigo-600">Gastos Operativos (Renta, Luz, Stock)</span>
-                                    <span>{formData.budgetConfig?.expensesPercentage}%</span>
+                        <div className="space-y-8">
+                            <div className="relative">
+                                <div className="flex justify-between text-sm font-bold mb-2">
+                                    <span className="text-indigo-600 dark:text-indigo-400">Gastos Operativos</span>
+                                    <span className="bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded text-indigo-700 dark:text-indigo-300">{formData.budgetConfig?.expensesPercentage}%</span>
                                 </div>
-                                <input type="range" className="w-full accent-indigo-600" min="0" max="100" value={formData.budgetConfig?.expensesPercentage || 50} onChange={e => setFormData({ ...formData, budgetConfig: { ...formData.budgetConfig, expensesPercentage: parseInt(e.target.value) } })} />
+                                <input type="range" className="w-full h-3 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-500" min="0" max="100" value={formData.budgetConfig?.expensesPercentage || 50} onChange={e => setFormData({ ...formData, budgetConfig: { ...formData.budgetConfig, expensesPercentage: parseInt(e.target.value) } })} />
                             </div>
-                            <div>
-                                <div className="flex justify-between text-xs font-bold mb-1">
-                                    <span className="text-emerald-600">Inversión / Ahorro</span>
-                                    <span>{formData.budgetConfig?.investmentPercentage}%</span>
+                            
+                            <div className="relative">
+                                <div className="flex justify-between text-sm font-bold mb-2">
+                                    <span className="text-emerald-600 dark:text-emerald-400">Inversión y Ahorro</span>
+                                    <span className="bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded text-emerald-700 dark:text-emerald-300">{formData.budgetConfig?.investmentPercentage}%</span>
                                 </div>
-                                <input type="range" className="w-full accent-emerald-600" min="0" max="100" value={formData.budgetConfig?.investmentPercentage || 30} onChange={e => setFormData({ ...formData, budgetConfig: { ...formData.budgetConfig, investmentPercentage: parseInt(e.target.value) } })} />
+                                <input type="range" className="w-full h-3 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400" min="0" max="100" value={formData.budgetConfig?.investmentPercentage || 30} onChange={e => setFormData({ ...formData, budgetConfig: { ...formData.budgetConfig, investmentPercentage: parseInt(e.target.value) } })} />
                             </div>
-                            <div>
-                                <div className="flex justify-between text-xs font-bold mb-1">
-                                    <span className="text-pink-600">Sueldos / Ganancia Personal</span>
-                                    <span>{formData.budgetConfig?.profitPercentage}%</span>
+
+                            <div className="relative">
+                                <div className="flex justify-between text-sm font-bold mb-2">
+                                    <span className="text-pink-600 dark:text-pink-400">Sueldos y Ganancia</span>
+                                    <span className="bg-pink-50 dark:bg-pink-900/30 px-2 py-0.5 rounded text-pink-700 dark:text-pink-300">{formData.budgetConfig?.profitPercentage}%</span>
                                 </div>
-                                <input type="range" className="w-full accent-pink-600" min="0" max="100" value={formData.budgetConfig?.profitPercentage || 20} onChange={e => setFormData({ ...formData, budgetConfig: { ...formData.budgetConfig, profitPercentage: parseInt(e.target.value) } })} />
+                                <input type="range" className="w-full h-3 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400" min="0" max="100" value={formData.budgetConfig?.profitPercentage || 20} onChange={e => setFormData({ ...formData, budgetConfig: { ...formData.budgetConfig, profitPercentage: parseInt(e.target.value) } })} />
                             </div>
-                            <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg text-xs text-center font-mono">
-                                Total: {(formData.budgetConfig?.expensesPercentage || 0) + (formData.budgetConfig?.investmentPercentage || 0) + (formData.budgetConfig?.profitPercentage || 0)}% 
-                                {((formData.budgetConfig?.expensesPercentage || 0) + (formData.budgetConfig?.investmentPercentage || 0) + (formData.budgetConfig?.profitPercentage || 0)) !== 100 && <span className="text-red-500 font-bold ml-2">(Debe ser 100%)</span>}
+
+                            <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-700">
+                                <span className="text-xs font-bold text-slate-500 uppercase">Suma Total</span>
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-xl font-black ${((formData.budgetConfig?.expensesPercentage || 0) + (formData.budgetConfig?.investmentPercentage || 0) + (formData.budgetConfig?.profitPercentage || 0)) === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                                        {(formData.budgetConfig?.expensesPercentage || 0) + (formData.budgetConfig?.investmentPercentage || 0) + (formData.budgetConfig?.profitPercentage || 0)}%
+                                    </span>
+                                    {((formData.budgetConfig?.expensesPercentage || 0) + (formData.budgetConfig?.investmentPercentage || 0) + (formData.budgetConfig?.profitPercentage || 0)) !== 100 && <AlertTriangle className="w-5 h-5 text-red-500" />}
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Folios y Tickets */}
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 space-y-4">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><Hash className="w-5 h-5 text-orange-500"/> Folios y Tickets</h3>
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Inicio Folio Tickets</label>
-                                <input type="number" className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none" value={formData.sequences?.ticketStart} onChange={e => setFormData({ ...formData, sequences: { ...formData.sequences, ticketStart: parseInt(e.target.value) } })} />
+                    {/* Tickets & Config */}
+                    <div className="space-y-6">
+                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600"><Hash className="w-5 h-5"/></div>
+                                Secuencias y Folios
+                            </h3>
+                            <div className="grid grid-cols-2 gap-5">
+                                <InputField label="Inicio Ticket #" value={formData.sequences?.ticketStart} onChange={(e: any) => setFormData({ ...formData, sequences: { ...formData.sequences, ticketStart: parseInt(e.target.value) } })} type="number" />
+                                <InputField label="Inicio Cliente #" value={formData.sequences?.customerStart} onChange={(e: any) => setFormData({ ...formData, sequences: { ...formData.sequences, customerStart: parseInt(e.target.value) } })} type="number" />
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Inicio Folio Clientes</label>
-                                <input type="number" className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none" value={formData.sequences?.customerStart} onChange={e => setFormData({ ...formData, sequences: { ...formData.sequences, customerStart: parseInt(e.target.value) } })} />
+                            <div className="mt-5">
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Pie de Página (Ticket)</label>
+                                <textarea className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none text-sm focus:ring-2 focus:ring-indigo-500/50 transition-all" rows={2} value={formData.receiptFooter} onChange={e => setFormData({ ...formData, receiptFooter: e.target.value })} />
                             </div>
                         </div>
 
-                        <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Pie de Página del Ticket</label>
-                            <textarea className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none text-xs" rows={2} value={formData.receiptFooter} onChange={e => setFormData({ ...formData, receiptFooter: e.target.value })} />
-                        </div>
-                    </div>
-
-                    {/* Producción Docs */}
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 space-y-4 md:col-span-2">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><FileText className="w-5 h-5 text-blue-500"/> Documentos de Producción</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Título del Documento</label>
-                                <input type="text" className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white" value={formData.productionDoc?.title} onChange={e => setFormData({ ...formData, productionDoc: { ...formData.productionDoc, title: e.target.value } })} />
-                            </div>
-                            <div className="flex items-center gap-3 pt-6">
-                                <input type="checkbox" className="w-5 h-5 rounded text-indigo-600" checked={formData.productionDoc?.showPrices} onChange={e => setFormData({ ...formData, productionDoc: { ...formData.productionDoc, showPrices: e.target.checked } })} />
-                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Mostrar Precios en Orden</span>
-                            </div>
-                            <div className="flex items-center gap-3 pt-6">
-                                <input type="checkbox" className="w-5 h-5 rounded text-indigo-600" checked={formData.productionDoc?.showCustomerContact} onChange={e => setFormData({ ...formData, productionDoc: { ...formData.productionDoc, showCustomerContact: e.target.checked } })} />
-                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Mostrar Teléfono Cliente</span>
+                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><FileText className="w-5 h-5"/></div>
+                                Hoja de Producción
+                            </h3>
+                            <InputField label="Título del Documento" value={formData.productionDoc?.title} onChange={(e: any) => setFormData({ ...formData, productionDoc: { ...formData.productionDoc, title: e.target.value } })} />
+                            
+                            <div className="mt-4 space-y-3">
+                                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-xl cursor-pointer" onClick={() => setFormData({ ...formData, productionDoc: { ...formData.productionDoc, showPrices: !formData.productionDoc?.showPrices } })}>
+                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Mostrar Precios</span>
+                                    <div className={`w-12 h-6 rounded-full p-1 transition-colors ${formData.productionDoc?.showPrices ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                                        <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${formData.productionDoc?.showPrices ? 'translate-x-6' : ''}`} />
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-xl cursor-pointer" onClick={() => setFormData({ ...formData, productionDoc: { ...formData.productionDoc, showCustomerContact: !formData.productionDoc?.showCustomerContact } })}>
+                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Mostrar Contacto Cliente</span>
+                                    <div className={`w-12 h-6 rounded-full p-1 transition-colors ${formData.productionDoc?.showCustomerContact ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                                        <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${formData.productionDoc?.showCustomerContact ? 'translate-x-6' : ''}`} />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -362,65 +466,74 @@ export const Settings: React.FC = () => {
 
             {/* --- DATA & SYNC SETTINGS --- */}
             {activeTab === 'DATA' && (
-                <div className="grid grid-cols-1 gap-6 animate-[fadeIn_0.3s]">
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><Cloud className="w-5 h-5 text-indigo-500"/> Sincronización en la Nube</h3>
-                            <div className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2 ${formData.enableCloudSync ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                                {formData.enableCloudSync ? <CheckCircle className="w-3 h-3"/> : <CloudOff className="w-3 h-3"/>}
-                                {formData.enableCloudSync ? 'Activado' : 'Desactivado'}
+                <div className="grid grid-cols-1 gap-6 animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3">
+                                    <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Server className="w-5 h-5"/></div>
+                                    Conexión a la Nube
+                                </h3>
+                                <p className="text-sm text-slate-500 mt-1">Vincula tu sistema con Google Sheets para respaldo en tiempo real.</p>
+                            </div>
+                            <div className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 border ${formData.enableCloudSync ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+                                {formData.enableCloudSync ? <CheckCircle className="w-4 h-4"/> : <CloudOff className="w-4 h-4"/>}
+                                {formData.enableCloudSync ? 'SISTEMA CONECTADO' : 'MODO LOCAL'}
                             </div>
                         </div>
 
-                        <div className="space-y-4">
+                        <div className="space-y-6">
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">URL del Google Apps Script</label>
-                                <input 
-                                    type="text" 
-                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-mono text-xs" 
-                                    placeholder="https://script.google.com/macros/s/..."
-                                    value={formData.googleWebAppUrl || ''} 
-                                    onChange={e => setFormData({ ...formData, googleWebAppUrl: e.target.value })} 
-                                />
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">URL del Script (Google Apps Script)</label>
+                                <div className="relative">
+                                    <textarea 
+                                        rows={2}
+                                        className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 font-mono text-xs outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none" 
+                                        placeholder="https://script.google.com/macros/s/..."
+                                        value={formData.googleWebAppUrl || ''} 
+                                        onChange={e => setFormData({ ...formData, googleWebAppUrl: e.target.value })} 
+                                    />
+                                    <div className="absolute right-3 bottom-3">
+                                        <button 
+                                            onClick={handleTestConnection}
+                                            disabled={testingConnection || !formData.googleWebAppUrl}
+                                            className="px-4 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold shadow-sm border border-slate-200 dark:border-slate-700 flex items-center gap-2 transition-all disabled:opacity-50"
+                                        >
+                                            {testingConnection ? <Loader2 className="w-3 h-3 animate-spin"/> : <Server className="w-3 h-3"/>}
+                                            {testingConnection ? 'Probando...' : 'Probar Conexión'}
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                             
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Clave Secreta (API Secret)</label>
-                                <input 
-                                    type="password" 
-                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-mono text-xs" 
-                                    value={formData.cloudSecret || ''} 
-                                    onChange={e => setFormData({ ...formData, cloudSecret: e.target.value })} 
-                                    placeholder="Opcional: Solo si configuraste seguridad en el script"
-                                />
-                            </div>
+                            <InputField label="Clave Secreta (API Secret)" value={formData.cloudSecret || ''} onChange={(e: any) => setFormData({ ...formData, cloudSecret: e.target.value })} type="password" placeholder="Opcional: Solo si configuraste seguridad" />
 
-                            <div className="flex gap-4 pt-2">
+                            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
                                 <button 
                                     onClick={() => setFormData({ ...formData, enableCloudSync: !formData.enableCloudSync })}
-                                    className={`flex-1 py-3 rounded-xl font-bold border transition-colors ${formData.enableCloudSync ? 'bg-red-50 text-red-600 border-red-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`}
+                                    className={`px-6 py-3 rounded-xl font-bold text-sm transition-all border ${formData.enableCloudSync ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100' : 'border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
                                 >
-                                    {formData.enableCloudSync ? 'Desactivar Sync' : 'Activar Sync'}
-                                </button>
-                                
-                                <button 
-                                    onClick={handleTestConnection}
-                                    disabled={testingConnection || !formData.googleWebAppUrl}
-                                    className="flex-[2] py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-xl font-bold border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 flex items-center justify-center gap-2 disabled:opacity-50"
-                                >
-                                    {testingConnection ? <Loader2 className="w-4 h-4 animate-spin"/> : <Server className="w-4 h-4"/>}
-                                    {testingConnection ? 'Probando...' : 'Probar Conexión'}
+                                    {formData.enableCloudSync ? 'Desactivar Sincronización' : 'Activar Sincronización'}
                                 </button>
                             </div>
                         </div>
                     </div>
 
-                    <div className="bg-red-50 dark:bg-red-900/10 p-6 rounded-2xl border border-red-100 dark:border-red-900/30">
-                        <h3 className="font-bold text-lg text-red-800 dark:text-red-400 flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5"/> Zona de Peligro</h3>
-                        <p className="text-sm text-red-600 dark:text-red-300 mb-4">Acciones irreversibles que afectan tus datos locales.</p>
-                        <button onClick={hardReset} className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-lg shadow-red-200 dark:shadow-none flex items-center gap-2">
-                            <Trash2 className="w-4 h-4" /> Restablecer y Descargar de Nube
-                        </button>
+                    {/* Danger Zone */}
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 md:p-8 shadow-sm border border-red-100 dark:border-red-900/30">
+                        <h3 className="font-bold text-lg text-red-700 dark:text-red-400 flex items-center gap-3 mb-2">
+                            <AlertTriangle className="w-5 h-5"/> Zona de Peligro
+                        </h3>
+                        <p className="text-sm text-slate-500 mb-6">Acciones destructivas. Úsalas solo si tienes problemas graves de datos.</p>
+                        
+                        <div className="flex flex-col md:flex-row gap-4">
+                            <button onClick={hardReset} className="flex-1 px-6 py-4 bg-red-50 hover:bg-red-100 dark:bg-red-900/10 dark:hover:bg-red-900/20 text-red-700 dark:text-red-400 rounded-2xl font-bold border border-red-200 dark:border-red-900/50 flex items-center justify-center gap-3 transition-colors group">
+                                <div className="p-2 bg-white dark:bg-slate-900 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <Trash2 className="w-4 h-4" />
+                                </div>
+                                <span>Restablecer y Bajar de Nube</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
