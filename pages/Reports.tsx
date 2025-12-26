@@ -3,11 +3,11 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { generateBusinessInsight } from '../services/geminiService';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag } from 'lucide-react';
+import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 // --- COLORS FOR CHARTS ---
-const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
+const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#f97316'];
 
 type DateRangeOption = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 
@@ -39,7 +39,7 @@ export const Reports: React.FC = () => {
       let startDate = new Date();
       let endDate = new Date();
 
-      // 1. Calculate Date Range
+      // 1. Calculate Date Range (Local Time Logic)
       if (dateRange === 'TODAY') {
           startDate.setHours(0, 0, 0, 0);
           endDate.setHours(23, 59, 59, 999);
@@ -83,16 +83,20 @@ export const Reports: React.FC = () => {
 
       // --- AGGREGATION ---
       
-      // A. Sales Trend Data (Group by Day)
+      // A. Sales & Expenses Trend Data (Group by Day)
       const daysMap = new Map<string, { date: string, rawDate: number, sales: number, expenses: number }>();
       
+      // Initialize map for continuity
       const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
       
       if (diffDays <= 60) {
-          for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-              const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
-              const key = d.toDateString(); 
-              daysMap.set(key, { date: label, rawDate: d.getTime(), sales: 0, expenses: 0 });
+          // Use a fresh date object for iteration to avoid mutating startDate
+          const iterDate = new Date(startDate);
+          while (iterDate <= endDate) {
+              const label = iterDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+              const key = iterDate.toDateString(); 
+              daysMap.set(key, { date: label, rawDate: iterDate.getTime(), sales: 0, expenses: 0 });
+              iterDate.setDate(iterDate.getDate() + 1);
           }
       }
 
@@ -110,18 +114,21 @@ export const Reports: React.FC = () => {
           entry.sales += t.total;
       });
 
-      // Fill Expenses (Only type EXPENSE)
-      validMovs.filter(m => m.type === 'EXPENSE').forEach(m => {
-          const d = new Date(m.date);
-          const key = d.toDateString();
-          const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+      // Fill Expenses (Operational + Third Party Payouts)
+      validMovs.forEach(m => {
+          // We include EXPENSE and THIRD_PARTY withdrawals in the "Expenses" bar for Cash Flow visibility
+          if (m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')) {
+              const d = new Date(m.date);
+              const key = d.toDateString();
+              const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
 
-          if (!daysMap.has(key)) {
-              daysMap.set(key, { date: label, rawDate: d.getTime(), sales: 0, expenses: 0 });
+              if (!daysMap.has(key)) {
+                  daysMap.set(key, { date: label, rawDate: d.getTime(), sales: 0, expenses: 0 });
+              }
+
+              const entry = daysMap.get(key)!;
+              entry.expenses += m.amount;
           }
-
-          const entry = daysMap.get(key)!;
-          entry.expenses += m.amount;
       });
 
       const chartDataArray = Array.from(daysMap.values()).sort((a, b) => a.rawDate - b.rawDate);
@@ -141,12 +148,21 @@ export const Reports: React.FC = () => {
       });
 
       const totalSales = validTx.reduce((sum, t) => sum + t.total, 0);
-      const totalExpenses = validMovs.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + m.amount, 0);
+      
+      // Expenses for Net Profit calculation (Strictly Operational)
+      const operationalExpenses = validMovs.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + m.amount, 0);
+      
+      // Total Money Out (Operational + Third Party Payouts)
+      const totalMoneyOut = validMovs
+        .filter(m => m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY'))
+        .reduce((sum, m) => sum + m.amount, 0);
+
       const transactionCount = validTx.length;
       const avgTicket = transactionCount > 0 ? totalSales / transactionCount : 0;
       
-      // Net Estimate should exclude Third Party Sales as it's not real revenue
-      const netEstimate = ownSales - totalExpenses; 
+      // Net Estimate (Ganancia Real) = Ventas Propias - Gastos Operativos
+      // Excludes Third Party Sales (not our money) and Third Party Payouts (settling that liability)
+      const netEstimate = ownSales - operationalExpenses; 
 
       // C. Top Products
       const productMap = new Map<string, { name: string, qty: number, total: number }>();
@@ -173,20 +189,28 @@ export const Reports: React.FC = () => {
       });
       const categoryArray = Array.from(catMap.entries()).map(([name, value]) => ({ name, value }));
 
-      // E. Expense Categories (Pie Chart)
+      // E. Expense/Outflow Breakdown (Pie Chart)
       const expMap = new Map<string, number>();
+      
+      // 1. Operational Expenses
       validMovs.filter(m => m.type === 'EXPENSE').forEach(m => {
-          // Use subCategory if available, else generic category
-          const cat = m.subCategory || (m.category === 'OPERATIONAL' ? 'Gastos Generales' : 'Otros');
+          const cat = m.subCategory || (m.category === 'OPERATIONAL' ? 'Gastos Generales' : 'Otros Gastos');
           expMap.set(cat, (expMap.get(cat) || 0) + m.amount);
       });
+
+      // 2. Third Party Payouts (Important for visibility)
+      validMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').forEach(m => {
+          const cat = m.subCategory ? `${m.subCategory} (Liq.)` : 'Liquidación Terceros';
+          expMap.set(cat, (expMap.get(cat) || 0) + m.amount);
+      });
+
       const expenseCategoryArray = Array.from(expMap.entries()).map(([name, value]) => ({ name, value }));
 
       return {
           filteredTransactions: validTx,
           filteredMovements: validMovs,
           chartData: chartDataArray,
-          summaryMetrics: { totalSales, totalExpenses, avgTicket, transactionCount, netEstimate },
+          summaryMetrics: { totalSales, totalMoneyOut, avgTicket, transactionCount, netEstimate },
           thirdPartyMetrics: { total: thirdPartySales, own: ownSales },
           topProducts: topProductsArray,
           categoryData: categoryArray,
@@ -300,6 +324,7 @@ export const Reports: React.FC = () => {
                               <option value="card">Tarjeta</option>
                               <option value="transfer">Transferencia</option>
                               <option value="credit">Crédito</option>
+                              <option value="split">Pago Dividido</option>
                           </select>
                       </div>
                   </div>
@@ -329,18 +354,21 @@ export const Reports: React.FC = () => {
                 <p className="text-xs text-slate-400">{summaryMetrics.transactionCount} transacciones</p>
             </div>
 
-            {/* Expenses */}
+            {/* Expenses (Including Third Party Payouts) */}
             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-3 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-xl">
                         <ArrowDownRight className="w-6 h-6" />
                     </div>
-                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Gastos Operativos</p>
+                    <div>
+                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Salidas Totales</p>
+                        <p className="text-[10px] text-slate-400">Gastos + Liq. Terceros</p>
+                    </div>
                 </div>
                 <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">
-                    ${summaryMetrics.totalExpenses.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    ${summaryMetrics.totalMoneyOut.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                 </h3>
-                <p className="text-xs text-slate-400">En periodo seleccionado</p>
+                <p className="text-xs text-slate-400">Flujo Saliente</p>
             </div>
 
             {/* Net Estimate */}
@@ -350,13 +378,14 @@ export const Reports: React.FC = () => {
                         <ArrowUpRight className="w-6 h-6" />
                     </div>
                     <div>
-                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Ganancia Real</p>
-                        <p className="text-[10px] text-slate-400">Ventas Propias - Gastos</p>
+                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Utilidad Real</p>
+                        <p className="text-[10px] text-slate-400">Ventas Propias - Gastos Op.</p>
                     </div>
                 </div>
                 <h3 className={`text-3xl font-black mb-1 ${summaryMetrics.netEstimate >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
                     ${summaryMetrics.netEstimate.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                 </h3>
+                <p className="text-xs text-slate-400">Estimado contable</p>
             </div>
 
             {/* Third Party Metrics */}
@@ -366,14 +395,14 @@ export const Reports: React.FC = () => {
                         <Handshake className="w-6 h-6" />
                     </div>
                     <div>
-                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Recaudo Terceros</p>
+                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Venta Terceros</p>
                         <p className="text-[10px] text-slate-400">Dinero por Consignación</p>
                     </div>
                 </div>
                 <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">
                     ${thirdPartyMetrics.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                 </h3>
-                <p className="text-xs text-orange-500 font-medium">Debe liquidarse</p>
+                <p className="text-xs text-orange-500 font-medium">No es ganancia propia</p>
             </div>
         </div>
 
@@ -467,45 +496,33 @@ export const Reports: React.FC = () => {
 
         {/* CHARTS ROW 2 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 animate-[slideUp_0.5s_ease-out]">
-            {/* Category Distribution (Sales) */}
+            {/* Cash Flow Comparison (Sales vs Money Out) */}
             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                 <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-                    <PieIcon className="w-5 h-5 text-pink-500" /> Ventas por Categoría
+                    <ArrowUpRight className="w-5 h-5 text-indigo-500" /> Flujo de Caja (Ventas vs Salidas)
                 </h3>
-                <div className="h-64 w-full flex items-center justify-center">
-                    {categoryData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={categoryData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={80}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
-                                    {categoryData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke={isDark ? '#0f172a' : '#fff'} strokeWidth={2} />
-                                    ))}
-                                </Pie>
-                                <Tooltip formatter={(val: number) => `$${val.toFixed(2)}`} contentStyle={{borderRadius: '8px', border:'none'}} />
-                                <Legend layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{fontSize: '11px', color: textColor}} />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <div className="text-center text-slate-400">
-                            <PieIcon className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                            <p className="text-sm">Sin datos suficientes</p>
-                        </div>
-                    )}
+                <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+                            <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} tickFormatter={(val) => `$${val}`} width={40} />
+                            <Tooltip 
+                                contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px', backgroundColor: isDark ? '#1e293b' : '#fff', color: isDark ? '#fff' : '#000'}}
+                                cursor={{fill: isDark ? '#334155' : '#f1f5f9'}}
+                            />
+                            <Legend verticalAlign="top" height={36} iconType="circle"/>
+                            <Bar name="Ventas" dataKey="sales" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={20} />
+                            <Bar name="Salidas" dataKey="expenses" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={20} />
+                        </BarChart>
+                    </ResponsiveContainer>
                 </div>
             </div>
 
             {/* Expense Categories */}
             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                 <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-                    <Tag className="w-5 h-5 text-red-500" /> Desglose de Gastos
+                    <Tag className="w-5 h-5 text-red-500" /> Desglose de Salidas
                 </h3>
                 <div className="h-64 w-full flex items-center justify-center">
                     {expenseCategoryData.length > 0 ? (
@@ -531,7 +548,7 @@ export const Reports: React.FC = () => {
                     ) : (
                         <div className="text-center text-slate-400">
                             <ArrowDownRight className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                            <p className="text-sm">Sin gastos registrados</p>
+                            <p className="text-sm">Sin egresos registrados</p>
                         </div>
                     )}
                 </div>
