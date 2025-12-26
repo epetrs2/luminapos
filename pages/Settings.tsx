@@ -266,6 +266,10 @@ export const Settings: React.FC = () => {
       </div>
   );
 
+  // Derived state for Cloud Connection Status
+  // STRICT CHECK: Must be enabled AND have a URL with content
+  const isCloudConfigured = formData.enableCloudSync && formData.googleWebAppUrl && formData.googleWebAppUrl.trim().length > 10;
+
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       {cropImage && <ImageCropper imageSrc={cropImage} onCancel={() => setCropImage(null)} onSave={onCropComplete} />}
@@ -524,9 +528,9 @@ export const Settings: React.FC = () => {
                                 </h3>
                                 <p className="text-sm text-slate-500 mt-1">Vincula tu sistema con Google Sheets para respaldo en tiempo real.</p>
                             </div>
-                            <div className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 border ${formData.enableCloudSync ? 'bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400' : 'bg-red-100 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-400'}`}>
-                                {formData.enableCloudSync ? <CheckCircle className="w-4 h-4"/> : <CloudOff className="w-4 h-4"/>}
-                                {formData.enableCloudSync ? 'CONECTADO A LA NUBE' : 'DESCONECTADO (OFFLINE)'}
+                            <div className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 border ${isCloudConfigured ? 'bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400' : 'bg-red-100 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-400'}`}>
+                                {isCloudConfigured ? <CheckCircle className="w-4 h-4"/> : <CloudOff className="w-4 h-4"/>}
+                                {isCloudConfigured ? 'CONECTADO A LA NUBE' : 'DESCONECTADO (OFFLINE)'}
                             </div>
                         </div>
 
