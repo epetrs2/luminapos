@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon } from 'lucide-react';
+import { Save, Upload, Store, FileText, Palette, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 
 // --- IMAGE CROPPER COMPONENT (IMPROVED UX) ---
@@ -428,13 +428,61 @@ export const Settings: React.FC = () => {
                                 <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600"><Hash className="w-5 h-5"/></div>
                                 Secuencias y Folios
                             </h3>
-                            <div className="grid grid-cols-2 gap-5">
-                                <InputField label="Inicio Ticket #" value={formData.sequences?.ticketStart} onChange={(e: any) => setFormData({ ...formData, sequences: { ...formData.sequences, ticketStart: parseInt(e.target.value) } })} type="number" />
-                                <InputField label="Inicio Cliente #" value={formData.sequences?.customerStart} onChange={(e: any) => setFormData({ ...formData, sequences: { ...formData.sequences, customerStart: parseInt(e.target.value) } })} type="number" />
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                {/* Ticket Counter Card */}
+                                <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between group focus-within:border-indigo-500 transition-colors">
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-500 uppercase mb-1">Próximo Ticket</p>
+                                        <div className="flex items-center gap-2">
+                                            <Ticket className="w-5 h-5 text-indigo-500"/>
+                                            <input 
+                                                type="number" 
+                                                value={formData.sequences?.ticketStart} 
+                                                onChange={(e: any) => setFormData({ ...formData, sequences: { ...formData.sequences, ticketStart: parseInt(e.target.value) } })} 
+                                                className="bg-transparent text-2xl font-black text-slate-800 dark:text-white outline-none w-full" 
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="h-10 w-10 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center text-indigo-600">
+                                        <Hash className="w-5 h-5"/>
+                                    </div>
+                                </div>
+
+                                {/* Customer Counter Card */}
+                                <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between group focus-within:border-emerald-500 transition-colors">
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-500 uppercase mb-1">Próximo Cliente</p>
+                                        <div className="flex items-center gap-2">
+                                            <Users className="w-5 h-5 text-emerald-500"/>
+                                            <input 
+                                                type="number" 
+                                                value={formData.sequences?.customerStart} 
+                                                onChange={(e: any) => setFormData({ ...formData, sequences: { ...formData.sequences, customerStart: parseInt(e.target.value) } })} 
+                                                className="bg-transparent text-2xl font-black text-slate-800 dark:text-white outline-none w-full" 
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="h-10 w-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center text-emerald-600">
+                                        <Hash className="w-5 h-5"/>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="mt-5">
+
+                            <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Pie de Página (Ticket)</label>
-                                <textarea className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none text-sm focus:ring-2 focus:ring-indigo-500/50 transition-all" rows={2} value={formData.receiptFooter} onChange={e => setFormData({ ...formData, receiptFooter: e.target.value })} />
+                                <div className="relative">
+                                    <textarea 
+                                        className="w-full px-4 pt-3 pb-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none text-center text-xs font-mono focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none shadow-sm" 
+                                        rows={3} 
+                                        value={formData.receiptFooter} 
+                                        onChange={e => setFormData({ ...formData, receiptFooter: e.target.value })} 
+                                    />
+                                    <div className="absolute bottom-2 left-0 right-0 flex justify-center opacity-20 pointer-events-none">
+                                        <div className="border-t-2 border-dashed border-slate-900 w-1/2"></div>
+                                    </div>
+                                    <Receipt className="absolute top-3 right-3 text-slate-300 w-4 h-4 pointer-events-none" />
+                                </div>
                             </div>
                         </div>
 
@@ -476,9 +524,9 @@ export const Settings: React.FC = () => {
                                 </h3>
                                 <p className="text-sm text-slate-500 mt-1">Vincula tu sistema con Google Sheets para respaldo en tiempo real.</p>
                             </div>
-                            <div className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 border ${formData.enableCloudSync ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+                            <div className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 border ${formData.enableCloudSync ? 'bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400' : 'bg-red-100 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-400'}`}>
                                 {formData.enableCloudSync ? <CheckCircle className="w-4 h-4"/> : <CloudOff className="w-4 h-4"/>}
-                                {formData.enableCloudSync ? 'SISTEMA CONECTADO' : 'MODO LOCAL'}
+                                {formData.enableCloudSync ? 'CONECTADO A LA NUBE' : 'DESCONECTADO (OFFLINE)'}
                             </div>
                         </div>
 
