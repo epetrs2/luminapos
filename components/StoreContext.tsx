@@ -65,7 +65,7 @@ interface StoreContextType {
   convertOrderToSale: (id: string, paymentMethod: string) => void;
   deleteOrder: (id: string) => void;
   updateSettings: (s: BusinessSettings) => void;
-  importData: (data: any) => void;
+  importData: (data: any) => Promise<boolean>;
   login: (u: string, p: string, code?: string) => Promise<string>;
   logout: () => Promise<void>; 
   addUser: (u: User) => void;
@@ -373,6 +373,17 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const config = overrides?.settings || currentData.settings;
         if (!config.enableCloudSync || !config.googleWebAppUrl) return;
         
+        // --- SAFETY GUARD: EMPTY DEVICE PROTECTION ---
+        // Prevents a new, empty device from overwriting the cloud database on auto-sync
+        const isLocalEmpty = currentData.products.length === 0 && currentData.customers.length === 0;
+        const isForced = overrides?.forcePush === true;
+
+        if (isLocalEmpty && !isForced) {
+            console.warn("🛡️ DATA SAFETY: Sincronización de subida bloqueada. Base de datos local vacía.");
+            return;
+        }
+        // ---------------------------------------------
+
         setIsSyncing(true);
         try {
             await pushFullDataToCloud(config.googleWebAppUrl, config.cloudSecret, { ...currentData, ...overrides });
@@ -403,19 +414,27 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             const cloudData = await fetchFullDataFromCloud(url, secret);
             if (!cloudData) return false;
             
-            if (!cloudData.products && !cloudData.settings && !cloudData.users) {
-                console.warn("Pull ignorado: Estructura de datos inválida o vacía.");
-                return false;
-            }
+            await importData(cloudData);
 
-            const cloudTs = cloudData.timestamp ? new Date(cloudData.timestamp).getTime() : 0;
+            dataLoadedRef.current = true;
+            lastCloudSyncTimestamp.current = new Date().getTime();
+            hasPendingChangesRef.current = false;
+            setHasPendingChanges(false); 
+            if (!silent) notify('Sincronizado', 'Datos actualizados desde la nube.', 'success');
+            return true;
+        } catch (e: any) {
+            if (!silent) notify("Error Sincro", e.message, "error");
+            return false;
+        } finally { if (!silent) setIsSyncing(false); }
+    };
+
+    const importData = async (data: any): Promise<boolean> => {
+        try {
+            if (!data) return false;
             
-            if (!force && hasPendingChangesRef.current) {
-                console.warn("Pull abortado: Cambios locales detectados durante la descarga.");
-                return false;
-            }
+            // Clean/Sanitize input first
+            const safeData = sanitizeDataStructure(data);
 
-            const safeData = sanitizeDataStructure(cloudData);
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
             if (Array.isArray(safeData.transactions)) setTransactions(safeData.transactions);
             if (Array.isArray(safeData.customers)) setCustomers(safeData.customers);
@@ -437,25 +456,26 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(safeData.settings.soundConfig || {}) },
                         sequences: { ...DEFAULT_SETTINGS.sequences, ...(safeData.settings.sequences || {}) },
                         productionDoc: { ...DEFAULT_SETTINGS.productionDoc, ...(safeData.settings.productionDoc || {}) },
-                        googleWebAppUrl: safeData.settings.googleWebAppUrl || url,
-                        cloudSecret: safeData.settings.cloudSecret !== undefined ? safeData.settings.cloudSecret : secret
+                        // Keep current sync config unless specifically overwritten by backup
+                        googleWebAppUrl: safeData.settings.googleWebAppUrl || currentSettings.googleWebAppUrl,
+                        cloudSecret: safeData.settings.cloudSecret || currentSettings.cloudSecret
                     };
-                    if (currentSettings.logo && !incomingSettings.logo) incomingSettings.logo = currentSettings.logo;
-                    if (currentSettings.receiptLogo && !incomingSettings.receiptLogo) incomingSettings.receiptLogo = currentSettings.receiptLogo;
                     return incomingSettings;
                 });
             }
+            
+            // Force save to local storage immediately to ensure persistence even if app closes
+            setTimeout(() => {
+                safeSave('products', safeData.products || []);
+                safeSave('transactions', safeData.transactions || []);
+                // ... (localStorage persistence handled by useEffects, but triggering state updates above does it)
+            }, 100);
 
-            dataLoadedRef.current = true;
-            lastCloudSyncTimestamp.current = cloudTs;
-            hasPendingChangesRef.current = false;
-            setHasPendingChanges(false); 
-            if (!silent) notify('Sincronizado', 'Datos actualizados desde la nube.', 'success');
             return true;
-        } catch (e: any) {
-            if (!silent) notify("Error Sincro", e.message, "error");
+        } catch (error) {
+            console.error("Import Error", error);
             return false;
-        } finally { if (!silent) setIsSyncing(false); }
+        }
     };
 
     const hardReset = async () => {
@@ -844,7 +864,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
             addSupplier, updateSupplier, deleteSupplier, addPurchase,
             addCashMovement, deleteCashMovement,
-            addOrder, updateOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
+            addOrder, updateOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData, login, logout, addUser, updateUser, deleteUser, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
             notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset,
             playSound,
             incomingOrder, sendOrderToPOS, clearIncomingOrder

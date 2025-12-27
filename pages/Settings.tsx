@@ -1,7 +1,6 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList } from 'lucide-react';
+import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList, Database, Download, UploadCloud } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 import { generateTestTicket } from '../utils/escPosHelper';
 import { optimizeForThermal } from '../utils/imageHelper';
@@ -223,8 +222,8 @@ const InputField = ({ label, value, onChange, type = "text", placeholder = "", i
 );
 
 export const Settings: React.FC = () => {
-  const { settings, updateSettings, hardReset, pushToCloud, notify, btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData } = useStore();
-  const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA' | 'BLUETOOTH' | 'NOTIFICATIONS'>('GENERAL');
+  const { settings, updateSettings, hardReset, pushToCloud, pullFromCloud, notify, btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, importData } = useStore();
+  const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA' | 'BLUETOOTH' | 'NOTIFICATIONS' | 'BACKUP'>('GENERAL');
   const [formData, setFormData] = useState(settings);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [cropTarget, setCropTarget] = useState<'MAIN' | 'RECEIPT'>('MAIN');
@@ -302,14 +301,16 @@ export const Settings: React.FC = () => {
       }
       setTestingConnection(true);
       try {
-          const result = await fetchFullDataFromCloud(formData.googleWebAppUrl, formData.cloudSecret);
-          if (result) {
-              notify("¡Conexión Exitosa!", "La nube responde correctamente.", "success");
+          // FORCE DOWNLOAD to populate device
+          const success = await pullFromCloud(formData.googleWebAppUrl, formData.cloudSecret, false, true);
+          
+          if (success) {
+              notify("¡Sincronizado!", "Conexión exitosa. Se han descargado tus datos.", "success");
           } else {
-              notify("Advertencia", "Conexión establecida pero sin datos.", "warning");
+              notify("Conectado", "Nube vinculada (Sin datos previos).", "success");
           }
       } catch (e: any) {
-          notify("Error de Conexión", e.message || "Verifica la URL y tu internet.", "error");
+          notify("Error", e.message || "Verifica la URL y tu internet.", "error");
       } finally {
           setTestingConnection(false);
       }
@@ -343,6 +344,60 @@ export const Settings: React.FC = () => {
       }
   };
 
+  // --- BACKUP LOGIC ---
+  const handleExportBackup = () => {
+      const backupData = {
+          products, transactions, customers, suppliers, cashMovements,
+          orders, purchases, users, userInvites, categories, activityLogs,
+          settings: formData, // Use current form settings
+          timestamp: new Date().toISOString(),
+          version: '1.0'
+      };
+
+      const jsonString = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Lumina_Backup_${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      notify("Copia Creada", "El archivo de respaldo se ha descargado.", "success");
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (!window.confirm("¡ADVERTENCIA! Al restaurar, se SOBRESCRIBIRÁN todos los datos actuales con los del archivo. ¿Estás seguro?")) {
+          e.target.value = ''; 
+          return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+          try {
+              const json = JSON.parse(evt.target?.result as string);
+              const success = await importData(json);
+              if (success) {
+                  notify("Restauración Completa", "Los datos han sido recuperados.", "success");
+                  // Optional: Refresh page to ensure clean state
+                  setTimeout(() => window.location.reload(), 1500);
+              } else {
+                  notify("Error", "El archivo parece estar dañado o inválido.", "error");
+              }
+          } catch (err) {
+              console.error(err);
+              notify("Error", "No se pudo leer el archivo de respaldo.", "error");
+          }
+      };
+      reader.readAsText(file);
+  };
+
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       {cropImage && <ImageCropper imageSrc={cropImage} onCancel={() => setCropImage(null)} onSave={onCropComplete} target={cropTarget} />}
@@ -366,7 +421,8 @@ export const Settings: React.FC = () => {
                 { id: 'TICKETS', label: 'Impresión', icon: Receipt },
                 { id: 'BLUETOOTH', label: 'Impresora Bluetooth', icon: Bluetooth },
                 { id: 'NOTIFICATIONS', label: 'Notificaciones', icon: Bell },
-                { id: 'DATA', label: 'Nube', icon: Cloud }
+                { id: 'DATA', label: 'Nube', icon: Cloud },
+                { id: 'BACKUP', label: 'Respaldo', icon: Database }
             ].map((tab) => (
                 <button 
                     key={tab.id}
@@ -418,6 +474,51 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
+            {activeTab === 'BACKUP' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Download className="w-5 h-5"/></div>
+                            Crear Respaldo Local
+                        </h3>
+                        <p className="text-sm text-slate-500 mb-6">
+                            Descarga una copia completa de tu base de datos (ventas, productos, clientes, etc.) a tu computadora.
+                            <br/><br/>
+                            <span className="font-bold text-slate-700 dark:text-slate-300">Recomendación:</span> Haz esto antes de sincronizar con la nube o actualizar.
+                        </p>
+                        <button 
+                            onClick={handleExportBackup}
+                            className="w-full py-4 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-lg"
+                        >
+                            <Download className="w-5 h-5" /> Descargar Copia de Seguridad
+                        </button>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><UploadCloud className="w-5 h-5"/></div>
+                            Restaurar desde Archivo
+                        </h3>
+                        <p className="text-sm text-slate-500 mb-6">
+                            Carga un archivo de respaldo (.json) para recuperar tus datos. 
+                            <span className="text-red-500 font-bold block mt-2">¡Atención! Esto sobrescribirá los datos actuales.</span>
+                        </p>
+                        
+                        <label className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer">
+                            <Upload className="w-5 h-5" /> Seleccionar Archivo...
+                            <input 
+                                type="file" 
+                                accept=".json" 
+                                className="hidden" 
+                                onChange={handleImportBackup}
+                            />
+                        </label>
+                    </div>
+                </div>
+            )}
+
+            {/* ... (Keep existing NOTIFICATIONS, OPERATIONS, TICKETS, BLUETOOTH content identical) ... */}
+            
             {activeTab === 'NOTIFICATIONS' && (
                 <div className="animate-[fadeIn_0.3s_ease-out]">
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
