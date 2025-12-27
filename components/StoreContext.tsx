@@ -374,11 +374,17 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (!config.enableCloudSync || !config.googleWebAppUrl) return false;
         
         // --- SAFETY GUARD: EMPTY DEVICE PROTECTION ---
+        // Prevent wiping cloud data if device is empty, BUT allow if manual sync or user activity present
         const isLocalEmpty = currentData.products.length === 0 && currentData.customers.length === 0;
-        const isForced = overrides?.forcePush === true;
+        const hasActivity = currentData.activityLogs.length > 0;
+        const isForced = overrides?.forcePush === true || overrides?.manual === true || hasActivity;
 
         if (isLocalEmpty && !isForced) {
             console.warn("🛡️ DATA SAFETY: Sincronización de subida bloqueada. Base de datos local vacía.");
+            // If this was a manual triggered sync that got blocked (rare case if logic above holds), notify user.
+            if (overrides?.manual) {
+                notify("Sincronización Bloqueada", "Base de datos vacía. Agrega productos o configuración primero.", "warning");
+            }
             return false;
         }
         // ---------------------------------------------
@@ -413,6 +419,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         
         if (!force && hasPendingChangesRef.current) {
             // Await push so user sees the result of the "pending changes" save
+            // Treat this as manual to ensure feedback is given
             return await pushToCloud({ manual: !silent });
         }
 
