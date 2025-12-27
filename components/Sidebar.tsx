@@ -10,7 +10,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
-  const { products, settings, currentUser, logout, isSyncing, hasPendingChanges, pullFromCloud } = useStore();
+  const { products, settings, currentUser, logout, isSyncing, hasPendingChanges, pullFromCloud, notify } = useStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // IGNORE INACTIVE PRODUCTS IN LOW STOCK COUNT
@@ -40,9 +40,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     setIsMobileMenuOpen(false);
   };
 
-  const handleForceSync = (e: React.MouseEvent) => {
+  const handleForceSync = async (e: React.MouseEvent) => {
       e.stopPropagation();
-      pullFromCloud();
+      if (isSyncing) return;
+      notify("Sincronizando", "Conectando con la nube...", "info");
+      await pullFromCloud();
   };
 
   return (
@@ -56,7 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
          </div>
          <div className="flex items-center gap-2">
              {settings.enableCloudSync && (
-                 <button onClick={handleForceSync} className="p-3 text-indigo-300 hover:text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform">
+                 <button onClick={handleForceSync} disabled={isSyncing} className={`p-3 text-indigo-300 hover:text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform ${isSyncing ? 'opacity-50' : ''}`}>
                      <RefreshCw className={`w-6 h-6 ${isSyncing ? 'animate-spin' : ''}`} />
                  </button>
              )}
@@ -77,7 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
             </div>
             <div className="overflow-hidden flex-1">
             <h1 className="text-lg font-bold tracking-tight truncate">{settings.name || 'LuminaPOS'}</h1>
-            <div className="flex items-center gap-1 group">
+            <div className="flex items-center gap-1">
                 {settings.enableCloudSync ? (
                     isSyncing ? (
                         <div title="Sincronizando..." className="flex items-center gap-1 text-[10px] text-orange-400 font-bold uppercase animate-pulse">
@@ -98,8 +100,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
                     </div>
                 )}
                 {settings.enableCloudSync && (
-                    <button onClick={handleForceSync} className="opacity-0 group-hover:opacity-100 transition-opacity ml-auto p-1 hover:bg-white/10 rounded" title="Forzar Sincronización">
-                        <RefreshCw className="w-3 h-3 text-slate-400 hover:text-white" />
+                    <button 
+                        onClick={handleForceSync} 
+                        disabled={isSyncing}
+                        className={`ml-auto p-1.5 hover:bg-white/10 rounded transition-colors ${isSyncing ? 'cursor-not-allowed opacity-50' : 'hover:text-white text-slate-400'}`} 
+                        title="Forzar Sincronización"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-indigo-400' : ''}`} />
                     </button>
                 )}
             </div>
