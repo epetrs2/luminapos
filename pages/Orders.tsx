@@ -25,13 +25,12 @@ const OrderCard: React.FC<{
             draggable
             onDragStart={(e) => onDragStart(e, order.id)}
         >
-            {/* Mobile Drag Handle - Critical for touch UX */}
+            {/* Mobile Drag Handle - Large touch target */}
             <div 
-                className="absolute top-0 right-0 p-4 cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                style={{ touchAction: 'none' }} // Prevents browser scroll while touching this
+                className="absolute top-0 right-0 p-3 w-16 h-16 flex justify-end items-start cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10 touch-none"
                 onTouchStart={(e) => onTouchStart(e, order.id)}
             >
-                <GripVertical className="w-8 h-8" /> {/* Larger touch target */}
+                <GripVertical className="w-6 h-6" /> 
             </div>
 
             <div className="flex justify-between items-start mb-2 pr-10">
@@ -122,11 +121,12 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     // Desktop DnD State
     const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
-    // Mobile Touch DnD State
+    // Mobile Touch DnD State - OPTIMIZED
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const ghostRef = useRef<HTMLDivElement>(null); // Direct DOM ref for performance
     const [touchDraggingId, setTouchDraggingId] = useState<string | null>(null);
-    const [touchPos, setTouchPos] = useState({ x: 0, y: 0 });
     const [touchOverColumn, setTouchOverColumn] = useState<string | null>(null);
+    const initialTouch = useRef({ x: 0, y: 0 }); // Track start for transform calculation
     
     const draggedOrder = useMemo(() => orders.find(o => o.id === touchDraggingId), [touchDraggingId, orders]);
 
@@ -303,54 +303,74 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         setDragOverColumn(null);
     };
 
-    // --- MOBILE TOUCH DRAG AND DROP HANDLERS ---
+    // --- MOBILE TOUCH DRAG AND DROP HANDLERS (OPTIMIZED 60FPS) ---
     const handleTouchStart = (e: React.TouchEvent, id: string) => {
-        // Haptic Feedback for better feel
+        // Haptic Feedback
         if (navigator.vibrate) navigator.vibrate(50);
         
         const touch = e.touches[0];
         setTouchDraggingId(id);
-        setTouchPos({ x: touch.clientX, y: touch.clientY });
         
-        // Critical: Lock scroll globally when drag starts
+        // Lock body scroll
         document.body.style.overflow = 'hidden'; 
+        
+        // Record initial position for relative movement calculation
+        initialTouch.current = { x: touch.clientX, y: touch.clientY };
+        
+        // Initialize ghost position
+        if (ghostRef.current) {
+            ghostRef.current.style.transform = `translate3d(${touch.clientX}px, ${touch.clientY}px, 0) rotate(3deg)`;
+            ghostRef.current.style.opacity = '0.9';
+        }
     };
 
-    // --- Global Window Listeners for robust dragging ---
+    // Global listeners for robust touch handling
     useEffect(() => {
         if (!touchDraggingId) return;
 
+        let lastColumnCheck = 0;
+
         const handleWindowTouchMove = (e: TouchEvent) => {
-            e.preventDefault(); // Stop scrolling completely while dragging
+            // CRITICAL: Prevent default scrolling
+            e.preventDefault(); 
             const touch = e.touches[0];
             const x = touch.clientX;
             const y = touch.clientY;
             
-            setTouchPos({ x, y });
+            // DIRECT DOM MANIPULATION (No React State here!)
+            if (ghostRef.current) {
+                // Offset by roughly half the card width/height to center it on finger
+                // Simple version: just follow finger
+                ghostRef.current.style.transform = `translate3d(${x - 100}px, ${y - 50}px, 0) rotate(3deg)`;
+            }
 
-            // Auto Scroll Logic for Horizontal Columns
+            // Auto Scroll Logic - Horizontal
             if (scrollContainerRef.current) {
                 const container = scrollContainerRef.current;
-                const scrollSpeed = 15;
-                const edgeThreshold = 60; // wider threshold for easier scrolling
-
+                const edgeThreshold = 50; 
                 if (x < edgeThreshold) {
-                    container.scrollLeft -= scrollSpeed;
+                    container.scrollLeft -= 10;
                 } else if (x > window.innerWidth - edgeThreshold) {
-                    container.scrollLeft += scrollSpeed;
+                    container.scrollLeft += 10;
                 }
             }
 
-            // Hit Test for Columns (Look for element with data-column-status)
-            // We use elementsFromPoint to find the column container specifically
-            const elements = document.elementsFromPoint(x, y);
-            const col = elements.find(el => el.hasAttribute('data-column-status'));
-            
-            if (col) {
-                const status = col.getAttribute('data-column-status');
-                setTouchOverColumn(status);
-            } else {
-                setTouchOverColumn(null);
+            // Hit Test Throttle (every ~100ms)
+            const now = Date.now();
+            if (now - lastColumnCheck > 100) {
+                lastColumnCheck = now;
+                
+                const elements = document.elementsFromPoint(x, y);
+                // Look for data attribute we set on columns
+                const col = elements.find(el => el.hasAttribute('data-column-status'));
+                
+                if (col) {
+                    const status = col.getAttribute('data-column-status');
+                    // Only update state if changed (avoids re-renders)
+                    setTouchOverColumn(prev => (prev !== status ? status : prev));
+                } else {
+                    setTouchOverColumn(prev => (prev !== null ? null : prev));
+                }
             }
         };
 
@@ -358,29 +378,31 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             // Restore scrolling
             document.body.style.overflow = '';
             
+            // Get final target
             const touch = e.changedTouches[0];
             const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
             const col = elements.find(el => el.hasAttribute('data-column-status'));
             
             if (col) {
                 const newStatus = col.getAttribute('data-column-status');
-                
-                // Need to find current order status to compare
-                // Since 'orders' is in closure, it might be stale if not careful, 
-                // but useEffect dep array handles it.
                 const order = orders.find(o => o.id === touchDraggingId);
                 
                 if (newStatus && order && order.status !== newStatus) {
                     updateOrderStatus(touchDraggingId, newStatus);
-                    if (navigator.vibrate) navigator.vibrate([30, 30, 30]); // Success vibration
+                    if (navigator.vibrate) navigator.vibrate([30, 50, 30]); // Success pattern
                 }
             }
             
+            // Reset
             setTouchDraggingId(null);
             setTouchOverColumn(null);
+            if (ghostRef.current) {
+                ghostRef.current.style.opacity = '0'; // Hide
+                ghostRef.current.style.transform = 'translate3d(-1000px, -1000px, 0)'; // Move away
+            }
         };
 
-        // Attach to window to capture drags outside the initial element
+        // Attach non-passive listeners to allow preventDefault
         window.addEventListener('touchmove', handleWindowTouchMove, { passive: false });
         window.addEventListener('touchend', handleWindowTouchEnd);
         window.addEventListener('touchcancel', handleWindowTouchEnd);
@@ -389,7 +411,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             window.removeEventListener('touchmove', handleWindowTouchMove);
             window.removeEventListener('touchend', handleWindowTouchEnd);
             window.removeEventListener('touchcancel', handleWindowTouchEnd);
-            document.body.style.overflow = ''; // Cleanup safety
+            document.body.style.overflow = ''; 
         };
     }, [touchDraggingId, orders, updateOrderStatus]);
 
@@ -406,7 +428,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 onDragOver={(e) => handleDragOver(e, status)}
                 onDrop={(e) => handleDrop(e, status)}
                 onDragLeave={handleDragLeave}
-                data-column-status={status} // Key for mobile DnD detection logic
+                data-column-status={status} // Key for hit detection
             >
                 <div className={`p-4 border-b flex justify-between items-center rounded-t-2xl ${isOver ? 'bg-indigo-100 dark:bg-indigo-900 border-indigo-200' : 'bg-slate-100 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800'}`}>
                     <div className="flex items-center gap-2">
@@ -448,6 +470,22 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
 
     return (
         <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
+            {/* OPTIMIZED GHOST ELEMENT (Always in DOM, hidden/shown via opacity/transform) */}
+            <div 
+                ref={ghostRef}
+                className="fixed top-0 left-0 z-[200] pointer-events-none p-4 rounded-xl bg-white dark:bg-slate-800 shadow-2xl border-l-4 border-indigo-500 w-64 opacity-0 transition-opacity duration-75 will-change-transform"
+                style={{ transform: 'translate3d(-1000px, -1000px, 0)' }}
+            >
+                {touchDraggingId && draggedOrder && (
+                    <>
+                        <h4 className="font-bold text-sm line-clamp-1 text-slate-800 dark:text-white">{draggedOrder.customerName}</h4>
+                        <p className="text-xs text-slate-500 flex items-center gap-1 font-bold mt-1">
+                            <GripVertical className="w-3 h-3"/> Moviendo...
+                        </p>
+                    </>
+                )}
+            </div>
+
             <div className="max-w-7xl mx-auto h-full flex flex-col">
                 {/* Header Section */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -781,19 +819,6 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                             <button onClick={confirmDeleteOrder} className="flex-[2] py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg">Sí, Eliminar</button>
                         </div>
                     </div>
-                </div>
-            )}
-
-            {/* Touch Drag Overlay/Ghost - Improved */}
-            {touchDraggingId && draggedOrder && (
-                <div 
-                    className="fixed z-[200] pointer-events-none p-4 rounded-xl bg-white dark:bg-slate-800 shadow-2xl border-l-4 border-indigo-500 w-56 opacity-90 scale-105 rotate-3"
-                    style={{ left: touchPos.x - 112, top: touchPos.y - 50 }} 
-                >
-                    <h4 className="font-bold text-sm line-clamp-1 text-slate-800 dark:text-white">{draggedOrder.customerName}</h4>
-                    <p className="text-xs text-slate-500 flex items-center gap-1 font-bold mt-1">
-                        <GripVertical className="w-3 h-3"/> Moviendo...
-                    </p>
                 </div>
             )}
         </div>
