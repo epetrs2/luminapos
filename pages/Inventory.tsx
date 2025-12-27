@@ -18,7 +18,7 @@ const PRESENTATION_UNITS = [
 ];
 
 export const Inventory: React.FC = () => {
-  const { products, transactions, categories, addProduct, updateProduct, deleteProduct, adjustStock, addCategory, removeCategory, settings } = useStore();
+  const { products, transactions, categories, addProduct, updateProduct, deleteProduct, adjustStock, addCategory, removeCategory, settings, currentUser } = useStore();
   
   // Product Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -187,6 +187,9 @@ export const Inventory: React.FC = () => {
       { label: 'Frontera 8%', value: 8 },
       { label: '0%', value: 0 },
   ];
+
+  // Helper to check if stock editing is allowed
+  const isStockLocked = formData.hasVariants || (!!editingProduct && currentUser?.role !== 'ADMIN');
 
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
@@ -415,8 +418,23 @@ export const Inventory: React.FC = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 mb-1">Stock Actual</label>
-                                    <input type="number" disabled={!!editingProduct} className={`w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 outline-none font-bold ${editingProduct ? 'bg-slate-100 text-slate-400' : 'bg-white dark:bg-slate-800'}`} value={formData.stock || 0} onChange={e => setFormData({ ...formData, stock: parseFloat(e.target.value) })} />
+                                    <label className="block text-xs font-bold text-slate-500 mb-1 flex justify-between">
+                                        <span>Stock Actual</span>
+                                        {editingProduct && !formData.hasVariants && currentUser?.role === 'ADMIN' && (
+                                            <span className="text-[9px] text-indigo-500 font-normal bg-indigo-50 dark:bg-indigo-900/30 px-1.5 rounded cursor-help" title="Solo Admin: Edita para corregir">
+                                                Corregir (Admin)
+                                            </span>
+                                        )}
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        disabled={isStockLocked}
+                                        className={`w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 outline-none font-bold ${isStockLocked ? 'bg-slate-100 text-slate-400 dark:bg-slate-800' : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500'}`} 
+                                        value={formData.stock || 0} 
+                                        onChange={e => setFormData({ ...formData, stock: parseFloat(e.target.value) })} 
+                                        placeholder="0"
+                                    />
+                                    {formData.hasVariants && <p className="text-[10px] text-slate-400 mt-1">Calculado por variantes</p>}
                                 </div>
                             </div>
 
