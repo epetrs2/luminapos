@@ -137,7 +137,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     // --- ZERO-LATENCY MOBILE DRAG ENGINE ---
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const ghostRef = useRef<HTMLDivElement>(null); 
-    const ghostTextRef = useRef<HTMLSpanElement>(null);
+    const ghostTextRef = useRef<HTMLHeadingElement>(null);
     
     // Refs to bypass React State
     const dragInfoRef = useRef<{ id: string, originalEl: HTMLElement } | null>(null);
