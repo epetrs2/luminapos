@@ -196,6 +196,17 @@ export interface ProductionDocConfig {
     customFooter: string;
 }
 
+export type SoundType = 'NOTE' | 'CHORD' | 'POP' | 'GLASS' | 'SUCCESS' | 'ERROR' | 'NONE';
+
+export interface SoundConfig {
+    enabled: boolean;
+    volume: number; // 0.0 to 1.0
+    saleSound: SoundType;
+    errorSound: SoundType;
+    clickSound: SoundType;
+    notificationSound: SoundType;
+}
+
 export interface BusinessSettings {
   name: string;
   address: string;
@@ -216,6 +227,7 @@ export interface BusinessSettings {
   theme: 'light' | 'dark';
   budgetConfig: BudgetConfig; 
   notificationsEnabled: boolean; 
+  soundConfig: SoundConfig; // NEW: Detailed sound settings
   sequences: SequenceConfig;
   productionDoc: ProductionDocConfig;
   googleWebAppUrl?: string; 

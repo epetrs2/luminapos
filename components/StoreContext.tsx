@@ -95,11 +95,19 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     receiptHeader: '*** GRACIAS POR SU COMPRA ***',
     receiptFooter: 'Síguenos en redes sociales',
     ticketPaperWidth: '80mm',
-    invoicePadding: 10, // Default padding 10px
-    bluetoothPrinterName: null, // Default
+    invoicePadding: 10, 
+    bluetoothPrinterName: null, 
     theme: 'light',
     budgetConfig: { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20 },
-    notificationsEnabled: false,
+    notificationsEnabled: true,
+    soundConfig: { // DEFAULT SOUND CONFIG
+        enabled: true,
+        volume: 0.5,
+        saleSound: 'SUCCESS',
+        errorSound: 'ERROR',
+        clickSound: 'POP',
+        notificationSound: 'GLASS'
+    },
     sequences: { customerStart: 1001, ticketStart: 10001, orderStart: 5001, productStart: 100 },
     productionDoc: { title: 'ORDEN DE TRABAJO', showPrices: true, showCustomerContact: true, showDates: true, customFooter: '' },
     enableCloudSync: true,
@@ -152,7 +160,15 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [userInvites, setUserInvites] = useState<UserInvite[]>(() => safeLoad('userInvites', []));
     const [categories, setCategories] = useState<string[]>(() => safeLoad('categories', ["General"]));
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => safeLoad('activityLogs', []));
-    const [settings, setSettings] = useState<BusinessSettings>(() => ({ ...DEFAULT_SETTINGS, ...safeLoad('settings', {}) }));
+    const [settings, setSettings] = useState<BusinessSettings>(() => {
+        // Merge defaults to ensure new fields like soundConfig exist on legacy data
+        const loaded = safeLoad<any>('settings', {});
+        return { 
+            ...DEFAULT_SETTINGS, 
+            ...loaded,
+            soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(loaded.soundConfig || {}) }
+        };
+    });
     
     const [currentUser, setCurrentUser] = useState<User | null>(() => safeLoad('currentUser', null));
     
@@ -411,6 +427,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         ...DEFAULT_SETTINGS, 
                         ...safeData.settings,
                         budgetConfig: { ...DEFAULT_SETTINGS.budgetConfig, ...(safeData.settings.budgetConfig || {}) },
+                        // Merge soundConfig safely
+                        soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(safeData.settings.soundConfig || {}) },
                         sequences: { ...DEFAULT_SETTINGS.sequences, ...(safeData.settings.sequences || {}) },
                         productionDoc: { ...DEFAULT_SETTINGS.productionDoc, ...(safeData.settings.productionDoc || {}) },
                         googleWebAppUrl: safeData.settings.googleWebAppUrl || url,
