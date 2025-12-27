@@ -24,6 +24,9 @@ interface StoreContextType {
   isSyncing: boolean;
   hasPendingChanges: boolean;
   
+  // Animation State
+  isLoggingOut: boolean;
+
   // Order to POS handoff
   incomingOrder: Order | null;
   sendOrderToPOS: (order: Order) => void;
@@ -63,7 +66,7 @@ interface StoreContextType {
   updateSettings: (s: BusinessSettings) => void;
   importData: (data: any) => void;
   login: (u: string, p: string, code?: string) => Promise<string>;
-  logout: () => void;
+  logout: () => Promise<void>; // Changed to Promise for animation delay
   addUser: (u: User) => void;
   updateUser: (u: User) => void;
   deleteUser: (id: string) => void;
@@ -87,6 +90,7 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 const STORAGE_PREFIX = "LUMINA_SEC::"; 
 
+// ... (Rest of constants remain same)
 const DEFAULT_SETTINGS: BusinessSettings = {
     name: 'LuminaPOS',
     address: 'Calle Principal #123',
@@ -107,7 +111,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     theme: 'light',
     budgetConfig: { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20 },
     notificationsEnabled: true,
-    soundConfig: { // DEFAULT SOUND CONFIG
+    soundConfig: { 
         enabled: true,
         volume: 0.5,
         saleSound: 'SUCCESS',
@@ -122,6 +126,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     cloudSecret: '' 
 };
 
+// ... (Helper functions remain same)
 const encodeData = (data: any): string => {
     try {
         const json = JSON.stringify(data);
@@ -168,7 +173,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [categories, setCategories] = useState<string[]>(() => safeLoad('categories', ["General"]));
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => safeLoad('activityLogs', []));
     const [settings, setSettings] = useState<BusinessSettings>(() => {
-        // Merge defaults to ensure new fields like soundConfig exist on legacy data
         const loaded = safeLoad<any>('settings', {});
         return { 
             ...DEFAULT_SETTINGS, 
@@ -183,6 +187,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [isSyncing, setIsSyncing] = useState(false);
     const [hasPendingChanges, setHasPendingChanges] = useState(false);
     
+    // --- ANIMATION STATE ---
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
+
     // --- ORDER TO POS HANDOFF STATE ---
     const [incomingOrder, setIncomingOrder] = useState<Order | null>(null);
 
@@ -190,9 +197,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [btDevice, setBtDevice] = useState<BluetoothDevice | null>(null);
     const [btCharacteristic, setBtCharacteristic] = useState<BluetoothRemoteGATTCharacteristic | null>(null);
 
-    // Ref to track pending changes instantly during async operations (fixes overwrite race condition)
+    // Ref to track pending changes instantly
     const hasPendingChangesRef = useRef(false);
-
     const lastLocalUpdate = useRef<number>(0); 
     const lastCloudSyncTimestamp = useRef<number>(0);
     const lastPushSuccessAt = useRef<number>(0); 
@@ -247,7 +253,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const markLocalChange = () => {
         dataLoadedRef.current = true;
         lastLocalUpdate.current = Date.now();
-        hasPendingChangesRef.current = true; // Immediate update for race conditions
+        hasPendingChangesRef.current = true;
         setHasPendingChanges(true); 
     };
 
@@ -282,19 +288,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }
 
             const device = await (navigator as any).bluetooth.requestDevice({
-                filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }], // Standard Thermal Printer Service
+                filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }], 
                 optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb'] 
             });
 
             const server = await device.gatt.connect();
             const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
             
-            // Find writable characteristic
             const characteristics = await service.getCharacteristics();
             let writer: any = null;
             
-            // Priority: WriteWithoutResponse > Write
-            // WriteWithoutResponse is faster for streaming print data and prevents buffer stalls
             for (const c of characteristics) {
                 if (c.properties.writeWithoutResponse) {
                     writer = c;
@@ -315,7 +318,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 throw new Error("No se encontró característica de escritura.");
             }
 
-            // Listen for disconnection
             device.addEventListener('gattserverdisconnected', () => {
                 setBtDevice(null);
                 setBtCharacteristic(null);
@@ -325,7 +327,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             setBtDevice(device);
             setBtCharacteristic(writer);
             
-            // Save name preference
             if(device.name) {
                 updateSettings({...settings, bluetoothPrinterName: device.name});
             }
@@ -334,10 +335,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         } catch (error: any) {
             console.error("BT Connection Error:", error);
-            if (error.name !== 'NotFoundError') { // User cancelled
+            if (error.name !== 'NotFoundError') {
                 notify("Error Bluetooth", error.message || "No se pudo conectar.", "error");
             }
-            throw error; // Re-throw so UI can handle state
+            throw error;
         }
     }, [settings]);
 
@@ -353,19 +354,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (!btCharacteristic || !btDevice?.gatt?.connected) {
             throw new Error("Impresora no conectada.");
         }
-        
-        // Chunking for stability.
-        // For WriteWithoutResponse, we can go slightly larger but 100-128 is a safe sweet spot for cheap printers.
         const CHUNK_SIZE = 100; 
         for (let i = 0; i < data.length; i += CHUNK_SIZE) {
             const chunk = data.slice(i, i + CHUNK_SIZE);
-            
             if (btCharacteristic.properties.writeWithoutResponse) {
                 await btCharacteristic.writeValueWithoutResponse(chunk);
             } else {
                 await btCharacteristic.writeValue(chunk);
             }
-            // Small delay to prevent buffer overflow on cheap printers
             await new Promise(r => setTimeout(r, 25)); 
         }
     }, [btCharacteristic, btDevice]);
@@ -437,7 +433,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         ...DEFAULT_SETTINGS, 
                         ...safeData.settings,
                         budgetConfig: { ...DEFAULT_SETTINGS.budgetConfig, ...(safeData.settings.budgetConfig || {}) },
-                        // Merge soundConfig safely
                         soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(safeData.settings.soundConfig || {}) },
                         sequences: { ...DEFAULT_SETTINGS.sequences, ...(safeData.settings.sequences || {}) },
                         productionDoc: { ...DEFAULT_SETTINGS.productionDoc, ...(safeData.settings.productionDoc || {}) },
@@ -506,6 +501,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return 'SUCCESS';
     };
 
+    // ANIMATED LOGOUT
+    const logout = async () => { 
+        setIsLoggingOut(true);
+        // Add artificial delay for fade out animation
+        await new Promise(resolve => setTimeout(resolve, 300));
+        setCurrentUser(null); 
+        localStorage.removeItem('currentUser');
+        setIsLoggingOut(false);
+    };
+
     const logActivity = (action: string, details: string) => {
         if (!currentUser) return;
         const now = new Date().toISOString();
@@ -526,7 +531,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const id = crypto.randomUUID();
         setToasts(prev => [...prev, { id, title, message, type }]);
         setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 5000);
-        // Play notification sound
         if (type === 'success') playSound('SALE');
         else if (type === 'error') playSound('ERROR');
         else playSound('NOTIFICATION');
@@ -542,18 +546,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             case 'NOTIFICATION': playSystemSound(settings.soundConfig.notificationSound, vol); break;
         }
     };
-
-    const logout = () => { setCurrentUser(null); localStorage.removeItem('currentUser'); };
     
     // --- ACTIONS ---
     const addProduct = (p: Product) => {
-        // Fix sequential ID gen
         const currentMaxId = products.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;
         }, (settings.sequences.productStart || 100) - 1);
         const newId = (currentMaxId + 1).toString();
-        
         setProducts(prev => [...prev, { ...p, id: newId }]); 
         markLocalChange(); 
         logActivity('INVENTORY', `Agregó producto: ${p.name}`); 
@@ -584,10 +584,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }, settings.sequences.ticketStart - 1);
             newId = (currentMaxId + 1).toString();
         }
-        
         const final = { ...t, id: newId };
         setTransactions(prev => [final, ...prev]);
-        
         const isToday = new Date(final.date).toDateString() === new Date().toDateString();
         if (t.paymentStatus === 'paid' && !t.isReturn && isToday) {
              addCashMovement({ 
@@ -599,7 +597,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                  category: 'SALES' 
              });
         }
-
         const debt = final.total - (final.amountPaid || 0);
         if (debt > 0.01 && final.customerId && final.status !== 'cancelled' && final.status !== 'returned') {
             setCustomers(prev => prev.map(c => {
@@ -608,7 +605,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }));
         }
         logActivity('SALE', `Venta #${final.id}`);
-        // Play Sale Sound
         playSound('SALE');
         markLocalChange();
     };
@@ -698,27 +694,21 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // --- SEND ORDER TO POS LOGIC ---
     const sendOrderToPOS = (order: Order) => {
         setIncomingOrder(order);
-        // Remove from orders immediately
         setOrders(prev => prev.filter(o => o.id !== order.id));
         logActivity('ORDER', `Pedido #${order.id} enviado a Caja`);
     };
 
     const clearIncomingOrder = () => setIncomingOrder(null);
 
-    // Keep convertOrderToSale for backward compatibility if needed, but not used in new flow
     const convertOrderToSale = (id: string, paymentMethod: string) => {
-        // Logic moved to POS page via sendOrderToPOS
+        // Legacy: Logic moved to POS page via sendOrderToPOS
     };
 
     const updateCustomer = (c: Customer) => { setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust)); markLocalChange(); };
     const deleteCustomer = async (id: string) => { const c = customers.find(cust=>cust.id===id); setCustomers(prev => prev.filter(c => c.id !== id)); markLocalChange(); return true; };
     const addCashMovement = (m: CashMovement) => { setCashMovements(prev => [m, ...prev]); markLocalChange(); logActivity('CASH', `${m.type}: ${m.description}`); };
     const deleteCashMovement = (id: string) => { const m = cashMovements.find(mv=>mv.id===id); setCashMovements(prev => prev.filter(m => m.id !== id)); markLocalChange(); };
-    const updateSettings = (s: BusinessSettings) => { 
-        setSettings(s); 
-        markLocalChange(); 
-        logActivity('SETTINGS', `Actualizó configuración`);
-    };
+    const updateSettings = (s: BusinessSettings) => { setSettings(s); markLocalChange(); logActivity('SETTINGS', `Actualizó configuración`);};
     const addUser = (u: User) => { setUsers(prev => [...prev, u]); markLocalChange(); logActivity('USER_MGMT', `Nuevo usuario: ${u.username}`); };
     const updateUser = (u: User) => { setUsers(prev => prev.map(user => user.id === u.id ? u : user)); markLocalChange(); logActivity('USER_MGMT', `Editó usuario: ${u.username}`); };
     const deleteUser = (id: string) => { setUsers(prev => prev.filter(u => u.id !== id)); markLocalChange(); logActivity('USER_MGMT', `Eliminó usuario`); };
@@ -742,7 +732,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return (
         <StoreContext.Provider value={{
             products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing, hasPendingChanges,
-            btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, // BT Exports
+            btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, 
+            isLoggingOut, // New animation state
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), 
             addTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
@@ -751,7 +742,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
             notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset,
             playSound,
-            incomingOrder, sendOrderToPOS, clearIncomingOrder // New exports
+            incomingOrder, sendOrderToPOS, clearIncomingOrder
         }}>
             {children}
         </StoreContext.Provider>
