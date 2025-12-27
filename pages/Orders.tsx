@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Search, Plus, Calendar, User, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, CreditCard, Banknote, Smartphone, Wallet, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square } from 'lucide-react';
+import { Search, Plus, Calendar, User, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, CreditCard, Banknote, Smartphone, Wallet, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Order, CartItem, Product } from '../types';
 import { printOrderInvoice, printProductionSummary } from '../utils/printService';
@@ -19,7 +19,7 @@ const OrderCard: React.FC<{
         <div className={`bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 ${statusColor} shadow-sm group hover:shadow-md transition-all relative`}>
             <div className="flex justify-between items-start mb-2">
                 <div>
-                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">{order.customerName}</h4>
+                    <h4 className="font-bold text-slate-800 dark:text-white text-sm line-clamp-1">{order.customerName}</h4>
                     <p className="text-xs text-slate-500 font-mono">#{order.id}</p>
                 </div>
                 {order.priority === 'HIGH' && (
@@ -76,6 +76,7 @@ const OrderCard: React.FC<{
 export const Orders: React.FC = () => {
     const { orders, products, customers, addOrder, updateOrderStatus, convertOrderToSale, deleteOrder, settings } = useStore();
     const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
+    const [mobileCreateStep, setMobileCreateStep] = useState<'CATALOG' | 'DETAILS'>('CATALOG');
     
     // Create Order State
     const [cart, setCart] = useState<CartItem[]>([]);
@@ -181,6 +182,7 @@ export const Orders: React.FC = () => {
         setDeliveryDate('');
         setSelectedCustomerId('');
         setActiveTab('LIST');
+        setMobileCreateStep('CATALOG');
     };
 
     // --- Delete Logic ---
@@ -289,37 +291,37 @@ export const Orders: React.FC = () => {
                         </h2>
                         <p className="text-slate-500 dark:text-slate-400 mt-1">Gestiona el flujo de trabajo desde la orden hasta la entrega.</p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col md:flex-row w-full md:w-auto gap-2">
                         {activeTab === 'LIST' && (
                             <button
                                 onClick={handleOpenPrintModal}
-                                className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors"
+                                className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors"
                             >
                                 <ListChecks className="w-4 h-4" /> Hoja de Producción
                             </button>
                         )}
-                        <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1.5 shadow-sm border border-slate-200 dark:border-slate-800">
+                        <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1.5 shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-auto">
                             <button 
                                 onClick={() => setActiveTab('LIST')}
-                                className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 ${activeTab === 'LIST' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                                className={`flex-1 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 whitespace-nowrap ${activeTab === 'LIST' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                             >
-                                Tablero Kanban
+                                Tablero
                             </button>
                             <button 
                                 onClick={() => setActiveTab('CREATE')}
-                                className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 flex items-center gap-2 ${activeTab === 'CREATE' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                                className={`flex-1 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'CREATE' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                             >
-                                <Plus className="w-4 h-4" /> Nuevo Pedido
+                                <Plus className="w-4 h-4" /> Nuevo
                             </button>
                         </div>
                     </div>
                 </div>
 
                 {activeTab === 'LIST' && (
-                    <div className="flex-1 overflow-x-auto pb-6">
-                        <div className="flex gap-6 min-w-[1000px] h-full">
+                    <div className="flex-1 overflow-x-auto pb-6 -mx-4 px-4 md:mx-0 md:px-0">
+                        <div className="flex gap-6 min-w-[90vw] md:min-w-[1000px] h-full snap-x snap-mandatory">
                             {/* PENDING COLUMN */}
-                            <div className="flex-1 flex flex-col bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm">
+                            <div className="flex-1 min-w-[85vw] md:min-w-0 flex flex-col bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm snap-center">
                                 <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-100 dark:bg-slate-900/80 rounded-t-2xl">
                                     <div className="flex items-center gap-2">
                                         <div className="w-3 h-3 rounded-full bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.6)]"></div>
@@ -352,7 +354,7 @@ export const Orders: React.FC = () => {
                             </div>
 
                              {/* IN PROGRESS COLUMN */}
-                             <div className="flex-1 flex flex-col bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm">
+                             <div className="flex-1 min-w-[85vw] md:min-w-0 flex flex-col bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm snap-center">
                                 <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-100 dark:bg-slate-900/80 rounded-t-2xl">
                                     <div className="flex items-center gap-2">
                                         <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></div>
@@ -378,7 +380,7 @@ export const Orders: React.FC = () => {
                             </div>
 
                              {/* READY COLUMN */}
-                             <div className="flex-1 flex flex-col bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm">
+                             <div className="flex-1 min-w-[85vw] md:min-w-0 flex flex-col bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm snap-center">
                                 <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-100 dark:bg-slate-900/80 rounded-t-2xl">
                                     <div className="flex items-center gap-2">
                                         <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
@@ -408,9 +410,9 @@ export const Orders: React.FC = () => {
 
                 {/* Print Selection Modal */}
                 {printModalOpen && (
-                    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full flex flex-col max-h-[90vh] border border-slate-100 dark:border-slate-800">
-                            <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center">
+                    <div className="fixed inset-0 bg-black/60 z-[100] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4 animate-[fadeIn_0.2s_ease-out]">
+                        <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-2xl shadow-2xl max-w-lg w-full flex flex-col max-h-[90vh] border border-slate-100 dark:border-slate-800 animate-[slideUp_0.3s_ease-out]">
+                            <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center rounded-t-3xl md:rounded-t-2xl">
                                 <div>
                                     <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
                                         <Printer className="w-5 h-5 text-indigo-500" />
@@ -484,9 +486,26 @@ export const Orders: React.FC = () => {
                 )}
 
                 {activeTab === 'CREATE' && (
-                    <div className="flex flex-col lg:flex-row gap-6 h-full overflow-hidden pb-4">
-                        {/* Left: Product Catalog */}
-                        <div className="flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden">
+                    <div className="flex flex-col lg:flex-row gap-6 h-full overflow-hidden pb-4 relative">
+                        
+                        {/* Mobile Toggle Tabs */}
+                        <div className="md:hidden flex border-b border-slate-200 dark:border-slate-800">
+                            <button 
+                                onClick={() => setMobileCreateStep('CATALOG')} 
+                                className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${mobileCreateStep === 'CATALOG' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500'}`}
+                            >
+                                <Search className="w-4 h-4"/> Catálogo
+                            </button>
+                            <button 
+                                onClick={() => setMobileCreateStep('DETAILS')} 
+                                className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${mobileCreateStep === 'DETAILS' ? 'bg-indigo-50 text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500'}`}
+                            >
+                                <FileEdit className="w-4 h-4"/> Detalles ({cart.length})
+                            </button>
+                        </div>
+
+                        {/* Left: Product Catalog (Hidden on Mobile if Details active) */}
+                        <div className={`flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden ${mobileCreateStep === 'DETAILS' ? 'hidden md:flex' : 'flex'}`}>
                             <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
@@ -506,7 +525,7 @@ export const Orders: React.FC = () => {
                                         <button 
                                             key={p.id}
                                             onClick={() => addToCart(p)}
-                                            className="relative group p-4 rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md transition-all text-left flex flex-col h-32"
+                                            className="relative group p-4 rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md transition-all text-left flex flex-col h-32 active:scale-95"
                                         >
                                             <div className="flex-1">
                                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-1">{p.category}</span>
@@ -524,8 +543,8 @@ export const Orders: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Right: Order Summary Ticket */}
-                        <div className="w-full lg:w-[400px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col h-full overflow-hidden">
+                        {/* Right: Order Summary Ticket (Hidden on Mobile if Catalog active) */}
+                        <div className={`w-full lg:w-[400px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col h-full overflow-hidden ${mobileCreateStep === 'CATALOG' ? 'hidden md:flex' : 'flex'}`}>
                             <div className="p-5 bg-indigo-600 text-white">
                                 <h3 className="font-bold text-lg flex items-center gap-2">
                                     <FileText className="w-5 h-5" /> Nueva Orden
@@ -535,188 +554,4 @@ export const Orders: React.FC = () => {
                             
                             <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
                                 <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cliente</label>
-                                        <div className="relative">
-                                            <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                                            <select 
-                                                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-colors text-sm"
-                                                value={selectedCustomerId}
-                                                onChange={e => setSelectedCustomerId(e.target.value)}
-                                            >
-                                                <option value="">Cliente General</option>
-                                                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-3">
-                                         <div>
-                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fecha Entrega</label>
-                                            <input 
-                                                type="date"
-                                                className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white outline-none text-sm focus:border-indigo-500 transition-colors cursor-pointer"
-                                                value={deliveryDate}
-                                                min={todayStr} // Fixed local time min date
-                                                onChange={e => setDeliveryDate(e.target.value)}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Prioridad</label>
-                                            <select 
-                                                className={`w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 outline-none text-sm font-medium focus:border-indigo-500 transition-colors ${priority === 'HIGH' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-slate-50 dark:bg-slate-800 dark:text-white'}`}
-                                                value={priority}
-                                                onChange={e => setPriority(e.target.value as any)}
-                                            >
-                                                <option value="NORMAL">Normal</option>
-                                                <option value="HIGH">Alta 🔥</option>
-                                            </select>
-                                        </div>
-                                    </div>
                                     
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Notas de Producción</label>
-                                        <textarea 
-                                            rows={2}
-                                            className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white outline-none text-sm focus:border-indigo-500 transition-colors resize-none"
-                                            placeholder="Detalles especiales..."
-                                            value={notes}
-                                            onChange={e => setNotes(e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Items ({cart.length})</label>
-                                    {cart.length === 0 ? (
-                                        <div className="text-center py-8 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                                            <ShoppingCart className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                                            <p className="text-xs text-slate-400">Carrito vacío</p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-2">
-                                            {cart.map(item => (
-                                                <div key={item.id} className="flex justify-between items-center p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 group">
-                                                    <div className="flex items-center gap-3 overflow-hidden">
-                                                        <span className="bg-white dark:bg-slate-700 w-6 h-6 flex items-center justify-center rounded text-xs font-bold shadow-sm">{item.quantity}</span>
-                                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate max-w-[140px]">{item.name}</span>
-                                                    </div>
-                                                    
-                                                    <div className="flex items-center gap-2">
-                                                        {editingItemId === item.id ? (
-                                                            <div className="flex items-center">
-                                                                <input 
-                                                                    ref={editInputRef}
-                                                                    type="number" 
-                                                                    value={editPrice}
-                                                                    onChange={(e) => setEditPrice(e.target.value)}
-                                                                    onKeyDown={(e) => handleEditKeyDown(e, item.id)}
-                                                                    className="w-16 text-right text-sm p-1 rounded border border-indigo-300 outline-none"
-                                                                />
-                                                                <button onClick={() => saveEdit(item.id)} className="ml-1 text-emerald-600"><Check className="w-4 h-4"/></button>
-                                                            </div>
-                                                        ) : (
-                                                            <button onClick={() => startEditing(item)} className="text-sm font-bold text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors">
-                                                                ${(item.price * item.quantity).toFixed(2)}
-                                                            </button>
-                                                        )}
-                                                        <button onClick={() => removeFromCart(item.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <X className="w-4 h-4" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800">
-                                <div className="flex justify-between items-center mb-4">
-                                    <span className="text-slate-500 font-medium">Total Estimado</span>
-                                    <span className="text-2xl font-black text-slate-800 dark:text-white">${cart.reduce((s, i) => s + (i.price * i.quantity), 0).toFixed(2)}</span>
-                                </div>
-
-                                <button 
-                                    onClick={handleCreateOrder}
-                                    disabled={cart.length === 0}
-                                    className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2"
-                                >
-                                    Confirmar Pedido <ArrowRight className="w-4 h-4" />
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* Convert to Sale Modal */}
-            {convertToSaleId && (
-                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4">
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800 animate-[fadeIn_0.2s_ease-out]">
-                        <div className="text-center mb-6">
-                            <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <CheckCircle className="w-8 h-8" />
-                            </div>
-                            <h3 className="text-xl font-bold text-slate-800 dark:text-white">Finalizar y Vender</h3>
-                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-                                Esto generará un ticket de venta y <strong>descontará el inventario</strong> automáticamente.
-                            </p>
-                        </div>
-
-                        {conversionError && (
-                            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 rounded-lg flex items-start gap-2 text-xs text-red-600 dark:text-red-400">
-                                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                                <span>{conversionError}</span>
-                            </div>
-                        )}
-
-                        <div className="mb-6">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Método de Pago</label>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button onClick={() => {setPaymentMethod('cash'); setConversionError(null);}} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${paymentMethod === 'cash' ? 'bg-emerald-50 border-emerald-500 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
-                                    <Banknote className="w-5 h-5" />
-                                    <span className="text-xs font-bold">Efectivo</span>
-                                </button>
-                                <button onClick={() => {setPaymentMethod('card'); setConversionError(null);}} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${paymentMethod === 'card' ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
-                                    <CreditCard className="w-5 h-5" />
-                                    <span className="text-xs font-bold">Tarjeta</span>
-                                </button>
-                                <button onClick={() => {setPaymentMethod('transfer'); setConversionError(null);}} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${paymentMethod === 'transfer' ? 'bg-violet-50 border-violet-500 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
-                                    <Smartphone className="w-5 h-5" />
-                                    <span className="text-xs font-bold">Transf.</span>
-                                </button>
-                                <button onClick={() => {setPaymentMethod('credit'); setConversionError(null);}} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${paymentMethod === 'credit' ? 'bg-pink-50 border-pink-500 text-pink-700 dark:bg-pink-900/20 dark:text-pink-400' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
-                                    <Wallet className="w-5 h-5" />
-                                    <span className="text-xs font-bold">Crédito</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="flex gap-3">
-                            <button onClick={() => setConvertToSaleId(null)} className="flex-1 py-3 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium">Cancelar</button>
-                            <button onClick={confirmConversion} className="flex-[2] py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none">Confirmar Venta</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* DELETE CONFIRMATION MODAL */}
-            {orderToDelete && (
-                <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800 text-center">
-                        <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Trash2 className="w-8 h-8" />
-                        </div>
-                        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">¿Cancelar Pedido?</h3>
-                        <p className="text-sm text-slate-500 mb-6">Esta acción eliminará el pedido permanentemente. ¿Estás seguro?</p>
-                        <div className="flex gap-3">
-                            <button onClick={() => setOrderToDelete(null)} className="flex-1 py-3 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium">No, Volver</button>
-                            <button onClick={confirmDeleteOrder} className="flex-[2] py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg">Sí, Cancelar</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};

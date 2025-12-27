@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
 import { User, UserRole, ActivityLog } from '../types';
-import { Plus, Search, Shield, User as UserIcon, CheckCircle, XCircle, Edit2, Trash2, Key, Check, AlertTriangle, X, ShieldCheck, Smartphone, Lock, Clock, Activity, FileText, Unlock, Filter, Calendar, KeyRound, RefreshCw, HelpCircle, Timer, Ticket, Copy } from 'lucide-react';
+import { Plus, Search, Shield, User as UserIcon, CheckCircle, XCircle, Edit2, Trash2, Key, Check, AlertTriangle, X, ShieldCheck, Smartphone, Lock, Clock, Activity, FileText, Unlock, Filter, Calendar, KeyRound, RefreshCw, HelpCircle, Timer, Ticket, Copy, Menu } from 'lucide-react';
 import { generateSalt, hashPassword, validatePasswordPolicy, verifyPassword } from '../utils/security';
 import { generate2FASecret, generateQRCode, verify2FAToken } from '../utils/twoFactor';
 
@@ -135,7 +135,7 @@ export const Users: React.FC = () => {
           'RECOVERY': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
       };
       return (
-          <span className={`px-2 py-1 rounded text-xs font-bold ${styles[action] || styles['SETTINGS']}`}>
+          <span className={`px-2 py-1 rounded text-[10px] font-bold ${styles[action] || styles['SETTINGS']}`}>
               {action}
           </span>
       );
@@ -346,10 +346,10 @@ export const Users: React.FC = () => {
       const diffMins = Math.round(diffMs / 60000);
       const diffHours = Math.round(diffMs / 3600000);
 
-      if (diffMins < 1) return 'Hace un momento';
-      if (diffMins < 60) return `Hace ${diffMins} min`;
-      if (diffHours < 24) return `Hace ${diffHours} horas`;
-      return date.toLocaleDateString();
+      if (diffMins < 1) return 'Ahora';
+      if (diffMins < 60) return `${diffMins}m`;
+      if (diffHours < 24) return `${diffHours}h`;
+      return date.toLocaleDateString(undefined, {month:'numeric', day:'numeric'});
   };
 
   // --- INVITE HANDLERS ---
@@ -377,19 +377,20 @@ export const Users: React.FC = () => {
             <h2 className="text-3xl font-bold text-slate-800 dark:text-white">Usuarios</h2>
             <p className="text-slate-500 dark:text-slate-400 mt-1">Gestión de accesos y seguridad</p>
           </div>
-          <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-              <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 overflow-x-auto">
-                 <button onClick={() => setActiveTab('USERS')} className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'USERS' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>Lista de Usuarios</button>
-                 <button onClick={() => setActiveTab('INVITES')} className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'INVITES' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>Invitaciones</button>
-                 <button onClick={() => setActiveTab('ACTIVITY')} className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'ACTIVITY' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>Registro de Actividad</button>
+          <div className="flex flex-col w-full md:w-auto gap-4">
+              {/* Mobile Scrollable Tabs */}
+              <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 overflow-x-auto w-full md:w-auto">
+                 <button onClick={() => setActiveTab('USERS')} className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'USERS' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>Lista</button>
+                 <button onClick={() => setActiveTab('INVITES')} className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'INVITES' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>Invitaciones</button>
+                 <button onClick={() => setActiveTab('ACTIVITY')} className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'ACTIVITY' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>Actividad</button>
               </div>
               {activeTab === 'USERS' && (
-                  <button onClick={() => handleOpenModal()} className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-indigo-200 dark:shadow-none transition-all">
+                  <button onClick={() => handleOpenModal()} className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-indigo-200 dark:shadow-none transition-all active:scale-95">
                     <Plus className="w-5 h-5" /> Nuevo
                   </button>
               )}
               {activeTab === 'INVITES' && (
-                  <button onClick={handleOpenInviteModal} className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-emerald-200 dark:shadow-none transition-all">
+                  <button onClick={handleOpenInviteModal} className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-emerald-200 dark:shadow-none transition-all active:scale-95">
                     <Ticket className="w-5 h-5" /> Generar Código
                   </button>
               )}
@@ -399,7 +400,7 @@ export const Users: React.FC = () => {
         {activeTab === 'USERS' && (
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden animate-[fadeIn_0.3s_ease-out]">
             <div className="p-4 md:p-6 border-b border-slate-100 dark:border-slate-800 flex gap-4">
-                <div className="relative flex-1 max-w-md">
+                <div className="relative flex-1 max-w-md w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
                 <input
                     type="text"
@@ -411,7 +412,65 @@ export const Users: React.FC = () => {
                 </div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Mobile Card View */}
+            <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredUsers.map(user => {
+                    const isLockedOut = user.lockoutUntil && new Date(user.lockoutUntil) > new Date();
+                    return (
+                        <div key={user.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <div className="flex justify-between items-start mb-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 font-bold">
+                                        {user.username.substring(0,2).toUpperCase()}
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <p className="font-bold text-slate-800 dark:text-white">{user.fullName}</p>
+                                            {user.isTwoFactorEnabled && <ShieldCheck className="w-3 h-3 text-emerald-500" />}
+                                        </div>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">@{user.username}</p>
+                                    </div>
+                                </div>
+                                {getRoleBadge(user.role)}
+                            </div>
+                            
+                            <div className="flex justify-between items-center text-xs mb-3 pl-[52px]">
+                                {isLockedOut ? (
+                                    <div className="flex items-center gap-1.5 text-orange-600 font-bold">
+                                        <Timer className="w-3.5 h-3.5" /> Temp. Bloqueado
+                                    </div>
+                                ) : user.active ? (
+                                    <div className="flex items-center gap-1.5 text-emerald-600 font-bold">
+                                        <CheckCircle className="w-3.5 h-3.5" /> Activo
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-1.5 text-red-600 font-bold">
+                                        <XCircle className="w-3.5 h-3.5" /> Bloqueado
+                                    </div>
+                                )}
+                                <div className="flex items-center gap-1 text-slate-400">
+                                    <Activity className="w-3 h-3" /> {formatLastActive(user.lastActive)}
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 pl-[52px]">
+                                {user.id !== currentUser?.id && (
+                                    <button onClick={() => handleInitiateToggleActive(user)} className={`p-2 rounded-lg transition-colors ${user.active && !isLockedOut ? 'bg-orange-50 text-orange-500' : 'bg-emerald-50 text-emerald-600'}`}>
+                                        {user.active && !isLockedOut ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                                    </button>
+                                )}
+                                <button onClick={() => handleOpenModal(user)} className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Edit2 className="w-4 h-4" /></button>
+                                {user.id !== currentUser?.id && (
+                                    <button onClick={() => handleInitiateDelete(user.id)} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
                 <table className="w-full">
                 <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm uppercase font-semibold">
                     <tr>
@@ -535,23 +594,58 @@ export const Users: React.FC = () => {
                 <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row gap-4 items-end lg:items-center">
                     <div className="relative flex-1 w-full">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                        <input type="text" placeholder="Buscar en logs (detalles)..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"/>
+                        <input type="text" placeholder="Buscar en logs..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"/>
                     </div>
-                    <div className="flex gap-2 w-full lg:w-auto overflow-x-auto pb-1 lg:pb-0">
+                    {/* Responsive Filters */}
+                    <div className="flex flex-col md:flex-row gap-2 w-full lg:w-auto">
                         <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white min-w-[140px]"><option value="ALL">Todos los Usuarios</option>{users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}</select>
                         <select value={filterAction} onChange={(e) => setFilterAction(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white min-w-[140px]"><option value="ALL">Todas las Acciones</option><option value="LOGIN">Inicios de Sesión</option><option value="SALE">Ventas</option><option value="INVENTORY">Inventario</option><option value="CASH">Caja Chica</option><option value="ORDER">Pedidos</option><option value="CRM">Clientes/Prov</option><option value="USER_MGMT">Gestión Usuarios</option><option value="SECURITY">Seguridad</option><option value="SETTINGS">Configuración</option><option value="RECOVERY">Recuperación</option></select>
-                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-2 rounded-lg border border-slate-200 dark:border-slate-700"><Calendar className="w-4 h-4 text-slate-500" /><input type="date" className="bg-transparent border-none text-sm outline-none w-[110px] dark:text-white" value={filterDateStart} onChange={(e) => setFilterDateStart(e.target.value)} title="Fecha Inicio"/><span className="text-slate-400">-</span><input type="date" className="bg-transparent border-none text-sm outline-none w-[110px] dark:text-white" value={filterDateEnd} onChange={(e) => setFilterDateEnd(e.target.value)} title="Fecha Fin"/></div>
                     </div>
                 </div>
-                <div className="overflow-x-auto"><table className="w-full"><thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm uppercase font-semibold"><tr><th className="px-6 py-4 text-left">Fecha</th><th className="px-6 py-4 text-left">Usuario</th><th className="px-6 py-4 text-left">Acción</th><th className="px-6 py-4 text-left">Detalles</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{filteredLogs.map(log => (<tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td><td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300 text-sm">{log.userName}</td><td className="px-6 py-4">{getActionBadge(log.action)}</td><td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">{log.details}</td></tr>))}{filteredLogs.length === 0 && (<tr><td colSpan={4} className="px-6 py-12 text-center text-slate-400"><FileText className="w-12 h-12 mx-auto mb-2 opacity-20" />No hay registros de actividad.</td></tr>)}</tbody></table></div>
+                
+                {/* Mobile Log View */}
+                <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredLogs.map(log => (
+                        <div key={log.id} className="p-4 text-sm">
+                            <div className="flex justify-between items-start mb-1">
+                                <span className="font-bold text-slate-700 dark:text-slate-300">{log.userName}</span>
+                                <span className="text-[10px] text-slate-400 font-mono">{new Date(log.timestamp).toLocaleString()}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mb-1">
+                                {getActionBadge(log.action)}
+                            </div>
+                            <p className="text-slate-600 dark:text-slate-400 text-xs">{log.details}</p>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Desktop Table */}
+                <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full">
+                        <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm uppercase font-semibold">
+                            <tr><th className="px-6 py-4 text-left">Fecha</th><th className="px-6 py-4 text-left">Usuario</th><th className="px-6 py-4 text-left">Acción</th><th className="px-6 py-4 text-left">Detalles</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {filteredLogs.map(log => (
+                                <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                    <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                                    <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300 text-sm">{log.userName}</td>
+                                    <td className="px-6 py-4">{getActionBadge(log.action)}</td>
+                                    <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">{log.details}</td>
+                                </tr>
+                            ))}
+                            {filteredLogs.length === 0 && (<tr><td colSpan={4} className="px-6 py-12 text-center text-slate-400"><FileText className="w-12 h-12 mx-auto mb-2 opacity-20" />No hay registros de actividad.</td></tr>)}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         )}
       </div>
 
       {/* CONFIRM MODAL (Keep existing) */}
       {isConfirmModalOpen && (
-          <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center backdrop-blur-sm p-4">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-100 dark:border-slate-800 animate-[fadeIn_0.2s_ease-out]">
+          <div className="fixed inset-0 bg-black/60 z-[120] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-100 dark:border-slate-800 animate-[slideUp_0.3s_ease-out]">
                   <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 dark:text-red-400"><Shield className="w-6 h-6" /></div>
                   <h3 className="text-lg font-bold text-slate-800 dark:text-white text-center mb-2">Seguridad Requerida</h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400 text-center mb-6">{confirmAction?.type === 'DELETE' ? 'Estás a punto de eliminar un usuario permanentemente.' : confirmAction?.targetUser?.active ? 'Estás a punto de BLOQUEAR el acceso a este usuario.' : 'Estás a punto de DESBLOQUEAR el acceso a este usuario.'}<br/>Por favor, confirma <strong>tu contraseña de administrador</strong> para continuar.</p>
@@ -563,8 +657,8 @@ export const Users: React.FC = () => {
 
       {/* USER FORM MODAL (Keep existing logic) */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 max-w-lg w-full border border-slate-100 dark:border-slate-800 animate-[fadeIn_0.2s_ease-out] max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-2xl shadow-2xl p-6 md:p-8 max-w-lg w-full border border-slate-100 dark:border-slate-800 animate-[slideUp_0.3s_ease-out] max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-6 text-slate-800 dark:text-white flex items-center gap-2">
               <Shield className="w-6 h-6 text-indigo-500" />
               {editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}
@@ -705,8 +799,8 @@ export const Users: React.FC = () => {
 
       {/* NEW INVITE GENERATOR MODAL */}
       {isInviteModalOpen && (
-          <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center backdrop-blur-sm p-4">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 max-w-sm w-full border border-slate-100 dark:border-slate-800 text-center animate-[fadeIn_0.2s_ease-out]">
+          <div className="fixed inset-0 bg-black/60 z-[120] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-2xl shadow-2xl p-8 max-w-sm w-full border border-slate-100 dark:border-slate-800 text-center animate-[slideUp_0.3s_ease-out]">
                   <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-600 dark:text-emerald-400"><Ticket className="w-8 h-8" /></div>
                   <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Invitación de Empleado</h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Genera un código único para que un nuevo empleado se registre.</p>
@@ -721,6 +815,7 @@ export const Users: React.FC = () => {
                               </div>
                           </div>
                           <button onClick={handleGenerateCode} className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg">Generar Código</button>
+                          <button onClick={() => setIsInviteModalOpen(false)} className="w-full py-2 text-sm text-slate-400 hover:text-slate-600">Cancelar</button>
                       </div>
                   ) : (
                       <div className="space-y-6">
@@ -734,8 +829,6 @@ export const Users: React.FC = () => {
                           </div>
                       </div>
                   )}
-                  
-                  {!generatedCode && <button onClick={() => setIsInviteModalOpen(false)} className="mt-4 text-sm text-slate-400 hover:text-slate-600">Cancelar</button>}
               </div>
           </div>
       )}
@@ -743,14 +836,15 @@ export const Users: React.FC = () => {
       {/* 2FA SETUP MODAL (Keep existing) */}
       {is2FAModalOpen && (
           // ... (2FA setup modal remains same) ...
-          <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center backdrop-blur-sm p-4">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 max-w-sm w-full border border-slate-100 dark:border-slate-800 text-center animate-[fadeIn_0.2s_ease-out]">
+          <div className="fixed inset-0 bg-black/60 z-[110] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-2xl shadow-2xl p-8 max-w-sm w-full border border-slate-100 dark:border-slate-800 text-center animate-[slideUp_0.3s_ease-out]">
                   {setupStep === 'INTRO' && (
                       <>
                         <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600 dark:text-indigo-400"><ShieldCheck className="w-8 h-8" /></div>
                         <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Configurar 2FA</h3>
                         <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Protege tu cuenta con una capa extra de seguridad usando Google Authenticator, Authy, etc.</p>
-                        <button onClick={() => setSetupStep('SCAN')} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl">Comenzar</button>
+                        <button onClick={() => setSetupStep('SCAN')} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl mb-3">Comenzar</button>
+                        <button onClick={() => setIs2FAModalOpen(false)} className="text-sm text-slate-500 hover:underline">Cancelar</button>
                       </>
                   )}
                   {setupStep === 'SCAN' && (
