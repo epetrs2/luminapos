@@ -1,11 +1,22 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Order, CartItem, Product, AppView } from '../types';
 import { printOrderInvoice, printProductionSummary } from '../utils/printService';
 
-const OrderCard: React.FC<{
+// --- MEMOIZED ORDER CARD ---
+const OrderCard = React.memo(({ 
+    order, 
+    statusColor, 
+    onMove, 
+    onPrint, 
+    onCancel, 
+    isReady, 
+    onConvert, 
+    onDragStart, 
+    onTouchStart 
+}: {
     order: Order;
     statusColor: string;
     onMove?: () => void;
@@ -14,23 +25,23 @@ const OrderCard: React.FC<{
     prevStatus?: boolean;
     isReady?: boolean;
     onConvert?: () => void;
-    // DnD Props
     onDragStart: (e: React.DragEvent, id: string) => void;
-    // Mobile Touch Props
-    onTouchStart: (e: React.TouchEvent, id: string) => void;
-    isDragging: boolean;
-}> = ({ order, statusColor, onMove, onPrint, onCancel, isReady, onConvert, onDragStart, onTouchStart, isDragging }) => {
+    onTouchStart: (e: React.TouchEvent, id: string, name: string, element: HTMLElement | null) => void;
+}) => {
+    const cardRef = useRef<HTMLDivElement>(null);
+
     return (
         <div 
-            className={`bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 ${statusColor} shadow-sm group transition-all relative select-none ${isDragging ? 'opacity-30 scale-95' : 'hover:shadow-md'}`}
+            ref={cardRef}
+            className={`bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 ${statusColor} shadow-sm group transition-all relative select-none order-card-item will-change-transform`}
             draggable
             onDragStart={(e) => onDragStart(e, order.id)}
         >
-            {/* Mobile Drag Handle - Critical for touch UX */}
+            {/* Mobile Drag Handle */}
             <div 
                 className="absolute top-0 right-0 p-2 w-14 h-14 flex justify-end items-start z-20 cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
-                style={{ touchAction: 'none' }} // Prevents browser scrolling initiated on the handle
-                onTouchStart={(e) => onTouchStart(e, order.id)}
+                style={{ touchAction: 'none' }} 
+                onTouchStart={(e) => onTouchStart(e, order.id, order.customerName, cardRef.current)}
             >
                 <GripVertical className="w-6 h-6" /> 
             </div>
@@ -89,7 +100,7 @@ const OrderCard: React.FC<{
             </div>
         </div>
     );
-};
+});
 
 interface OrdersProps {
     setView?: (view: AppView) => void;
@@ -123,20 +134,22 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     // Desktop DnD State
     const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
-    // --- HIGH PERFORMANCE MOBILE DRAG ENGINE ---
+    // --- ZERO-LATENCY MOBILE DRAG ENGINE ---
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const ghostRef = useRef<HTMLDivElement>(null); 
-    const [touchDraggingId, setTouchDraggingId] = useState<string | null>(null);
+    const ghostTextRef = useRef<HTMLSpanElement>(null);
     
-    // Refs for performance (Avoid React State updates during drag)
+    // Refs to bypass React State
+    const dragInfoRef = useRef<{ id: string, originalEl: HTMLElement } | null>(null);
     const columnRectsRef = useRef<{[key: string]: {rect: DOMRect, el: HTMLElement}}>({}); 
     const currentOverColumnRef = useRef<string | null>(null);
     const autoScrollSpeedRef = useRef(0);
     const animationFrameRef = useRef<number | null>(null);
 
-    const draggedOrder = useMemo(() => orders.find(o => o.id === touchDraggingId), [touchDraggingId, orders]);
-
-    const activeOrders = orders.filter(o => o.status !== 'COMPLETED').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const activeOrders = useMemo(() => 
+        orders.filter(o => o.status !== 'COMPLETED').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()), 
+    [orders]);
+    
     const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku.includes(searchTerm));
 
     const todayStr = useMemo(() => {
@@ -155,7 +168,6 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     // --- AUTO SCROLL ENGINE ---
     const startAutoScroll = () => {
         if (animationFrameRef.current) return;
-        
         const scrollLoop = () => {
             if (scrollContainerRef.current && autoScrollSpeedRef.current !== 0) {
                 scrollContainerRef.current.scrollLeft += autoScrollSpeedRef.current;
@@ -188,7 +200,6 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         setCart(prev => prev.filter(item => item.id !== id));
     };
 
-    // --- Price Editing Logic ---
     const startEditing = (item: CartItem) => {
         setEditingItemId(item.id);
         setEditPrice(item.price.toString());
@@ -197,9 +208,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     const saveEdit = (id: string) => {
         const newPrice = parseFloat(editPrice);
         if (!isNaN(newPrice) && newPrice >= 0) {
-            setCart(prev => prev.map(item => 
-                item.id === id ? { ...item, price: newPrice } : item
-            ));
+            setCart(prev => prev.map(item => item.id === id ? { ...item, price: newPrice } : item));
         }
         setEditingItemId(null);
     };
@@ -237,7 +246,6 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         setMobileCreateStep('CATALOG');
     };
 
-    // --- Delete Logic ---
     const confirmDeleteOrder = () => {
         if (orderToDelete) {
             deleteOrder(orderToDelete);
@@ -245,22 +253,18 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         }
     };
 
-    // --- Deliver to POS Logic ---
-    const handleDeliverToPOS = (orderId: string) => {
+    const handleDeliverToPOS = useCallback((orderId: string) => {
         const order = orders.find(o => o.id === orderId);
         if (order) {
             sendOrderToPOS(order);
-            if (setView) {
-                setView(AppView.POS);
-            }
+            if (setView) setView(AppView.POS);
         }
-    };
+    }, [orders, sendOrderToPOS, setView]);
 
-    // --- Printing Logic ---
-    const handlePrintOrder = (order: Order) => {
+    const handlePrintOrder = useCallback((order: Order) => {
         const customer = customers.find(c => c.id === order.customerId);
         printOrderInvoice(order, customer, settings);
-    };
+    }, [customers, settings]);
 
     const handleOpenPrintModal = () => {
         if (activeOrders.length === 0) {
@@ -306,11 +310,11 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         setPrintModalOpen(false);
     };
 
-    // --- DESKTOP DRAG AND DROP HANDLERS ---
-    const handleDragStart = (e: React.DragEvent, id: string) => {
+    // --- DESKTOP DRAG HANDLERS ---
+    const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
         e.dataTransfer.setData("orderId", id);
         e.dataTransfer.effectAllowed = "move";
-    };
+    }, []);
 
     const handleDragOver = (e: React.DragEvent, status: string) => {
         e.preventDefault();
@@ -321,23 +325,34 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         e.preventDefault();
         const orderId = e.dataTransfer.getData("orderId");
         setDragOverColumn(null);
-        if (orderId) {
-            updateOrderStatus(orderId, newStatus);
-        }
+        if (orderId) updateOrderStatus(orderId, newStatus);
     };
 
-    const handleDragLeave = () => {
-        setDragOverColumn(null);
-    };
+    const handleDragLeave = () => setDragOverColumn(null);
 
-    // --- MOBILE TOUCH DRAG AND DROP HANDLERS (OPTIMIZED 60FPS) ---
-    const handleTouchStart = (e: React.TouchEvent, id: string) => {
+    // --- ZERO LATENCY TOUCH HANDLER ---
+    // This function does NOT use state. It uses Refs and DOM only.
+    const handleTouchStart = useCallback((e: React.TouchEvent, id: string, name: string, element: HTMLElement | null) => {
+        if (!element) return;
         if (navigator.vibrate) navigator.vibrate(50);
         
         const touch = e.touches[0];
-        setTouchDraggingId(id);
         
-        // CACHE COLUMN RECTS
+        // 1. Setup Refs
+        dragInfoRef.current = { id, originalEl: element };
+        
+        // 2. DOM Visuals (Immediate)
+        element.style.opacity = '0.3';
+        element.style.transform = 'scale(0.95)';
+        
+        // 3. Setup Ghost
+        if (ghostRef.current) {
+            ghostRef.current.style.opacity = '1';
+            ghostRef.current.style.transform = `translate3d(${touch.clientX - 20}px, ${touch.clientY - 20}px, 0) rotate(3deg)`;
+            if (ghostTextRef.current) ghostTextRef.current.innerText = name;
+        }
+
+        // 4. Cache Column Positions
         const cols = document.querySelectorAll<HTMLElement>('[data-column-status]');
         const rects: {[key: string]: {rect: DOMRect, el: HTMLElement}} = {};
         cols.forEach(el => {
@@ -346,99 +361,102 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         });
         columnRectsRef.current = rects;
 
-        // Lock scroll globally
+        // 5. Lock Scroll
         document.body.style.overflow = 'hidden'; 
-        
-        // Initialize ghost position immediately
-        if (ghostRef.current) {
-            ghostRef.current.style.transform = `translate3d(${touch.clientX - 100}px, ${touch.clientY - 50}px, 0) rotate(3deg)`;
-            ghostRef.current.style.opacity = '0.95';
-        }
-
         startAutoScroll();
-    };
+    }, []);
 
-    // Global Window Listeners - Passive: false is CRITICAL
+    // Global Listeners (Passive: false)
     useEffect(() => {
-        if (!touchDraggingId) return;
-
         const handleWindowTouchMove = (e: TouchEvent) => {
-            e.preventDefault(); // This is the key to preventing the "lag" / scroll interference
+            // Only active if we have a drag ref
+            if (!dragInfoRef.current) return;
+            
+            e.preventDefault(); // Stop scroll
             const touch = e.touches[0];
             const x = touch.clientX;
             const y = touch.clientY;
             
-            // 1. UPDATE GHOST (Direct DOM)
+            // 1. Move Ghost (Fastest possible way)
             if (ghostRef.current) {
-                ghostRef.current.style.transform = `translate3d(${x - 100}px, ${y - 50}px, 0) rotate(3deg)`;
+                ghostRef.current.style.transform = `translate3d(${x - 20}px, ${y - 20}px, 0) rotate(3deg)`;
             }
 
-            // 2. DETECT COLUMN HOVER (Math instead of React State)
+            // 2. Hit Test
             let foundStatus: string | null = null;
             for (const [status, data] of Object.entries(columnRectsRef.current)) {
                 const r = (data as {rect: DOMRect}).rect;
-                // Add margins for easier detection
-                if (x >= r.left && x <= r.right && y >= r.top - 50 && y <= r.bottom + 50) {
+                if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
                     foundStatus = status;
                     break;
                 }
             }
 
-            // 3. APPLY HIGHLIGHT CLASS DIRECTLY (Bypassing React Render Cycle)
+            // 3. Highlight Column (Direct DOM)
             if (currentOverColumnRef.current !== foundStatus) {
-                // Remove class from old
+                // Clear old
                 if (currentOverColumnRef.current && columnRectsRef.current[currentOverColumnRef.current]) {
-                    columnRectsRef.current[currentOverColumnRef.current].el.classList.remove('ring-4', 'ring-indigo-500', 'bg-indigo-50', 'dark:bg-indigo-900/30');
+                    const el = columnRectsRef.current[currentOverColumnRef.current].el;
+                    el.style.backgroundColor = '';
+                    el.style.borderColor = '';
                 }
-                // Add class to new
+                // Set new
                 if (foundStatus && columnRectsRef.current[foundStatus]) {
-                    columnRectsRef.current[foundStatus].el.classList.add('ring-4', 'ring-indigo-500', 'bg-indigo-50', 'dark:bg-indigo-900/30');
+                    const el = columnRectsRef.current[foundStatus].el;
+                    el.style.backgroundColor = 'rgba(99, 102, 241, 0.1)'; // indigo-50 approx
+                    el.style.borderColor = '#6366f1';
                 }
                 currentOverColumnRef.current = foundStatus;
             }
 
-            // 4. AUTO SCROLL CALCULATION
+            // 4. Auto Scroll
             const screenW = window.innerWidth;
-            const edgeZone = 60; // px from edge
-            
-            if (x < edgeZone) {
-                autoScrollSpeedRef.current = -15; 
-            } else if (x > screenW - edgeZone) {
-                autoScrollSpeedRef.current = 15; 
-            } else {
-                autoScrollSpeedRef.current = 0;
-            }
+            const edgeZone = 50; 
+            if (x < edgeZone) autoScrollSpeedRef.current = -12; 
+            else if (x > screenW - edgeZone) autoScrollSpeedRef.current = 12; 
+            else autoScrollSpeedRef.current = 0;
         };
 
         const handleWindowTouchEnd = (e: TouchEvent) => {
+            if (!dragInfoRef.current) return;
+            
+            // 1. Cleanup Visuals
             stopAutoScroll();
-            document.body.style.overflow = ''; // Unlock scroll
+            document.body.style.overflow = '';
+            if (ghostRef.current) {
+                ghostRef.current.style.opacity = '0';
+                ghostRef.current.style.transform = 'translate3d(-1000px, -1000px, 0)';
+            }
+            if (dragInfoRef.current.originalEl) {
+                dragInfoRef.current.originalEl.style.opacity = '1';
+                dragInfoRef.current.originalEl.style.transform = 'none';
+            }
             
             // Cleanup Highlights
             if (currentOverColumnRef.current && columnRectsRef.current[currentOverColumnRef.current]) {
-                columnRectsRef.current[currentOverColumnRef.current].el.classList.remove('ring-4', 'ring-indigo-500', 'bg-indigo-50', 'dark:bg-indigo-900/30');
+                const el = columnRectsRef.current[currentOverColumnRef.current].el;
+                el.style.backgroundColor = '';
+                el.style.borderColor = '';
             }
 
-            // Logic to drop
+            // 2. Logic Drop
             const finalStatus = currentOverColumnRef.current;
+            const orderId = dragInfoRef.current.id;
+            
             if (finalStatus) {
-                const order = orders.find(o => o.id === touchDraggingId);
+                const order = orders.find(o => o.id === orderId);
                 if (order && order.status !== finalStatus) {
-                    updateOrderStatus(touchDraggingId, finalStatus);
-                    if (navigator.vibrate) navigator.vibrate([30, 50, 30]); // Success vibration
+                    updateOrderStatus(orderId, finalStatus);
+                    if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
                 }
             }
-            
-            // Reset
-            setTouchDraggingId(null);
+
+            // 3. Reset Refs
+            dragInfoRef.current = null;
             currentOverColumnRef.current = null;
-            if (ghostRef.current) {
-                ghostRef.current.style.opacity = '0';
-                ghostRef.current.style.transform = 'translate3d(-1000px, -1000px, 0)'; 
-            }
         };
 
-        // Attach non-passive listeners
+        // Bind with { passive: false } to allow e.preventDefault()
         window.addEventListener('touchmove', handleWindowTouchMove, { passive: false });
         window.addEventListener('touchend', handleWindowTouchEnd);
         window.addEventListener('touchcancel', handleWindowTouchEnd);
@@ -450,81 +468,23 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             window.removeEventListener('touchcancel', handleWindowTouchEnd);
             document.body.style.overflow = ''; 
         };
-    }, [touchDraggingId, orders, updateOrderStatus]);
-
-
-    const OrderColumn = ({ status, title, colorClass, badgeColor }: { status: string, title: string, colorClass: string, badgeColor: string }) => {
-        const columnOrders = activeOrders.filter(o => o.status === status);
-        const isDesktopOver = dragOverColumn === status;
-
-        return (
-            <div 
-                className={`flex-1 min-w-[85vw] md:min-w-0 flex flex-col rounded-2xl border transition-colors duration-200 snap-center backdrop-blur-sm
-                    ${isDesktopOver ? 'bg-indigo-50 border-indigo-400 dark:bg-indigo-900/40 dark:border-indigo-500 ring-2 ring-indigo-500' : 'bg-slate-100/50 dark:bg-slate-900/30 border-slate-200/60 dark:border-slate-800'}
-                `}
-                onDragOver={(e) => handleDragOver(e, status)}
-                onDrop={(e) => handleDrop(e, status)}
-                onDragLeave={handleDragLeave}
-                data-column-status={status} // CRITICAL: This allows the DOM hit test to work
-            >
-                <div className={`p-4 border-b flex justify-between items-center rounded-t-2xl bg-slate-100 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800`}>
-                    <div className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded-full ${badgeColor} shadow-sm`}></div>
-                        <h3 className={`font-bold text-slate-700 dark:text-slate-200`}>{title}</h3>
-                    </div>
-                    <span className="bg-white dark:bg-slate-800 text-slate-500 text-xs font-bold px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
-                        {columnOrders.length}
-                    </span>
-                </div>
-                <div className="p-3 space-y-3 flex-1 overflow-y-auto custom-scrollbar min-h-[200px]">
-                    {columnOrders.map(order => (
-                        <OrderCard 
-                            key={order.id}
-                            order={order} 
-                            statusColor={colorClass}
-                            onMove={() => updateOrderStatus(order.id, status === 'PENDING' ? 'IN_PROGRESS' : 'READY')} 
-                            onPrint={() => handlePrintOrder(order)}
-                            onCancel={() => setOrderToDelete(order.id)}
-                            isReady={status === 'READY'}
-                            onConvert={() => handleDeliverToPOS(order.id)}
-                            onDragStart={handleDragStart}
-                            onTouchStart={handleTouchStart}
-                            isDragging={touchDraggingId === order.id}
-                        />
-                    ))}
-                    {columnOrders.length === 0 && (
-                        <div className="text-center py-10 opacity-40 pointer-events-none">
-                            <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 inline-block mb-2">
-                                <Package className="w-6 h-6 text-slate-400" />
-                            </div>
-                            <p className="text-sm text-slate-500">Arrastra pedidos aquí</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    };
+    }, [orders, updateOrderStatus]);
 
     return (
         <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
-            {/* OPTIMIZED GHOST ELEMENT (Always in DOM, hidden/shown via opacity/transform) */}
+            {/* OPTIMIZED GHOST ELEMENT */}
             <div 
                 ref={ghostRef}
-                className="fixed top-0 left-0 z-[9999] pointer-events-none p-4 rounded-xl bg-white dark:bg-slate-800 shadow-2xl border-l-4 border-indigo-500 w-56 opacity-0 will-change-transform"
+                className="fixed top-0 left-0 z-[9999] pointer-events-none p-4 rounded-xl bg-white dark:bg-slate-800 shadow-2xl border-l-4 border-indigo-500 w-56 opacity-0 will-change-transform transition-opacity duration-75"
                 style={{ transform: 'translate3d(-1000px, -1000px, 0)' }}
             >
-                {touchDraggingId && draggedOrder && (
-                    <>
-                        <h4 className="font-bold text-sm line-clamp-1 text-slate-800 dark:text-white">{draggedOrder.customerName}</h4>
-                        <p className="text-xs text-slate-500 flex items-center gap-1 font-bold mt-1">
-                            <GripVertical className="w-3 h-3"/> Moviendo...
-                        </p>
-                    </>
-                )}
+                <h4 ref={ghostTextRef} className="font-bold text-sm line-clamp-1 text-slate-800 dark:text-white">...</h4>
+                <p className="text-xs text-slate-500 flex items-center gap-1 font-bold mt-1">
+                    <GripVertical className="w-3 h-3"/> Moviendo...
+                </p>
             </div>
 
             <div className="max-w-7xl mx-auto h-full flex flex-col">
-                {/* Header Section */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                     <div>
                         <h2 className="text-3xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -543,18 +503,8 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                             </button>
                         )}
                         <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-auto">
-                            <button 
-                                onClick={() => setActiveTab('LIST')}
-                                className={`flex-1 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 whitespace-nowrap ${activeTab === 'LIST' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                            >
-                                Tablero
-                            </button>
-                            <button 
-                                onClick={() => setActiveTab('CREATE')}
-                                className={`flex-1 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'CREATE' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                            >
-                                <Plus className="w-4 h-4" /> Nuevo
-                            </button>
+                            <button onClick={() => setActiveTab('LIST')} className={`flex-1 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 whitespace-nowrap ${activeTab === 'LIST' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>Tablero</button>
+                            <button onClick={() => setActiveTab('CREATE')} className={`flex-1 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'CREATE' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Plus className="w-4 h-4" /> Nuevo</button>
                         </div>
                     </div>
                 </div>
@@ -562,24 +512,54 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 {activeTab === 'LIST' && (
                     <div className="flex-1 overflow-x-auto pb-6 -mx-4 px-4 md:mx-0 md:px-0" ref={scrollContainerRef}>
                         <div className="flex gap-6 min-w-[90vw] md:min-w-[1000px] h-full snap-x snap-mandatory">
-                            <OrderColumn 
-                                status="PENDING" 
-                                title="Pendientes" 
-                                colorClass="border-yellow-400" 
-                                badgeColor="bg-yellow-400" 
-                            />
-                            <OrderColumn 
-                                status="IN_PROGRESS" 
-                                title="En Producción" 
-                                colorClass="border-blue-500" 
-                                badgeColor="bg-blue-500" 
-                            />
-                            <OrderColumn 
-                                status="READY" 
-                                title="Listos / Por Entregar" 
-                                colorClass="border-emerald-500" 
-                                badgeColor="bg-emerald-500" 
-                            />
+                            {['PENDING', 'IN_PROGRESS', 'READY'].map(status => {
+                                const title = status === 'PENDING' ? 'Pendientes' : status === 'IN_PROGRESS' ? 'En Producción' : 'Listos / Por Entregar';
+                                const colorClass = status === 'PENDING' ? 'border-yellow-400' : status === 'IN_PROGRESS' ? 'border-blue-500' : 'border-emerald-500';
+                                const badgeColor = status === 'PENDING' ? 'bg-yellow-400' : status === 'IN_PROGRESS' ? 'bg-blue-500' : 'bg-emerald-500';
+                                const columnOrders = activeOrders.filter(o => o.status === status);
+                                const isDesktopOver = dragOverColumn === status;
+
+                                return (
+                                    <div 
+                                        key={status}
+                                        data-column-status={status}
+                                        className={`flex-1 min-w-[85vw] md:min-w-0 flex flex-col rounded-2xl border transition-colors duration-200 snap-center backdrop-blur-sm ${isDesktopOver ? 'bg-indigo-50 border-indigo-400' : 'bg-slate-100/50 dark:bg-slate-900/30 border-slate-200/60 dark:border-slate-800'}`}
+                                        onDragOver={(e) => handleDragOver(e, status)}
+                                        onDrop={(e) => handleDrop(e, status)}
+                                        onDragLeave={handleDragLeave}
+                                    >
+                                        <div className="p-4 border-b flex justify-between items-center rounded-t-2xl bg-slate-100 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 pointer-events-none">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-3 h-3 rounded-full ${badgeColor} shadow-sm`}></div>
+                                                <h3 className="font-bold text-slate-700 dark:text-slate-200">{title}</h3>
+                                            </div>
+                                            <span className="bg-white dark:bg-slate-800 text-slate-500 text-xs font-bold px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">{columnOrders.length}</span>
+                                        </div>
+                                        <div className="p-3 space-y-3 flex-1 overflow-y-auto custom-scrollbar min-h-[200px]">
+                                            {columnOrders.map(order => (
+                                                <OrderCard 
+                                                    key={order.id}
+                                                    order={order} 
+                                                    statusColor={colorClass}
+                                                    onMove={() => updateOrderStatus(order.id, status === 'PENDING' ? 'IN_PROGRESS' : 'READY')} 
+                                                    onPrint={() => handlePrintOrder(order)}
+                                                    onCancel={() => setOrderToDelete(order.id)}
+                                                    isReady={status === 'READY'}
+                                                    onConvert={() => handleDeliverToPOS(order.id)}
+                                                    onDragStart={handleDragStart}
+                                                    onTouchStart={handleTouchStart}
+                                                />
+                                            ))}
+                                            {columnOrders.length === 0 && (
+                                                <div className="text-center py-10 opacity-40 pointer-events-none">
+                                                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 inline-block mb-2"><Package className="w-6 h-6 text-slate-400" /></div>
+                                                    <p className="text-sm text-slate-500">Arrastra pedidos aquí</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 )}
