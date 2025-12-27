@@ -79,7 +79,7 @@ interface StoreContextType {
   requestNotificationPermission: () => Promise<boolean>;
   logActivity: (action: string, details: string) => void;
   pullFromCloud: (overrideUrl?: string, overrideSecret?: string, silent?: boolean, force?: boolean) => Promise<any>;
-  pushToCloud: (overrides?: any) => Promise<void>;
+  pushToCloud: (overrides?: any) => Promise<boolean>;
   generateInvite: (role: UserRole) => string;
   registerWithInvite: (code: string, userData: any) => Promise<string>;
   deleteInvite: (code: string) => void;
