@@ -1,5 +1,5 @@
 
-import { Transaction, BusinessSettings, Order, CashMovement, Customer, CartItem } from '../types';
+import { Transaction, BusinessSettings, Order, CashMovement, Customer, CartItem, Product } from '../types';
 import { generateEscPosTicket, generateEscPosZReport } from './escPosHelper';
 
 // Estilos CSS base compartidos
@@ -688,13 +688,15 @@ export const printThermalTicket = async (
     openPrintWindow(html);
 };
 
-export const printProductionSummary = (orders: Order[], settings: BusinessSettings) => {
+export const printProductionSummary = (orders: Order[], settings: BusinessSettings, inventory?: Product[]) => {
     // 1. Consolidate items
     const summaryItems: Record<string, {
+        id: string,
         name: string, 
         sku: string, 
         quantity: number, 
         variantName?: string, 
+        variantId?: string,
         orders: string[]
     }> = {};
 
@@ -704,9 +706,11 @@ export const printProductionSummary = (orders: Order[], settings: BusinessSettin
             
             if (!summaryItems[key]) {
                 summaryItems[key] = {
+                    id: item.id,
                     name: item.name,
                     sku: item.sku || '---',
                     variantName: item.variantName,
+                    variantId: item.variantId,
                     quantity: 0,
                     orders: []
                 };
@@ -720,6 +724,24 @@ export const printProductionSummary = (orders: Order[], settings: BusinessSettin
 
     const sortedSummary = Object.values(summaryItems).sort((a, b) => a.name.localeCompare(b.name));
 
+    // STOCK CALCULATION LOGIC
+    const finalSummary = sortedSummary.map(item => {
+        let currentStock = 0;
+        if (inventory) {
+            const product = inventory.find(p => p.id === item.id);
+            if (product) {
+                if (item.variantId && product.variants) {
+                    const variant = product.variants.find(v => v.id === item.variantId);
+                    currentStock = variant ? variant.stock : 0;
+                } else {
+                    currentStock = product.stock;
+                }
+            }
+        }
+        const toProduce = Math.max(0, item.quantity - currentStock);
+        return { ...item, currentStock, toProduce };
+    });
+
     const sortedOrders = [...orders].sort((a, b) => {
         if (a.priority === 'HIGH' && b.priority !== 'HIGH') return -1;
         if (a.priority !== 'HIGH' && b.priority === 'HIGH') return 1;
@@ -732,6 +754,8 @@ export const printProductionSummary = (orders: Order[], settings: BusinessSettin
             <title>Hoja de Producción</title>
             <style>
                 ${PRODUCTION_CSS}
+                .stock-tag { font-size: 9px; padding: 2px 4px; border-radius: 4px; background: #eee; border: 1px solid #ccc; font-weight: bold; }
+                .produce-tag { font-size: 11px; padding: 2px 4px; background: #000; color: #fff; font-weight: bold; border-radius: 2px; }
             </style>
         </head>
         <body>
@@ -747,31 +771,38 @@ export const printProductionSummary = (orders: Order[], settings: BusinessSettin
             </div>
 
             <div class="section-header">
-                <span>1. LISTA DE PREPARACIÓN (TOTALES)</span>
-                <span>ITEMS ÚNICOS: ${sortedSummary.length}</span>
+                <span>1. LISTA DE PREPARACIÓN INTELIGENTE</span>
+                <span>ITEMS: ${finalSummary.length}</span>
             </div>
             <table>
                 <thead>
                     <tr>
                         <th style="width: 40px; text-align: center;">OK</th>
-                        <th style="width: 80px; text-align: center;">CANT</th>
-                        <th style="width: 100px;">SKU</th>
+                        <th style="width: 60px; text-align: center;">PEDIDO</th>
+                        <th style="width: 60px; text-align: center;">STOCK</th>
+                        <th style="width: 80px; text-align: center; background: #f0f0f0;">A PRODUCIR</th>
                         <th>PRODUCTO / DETALLE</th>
-                        <th style="width: 150px;">NOTAS / PEDIDOS REF</th>
+                        <th style="width: 120px;">REFS</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${sortedSummary.map(item => `
+                    ${finalSummary.map(item => `
                         <tr>
                             <td style="text-align: center;"><div class="check-box"></div></td>
-                            <td style="text-align: center;"><span class="qty-box">${item.quantity}</span></td>
-                            <td style="font-family: monospace;">${item.sku}</td>
+                            <td style="text-align: center; font-weight: bold;">${item.quantity}</td>
+                            <td style="text-align: center;"><span class="stock-tag">${item.currentStock}</span></td>
+                            <td style="text-align: center; background: #f9f9f9;">
+                                ${item.toProduce > 0 
+                                    ? `<span class="produce-tag">FABRICAR: ${item.toProduce}</span>` 
+                                    : '<span style="color:#aaa; font-size:10px;">(Tomar de Stock)</span>'}
+                            </td>
                             <td>
                                 <strong style="font-size: 13px;">${item.name}</strong>
                                 ${item.variantName ? `<div style="font-style: italic; margin-top: 2px;">Variant: ${item.variantName}</div>` : ''}
+                                <div style="font-family: monospace; font-size: 9px; color: #666;">SKU: ${item.sku}</div>
                             </td>
                             <td style="font-size: 9px; color: #555;">
-                                Ref: ${item.orders.map(id => `#${id.slice(-4)}`).join(', ')}
+                                ${item.orders.map(id => `#${id.slice(-4)}`).join(', ')}
                             </td>
                         </tr>
                     `).join('')}

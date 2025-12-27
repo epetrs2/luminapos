@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play } from 'lucide-react';
+import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 import { generateTestTicket } from '../utils/escPosHelper';
 import { optimizeForThermal } from '../utils/imageHelper';
@@ -380,7 +380,6 @@ export const Settings: React.FC = () => {
             ))}
         </div>
 
-        {/* ... Rest of settings remains almost identical, but cropper was fixed above ... */}
         <div className="space-y-6">
             {activeTab === 'GENERAL' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-[fadeIn_0.3s_ease-out]">
@@ -419,7 +418,6 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* --- NOTIFICATIONS SETTINGS --- */}
             {activeTab === 'NOTIFICATIONS' && (
                 <div className="animate-[fadeIn_0.3s_ease-out]">
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
@@ -429,7 +427,6 @@ export const Settings: React.FC = () => {
                         </h3>
                         
                         <div className="space-y-8 max-w-2xl">
-                            {/* Master Switches - OPTIMIZED FOR MOBILE */}
                             <div className="flex items-center justify-between p-3 md:p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 gap-3 md:gap-4">
                                 <div className="flex-1 min-w-0">
                                     <h4 className="font-bold text-slate-800 dark:text-white mb-0.5 md:mb-1 text-sm md:text-base">Activar Efectos de Sonido</h4>
@@ -443,7 +440,6 @@ export const Settings: React.FC = () => {
                                 </button>
                             </div>
 
-                            {/* Volume Control */}
                             <div className={`transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                 <div className="flex items-center gap-4 mb-2">
                                     <Volume2 className="w-5 h-5 text-slate-400" />
@@ -463,10 +459,7 @@ export const Settings: React.FC = () => {
                                 />
                             </div>
 
-                            {/* Sound Selection Grid */}
                             <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                
-                                {/* Sale Sound */}
                                 <div className="space-y-2">
                                     <label className="block text-xs font-bold text-slate-500 uppercase">Venta Exitosa</label>
                                     <div className="flex gap-2">
@@ -487,7 +480,6 @@ export const Settings: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Error Sound */}
                                 <div className="space-y-2">
                                     <label className="block text-xs font-bold text-slate-500 uppercase">Error / Alerta</label>
                                     <div className="flex gap-2">
@@ -507,7 +499,6 @@ export const Settings: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* UI Click Sound */}
                                 <div className="space-y-2">
                                     <label className="block text-xs font-bold text-slate-500 uppercase">Interacción / Clics</label>
                                     <div className="flex gap-2">
@@ -527,7 +518,6 @@ export const Settings: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* General Notification */}
                                 <div className="space-y-2">
                                     <label className="block text-xs font-bold text-slate-500 uppercase">Notificación General</label>
                                     <div className="flex gap-2">
@@ -552,7 +542,6 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* ... rest of the component (OPERATIONS, TICKETS, BLUETOOTH, DATA) ... */}
             {activeTab === 'OPERATIONS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     <div className={`bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border transition-colors ${budgetTotal > 100 ? 'border-red-300 dark:border-red-900' : 'border-slate-100 dark:border-slate-800'}`}>
@@ -638,7 +627,6 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* --- TICKETS, BLUETOOTH & DATA TABS (kept same as before, truncated for brevity in XML unless changed) --- */}
             {activeTab === 'TICKETS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-[fadeIn_0.3s_ease-out]">
                     <div className="space-y-6">
@@ -677,6 +665,27 @@ export const Settings: React.FC = () => {
                                     onChange={(e) => setFormData({...formData, invoicePadding: parseInt(e.target.value)})}
                                     className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                                 />
+                            </div>
+                        </div>
+
+                        {/* --- NEW PRODUCTION SHEET CONFIG --- */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg text-purple-600"><ClipboardList className="w-5 h-5"/></div>
+                                Hoja de Producción
+                            </h3>
+                            <div className="space-y-4">
+                                <InputField label="Título del Documento" value={formData.productionDoc?.title || ''} onChange={(e: any) => setFormData({...formData, productionDoc: {...formData.productionDoc, title: e.target.value}})} placeholder="EJ. ORDEN DE TRABAJO" />
+                                <div className="flex gap-4">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={formData.productionDoc?.showCustomerContact} onChange={e => setFormData({...formData, productionDoc: {...formData.productionDoc, showCustomerContact: e.target.checked}})} className="w-4 h-4 text-indigo-600 rounded" />
+                                        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Mostrar Cliente</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={formData.productionDoc?.showPrices} onChange={e => setFormData({...formData, productionDoc: {...formData.productionDoc, showPrices: e.target.checked}})} className="w-4 h-4 text-indigo-600 rounded" />
+                                        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Mostrar Precios</span>
+                                    </label>
+                                </div>
                             </div>
                         </div>
 
