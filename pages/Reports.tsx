@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { generateBusinessInsight } from '../services/geminiService';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ReferenceLine } from 'recharts';
-import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList } from 'lucide-react';
+import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList, Factory } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { printFinancialReport, printZCutTicket } from '../utils/printService';
 
@@ -282,7 +282,7 @@ export const Reports: React.FC = () => {
       };
   }, [distPeriod, transactions, cashMovements, settings.budgetConfig]);
 
-  // --- INVENTORY ANALYTICS MEMO ---
+  // --- INVENTORY ANALYTICS MEMO (FIXED FOR PRODUCTION ADVICE) ---
   const inventoryMetrics = useMemo(() => {
       const now = new Date();
       const thirtyDaysAgo = new Date();
@@ -312,68 +312,62 @@ export const Reports: React.FC = () => {
           totalPotentialRevenue += stock * price;
 
           const sold30Days = salesByProduct[p.id] || 0;
-          const dailyRate = sold30Days / 30;
-          // Avoid division by zero, set high days if 0 sales
+          const dailyRate = sold30Days / 30; // Avg sales per day
+          
+          // Estimate days remaining
           const daysRemaining = dailyRate > 0 ? stock / dailyRate : (stock > 0 ? 999 : 0);
 
           analysisItems.push({
               ...p,
               sold30Days,
+              dailyRate,
               daysRemaining,
               stockValue: stock * cost,
               stockPotential: stock * price
           });
       });
 
-      // Analyze
+      // Analyze & Generate Recommendations
       const msgs: {title: string, desc: string, type: 'good'|'bad'|'info'}[] = [];
       let status: 'ok'|'warning'|'critical' = 'ok';
 
-      // 1. Critical Stockouts (High velocity, low days remaining)
-      const criticals = analysisItems.filter(i => i.daysRemaining < 7 && i.stock > 0 && i.sold30Days > 5);
-      if (criticals.length > 0) {
+      // 1. High Velocity Production Alert (Stock < 10 days coverage)
+      const highVelocity = analysisItems.filter(i => i.dailyRate > 0.5 && i.daysRemaining < 10);
+      if (highVelocity.length > 0) {
           status = 'critical';
+          const names = highVelocity.slice(0,3).map((i:any) => i.name).join(', ');
           msgs.push({
-              title: 'Riesgo de Quiebre de Stock',
-              desc: `${criticals.length} productos de alta rotación tienen menos de 1 semana de inventario. Prioriza producción de: ${criticals.slice(0,3).map((i:any) => i.name).join(', ')}...`,
+              title: `Producción Urgente (${highVelocity.length} items)`,
+              desc: `Alta rotación detectada en: ${names}... Aumenta la producción inmediatamente para evitar perder ventas.`,
               type: 'bad'
           });
       }
 
-      // 2. Dead Stock (High value, 0 sales)
-      const deadStock = analysisItems.filter(i => i.stockValue > 500 && i.sold30Days === 0);
+      // 2. Slow Movers (Dead Stock)
+      const deadStock = analysisItems.filter(i => i.stockPotential > 500 && i.sold30Days === 0);
       if (deadStock.length > 0) {
           if (status !== 'critical') status = 'warning';
           msgs.push({
-              title: 'Capital Estancado (Inventario Muerto)',
-              desc: `Tienes capital detenido en productos que no se han vendido en 30 días. Considera promociones para: ${deadStock.slice(0,3).map((i:any) => i.name).join(', ')}.`,
+              title: 'Inventario Estancado',
+              desc: `${deadStock.length} productos de alto valor no han tenido ventas en 30 días. Sugerimos lanzar promociones o liquidación.`,
               type: 'info'
           });
       }
 
-      // 3. Overstock (Low velocity, years of stock)
-      const overstock = analysisItems.filter(i => i.daysRemaining > 365 && i.sold30Days > 0);
-      if (overstock.length > 0) {
-           msgs.push({
-              title: 'Exceso de Inventario',
-              desc: `${overstock.length} productos tienen stock para más de un año al ritmo actual. Reduce la producción de estos ítems para liberar flujo.`,
-              type: 'info'
-          });
-      }
-
-      if (msgs.length === 0) {
+      // 3. Balanced Check
+      if (highVelocity.length === 0 && deadStock.length === 0) {
           msgs.push({
-              title: 'Inventario Saludable',
-              desc: 'Tus niveles de stock parecen estar balanceados con tu ritmo de ventas actual.',
+              title: 'Producción Balanceada',
+              desc: 'Tu ritmo de producción parece estar alineado con la demanda actual. ¡Buen trabajo!',
               type: 'good'
           });
       }
 
       // Sort items based on user selection
       const sortedItems = [...analysisItems].sort((a, b) => {
-          if (invSort === 'URGENT') return a.daysRemaining - b.daysRemaining; // Ascending days (0 first)
-          if (invSort === 'VALUE') return b.stockValue - a.stockValue; // Descending value
-          if (invSort === 'SLOW') return a.sold30Days - b.sold30Days; // Ascending sales (0 first)
+          if (invSort === 'URGENT') return a.daysRemaining - b.daysRemaining; 
+          if (invSort === 'VALUE') return b.stockPotential - a.stockPotential; // Sort by POTENTIAL revenue now
+          if (invSort === 'SLOW') return a.sold30Days - b.sold30Days;
           return 0;
       });
 
@@ -383,7 +377,7 @@ export const Reports: React.FC = () => {
           sortedItems,
           status,
           messages: msgs,
-          criticalCount: criticals.length,
+          criticalCount: highVelocity.length,
           deadStockCount: deadStock.length
       };
   }, [products, transactions, invSort]);
@@ -946,11 +940,14 @@ export const Reports: React.FC = () => {
                     <div className="lg:col-span-1">
                         <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden h-full">
                             <div className="absolute top-0 right-0 p-6 opacity-10">
-                                <Box className="w-32 h-32" />
+                                <Factory className="w-32 h-32" />
                             </div>
                             <h3 className="text-xl font-bold mb-4 relative z-10 flex items-center gap-2">
-                                <Lightbulb className="w-5 h-5 text-yellow-300" /> Analista de Stock
+                                <Lightbulb className="w-5 h-5 text-yellow-300" /> Analista de Producción
                             </h3>
+                            <p className="text-xs text-indigo-200 mb-4 relative z-10">
+                                Recomendaciones de reposición basadas en la velocidad de venta diaria.
+                            </p>
                             
                             <div className="space-y-4 relative z-10 custom-scrollbar max-h-[500px] overflow-y-auto">
                                 {inventoryMetrics.messages.map((msg, i) => (
@@ -978,7 +975,7 @@ export const Reports: React.FC = () => {
                                         <th className="px-4 py-3 text-center">Stock</th>
                                         <th className="px-4 py-3 text-center">Ventas (30d)</th>
                                         <th className="px-4 py-3 text-center">Días Restantes</th>
-                                        <th className="px-4 py-3 text-right">Valor Stock</th>
+                                        <th className="px-4 py-3 text-right">Valor Venta</th>
                                         <th className="px-4 py-3 text-center">Estado</th>
                                     </tr>
                                 </thead>
@@ -1012,8 +1009,8 @@ export const Reports: React.FC = () => {
                                                 <td className="px-4 py-3 text-center font-mono text-xs">
                                                     {item.daysRemaining > 900 ? '∞' : item.daysRemaining.toFixed(0)} días
                                                 </td>
-                                                <td className="px-4 py-3 text-right font-mono text-xs text-slate-600 dark:text-slate-400">
-                                                    ${item.stockValue.toFixed(0)}
+                                                <td className="px-4 py-3 text-right font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                                                    ${item.stockPotential.toFixed(0)}
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
                                                     <span className={`text-[10px] font-bold px-2 py-1 rounded ${badgeColor}`}>
