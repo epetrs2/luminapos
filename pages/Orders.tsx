@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User } from 'lucide-react';
+import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Order, CartItem, Product, AppView } from '../types';
 import { printOrderInvoice, printProductionSummary } from '../utils/printService';
@@ -15,7 +15,8 @@ const OrderCard = React.memo(({
     isReady, 
     onConvert, 
     onDragStart, 
-    onTouchStart 
+    onTouchStart,
+    onEdit
 }: {
     order: Order;
     statusColor: string;
@@ -27,6 +28,7 @@ const OrderCard = React.memo(({
     onConvert?: () => void;
     onDragStart: (e: React.DragEvent, id: string) => void;
     onTouchStart: (e: React.TouchEvent, id: string, name: string, element: HTMLElement | null) => void;
+    onEdit: () => void;
 }) => {
     const cardRef = useRef<HTMLDivElement>(null);
 
@@ -85,6 +87,7 @@ const OrderCard = React.memo(({
             <div className="flex justify-between items-center gap-2 mt-auto relative z-10">
                 <div className="flex gap-1" onTouchStart={(e) => e.stopPropagation()}>
                     <button onClick={onPrint} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-indigo-500 rounded transition-colors" title="Imprimir"><Printer className="w-4 h-4"/></button>
+                    <button onClick={onEdit} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-500 rounded transition-colors" title="Editar"><Edit2 className="w-4 h-4"/></button>
                     <button onClick={onCancel} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 rounded transition-colors" title="Cancelar"><Trash2 className="w-4 h-4"/></button>
                 </div>
                 
@@ -107,7 +110,7 @@ interface OrdersProps {
 }
 
 export const Orders: React.FC<OrdersProps> = ({ setView }) => {
-    const { orders, products, customers, addOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS } = useStore();
+    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS } = useStore();
     const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
     const [mobileCreateStep, setMobileCreateStep] = useState<'CATALOG' | 'DETAILS'>('CATALOG');
     
@@ -118,6 +121,13 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     const [notes, setNotes] = useState('');
     const [deliveryDate, setDeliveryDate] = useState('');
     const [priority, setPriority] = useState<'NORMAL' | 'HIGH'>('NORMAL');
+
+    // Edit Order State
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+    const [editCart, setEditCart] = useState<CartItem[]>([]);
+    const [editSearchTerm, setEditSearchTerm] = useState('');
+    const [editMobileTab, setEditMobileTab] = useState<'CATALOG' | 'DETAILS'>('DETAILS');
 
     // Edit Price State
     const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -142,7 +152,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     // Refs to bypass React State
     const dragInfoRef = useRef<{ id: string, originalEl: HTMLElement } | null>(null);
     const currentOverColumnRef = useRef<string | null>(null);
-    const currentOverColumnElRef = useRef<HTMLElement | null>(null); // Store the specific element for rollback styles
+    const currentOverColumnElRef = useRef<HTMLElement | null>(null);
     const autoScrollSpeedRef = useRef(0);
     const animationFrameRef = useRef<number | null>(null);
 
@@ -151,6 +161,8 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     [orders]);
     
     const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku.includes(searchTerm));
+    
+    const filteredEditProducts = products.filter(p => p.name.toLowerCase().includes(editSearchTerm.toLowerCase()) || p.sku.includes(editSearchTerm));
 
     const todayStr = useMemo(() => {
         const d = new Date();
@@ -244,6 +256,63 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         setSelectedCustomerId('');
         setActiveTab('LIST');
         setMobileCreateStep('CATALOG');
+    };
+
+    // --- ORDER EDITING LOGIC ---
+    const handleEditClick = (order: Order) => {
+        setEditingOrder(order);
+        setEditCart(JSON.parse(JSON.stringify(order.items))); // Deep copy
+        setEditSearchTerm('');
+        setIsEditModalOpen(true);
+        setEditMobileTab('DETAILS');
+    };
+
+    const addToEditCart = (product: Product) => {
+        setEditCart(prev => {
+            const existing = prev.find(item => item.id === product.id);
+            if (existing) {
+                return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+            }
+            return [...prev, { ...product, quantity: 1, originalPrice: product.price }];
+        });
+    };
+
+    const updateEditQty = (itemId: string, delta: number) => {
+        setEditCart(prev => prev.map(item => {
+            if (item.id === itemId) {
+                return { ...item, quantity: Math.max(1, item.quantity + delta) };
+            }
+            return item;
+        }));
+    };
+
+    const removeFromEditCart = (id: string) => {
+        setEditCart(prev => prev.filter(item => item.id !== id));
+    };
+
+    const handleSaveEditedOrder = () => {
+        if (!editingOrder) return;
+        if (editCart.length === 0) {
+            alert("El pedido debe tener al menos un producto.");
+            return;
+        }
+
+        const newTotal = editCart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        
+        const updatedOrder: Order = {
+            ...editingOrder,
+            items: editCart,
+            total: newTotal,
+            // Allow basic detail updates if bound to inputs in modal
+            deliveryDate: editingOrder.deliveryDate, 
+            notes: editingOrder.notes,
+            priority: editingOrder.priority
+        };
+
+        updateOrder(updatedOrder);
+        setIsEditModalOpen(false);
+        setEditingOrder(null);
+        setEditCart([]);
     };
 
     const confirmDeleteOrder = () => {
@@ -374,8 +443,6 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             }
 
             // 2. Hit Test using elementFromPoint (Robust against scrolling)
-            // We use this because scrolling the container changes the rects relative to viewport.
-            // elementFromPoint checks what is CURRENTLY under the finger.
             const elUnderFinger = document.elementFromPoint(x, y);
             const colEl = elUnderFinger?.closest('[data-column-status]') as HTMLElement | null;
             const foundStatus = colEl?.getAttribute('data-column-status') || null;
@@ -539,6 +606,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                                     onMove={() => updateOrderStatus(order.id, status === 'PENDING' ? 'IN_PROGRESS' : 'READY')} 
                                                     onPrint={() => handlePrintOrder(order)}
                                                     onCancel={() => setOrderToDelete(order.id)}
+                                                    onEdit={() => handleEditClick(order)}
                                                     isReady={status === 'READY'}
                                                     onConvert={() => handleDeliverToPOS(order.id)}
                                                     onDragStart={handleDragStart}
@@ -816,6 +884,146 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                     </div>
                 )}
             </div>
+
+            {/* EDIT ORDER MODAL */}
+            {isEditModalOpen && editingOrder && (
+                <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center backdrop-blur-sm p-0 md:p-4">
+                    <div className="bg-white dark:bg-slate-900 w-full h-full md:h-[90vh] md:max-w-5xl md:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+                        <div className="flex justify-between items-center p-4 border-b border-slate-100 dark:border-slate-800">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                    <Edit2 className="w-5 h-5 text-indigo-500" />
+                                    Editar Pedido #{editingOrder.id.slice(-4)}
+                                </h3>
+                                <p className="text-xs text-slate-500">{editingOrder.customerName}</p>
+                            </div>
+                            <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
+                                <X className="w-6 h-6 text-slate-500" />
+                            </button>
+                        </div>
+
+                        {/* Mobile Tabs */}
+                        <div className="md:hidden flex border-b border-slate-200 dark:border-slate-800">
+                            <button onClick={() => setEditMobileTab('DETAILS')} className={`flex-1 py-3 text-sm font-bold ${editMobileTab === 'DETAILS' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500'}`}>Detalles ({editCart.length})</button>
+                            <button onClick={() => setEditMobileTab('CATALOG')} className={`flex-1 py-3 text-sm font-bold ${editMobileTab === 'CATALOG' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500'}`}>Agregar Productos</button>
+                        </div>
+
+                        <div className="flex flex-1 overflow-hidden">
+                            {/* LEFT: Catalog (Hidden on Mobile if Details active) */}
+                            <div className={`flex-1 border-r border-slate-100 dark:border-slate-800 flex-col bg-slate-50 dark:bg-slate-950 ${editMobileTab === 'DETAILS' ? 'hidden md:flex' : 'flex'}`}>
+                                <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10">
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                                        <input
+                                            type="text"
+                                            placeholder="Buscar productos..."
+                                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white"
+                                            value={editSearchTerm}
+                                            onChange={e => setEditSearchTerm(e.target.value)}
+                                            autoFocus
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4">
+                                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                                        {filteredEditProducts.map(p => (
+                                            <button 
+                                                key={p.id}
+                                                onClick={() => addToEditCart(p)}
+                                                className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 transition-all text-left flex flex-col h-28 active:scale-95 shadow-sm"
+                                            >
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-bold text-sm text-slate-800 dark:text-white line-clamp-2">{p.name}</p>
+                                                    <p className="text-[10px] text-slate-500 uppercase mt-1">{p.category}</p>
+                                                </div>
+                                                <div className="flex justify-between items-end mt-2">
+                                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">${p.price}</span>
+                                                    <Plus className="w-5 h-5 text-slate-300" />
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* RIGHT: Order Details (Hidden on Mobile if Catalog active) */}
+                            <div className={`w-full md:w-[400px] flex flex-col bg-white dark:bg-slate-900 ${editMobileTab === 'CATALOG' ? 'hidden md:flex' : 'flex'}`}>
+                                <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
+                                    {/* Order Settings */}
+                                    <div className="grid grid-cols-2 gap-3 mb-2">
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fecha Entrega</label>
+                                            <input 
+                                                type="date" 
+                                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm dark:text-white"
+                                                value={editingOrder.deliveryDate || ''}
+                                                onChange={(e) => setEditingOrder({...editingOrder, deliveryDate: e.target.value})}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Prioridad</label>
+                                            <select 
+                                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-bold dark:text-white"
+                                                value={editingOrder.priority}
+                                                onChange={(e) => setEditingOrder({...editingOrder, priority: e.target.value as any})}
+                                            >
+                                                <option value="NORMAL">Normal</option>
+                                                <option value="HIGH">Alta / Urgente</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Notas</label>
+                                        <textarea 
+                                            rows={2}
+                                            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm dark:text-white resize-none"
+                                            value={editingOrder.notes || ''}
+                                            onChange={(e) => setEditingOrder({...editingOrder, notes: e.target.value})}
+                                        />
+                                    </div>
+
+                                    <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
+                                        <div className="space-y-2">
+                                            {editCart.map(item => (
+                                                <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                                                    <div className="flex flex-col items-center gap-1">
+                                                        <button onClick={() => updateEditQty(item.id, 1)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm text-slate-500 hover:text-indigo-600 flex items-center justify-center"><Plus className="w-3 h-3"/></button>
+                                                        <span className="text-xs font-bold w-6 text-center dark:text-white">{item.quantity}</span>
+                                                        <button onClick={() => updateEditQty(item.id, -1)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm text-slate-500 hover:text-red-600 flex items-center justify-center"><Minus className="w-3 h-3"/></button>
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{item.name}</p>
+                                                        <p className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">${item.price}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-sm font-bold text-slate-800 dark:text-white">${(item.price * item.quantity).toFixed(2)}</p>
+                                                        <button onClick={() => removeFromEditCart(item.id)} className="text-xs text-red-400 hover:text-red-600 mt-1">Eliminar</button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {editCart.length === 0 && <p className="text-center text-slate-400 py-4 text-sm">Sin productos</p>}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <span className="text-slate-500 font-bold text-sm">Nuevo Total</span>
+                                        <span className="text-2xl font-black text-slate-800 dark:text-white">${editCart.reduce((sum, i) => sum + (i.price * i.quantity), 0).toFixed(2)}</span>
+                                    </div>
+                                    <button 
+                                        onClick={handleSaveEditedOrder}
+                                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg"
+                                    >
+                                        <Save className="w-5 h-5" /> Guardar Cambios
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Delete Confirmation Modal */}
             {orderToDelete && (

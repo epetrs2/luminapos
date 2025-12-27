@@ -60,6 +60,7 @@ interface StoreContextType {
   addCashMovement: (m: CashMovement) => void;
   deleteCashMovement: (id: string) => void;
   addOrder: (o: Order) => void;
+  updateOrder: (o: Order) => void; // NEW
   updateOrderStatus: (id: string, status: string) => void;
   convertOrderToSale: (id: string, paymentMethod: string) => void;
   deleteOrder: (id: string) => void;
@@ -691,6 +692,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         logActivity('ORDER', `Nuevo pedido #${newId}`);
     };
     
+    // NEW: Update full order
+    const updateOrder = (o: Order) => {
+        setOrders(prev => prev.map(ord => ord.id === o.id ? o : ord));
+        markLocalChange();
+        logActivity('ORDER', `Editó pedido #${o.id}`);
+    };
+
     // --- SEND ORDER TO POS LOGIC ---
     const sendOrderToPOS = (order: Order) => {
         setIncomingOrder(order);
@@ -739,7 +747,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
             addSupplier, updateSupplier, deleteSupplier, addPurchase,
             addCashMovement, deleteCashMovement,
-            addOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
+            addOrder, updateOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
             notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset,
             playSound,
             incomingOrder, sendOrderToPOS, clearIncomingOrder
