@@ -518,7 +518,7 @@ const TransactionDetailModal: React.FC<{
   getCustomerName: (id?: string) => string;
   getCustomer: (id?: string) => any;
 }> = ({ transaction, onClose, onDelete, onPay, onConfirmTransfer, onReturn, getCustomerName, getCustomer }) => {
-  const { settings, sendBtData } = useStore();
+  const { settings, sendBtData, btDevice } = useStore();
   const [deleteStep, setDeleteStep] = useState<'initial' | 'confirm' | 'processing' | 'success'>('initial');
   const [showReturnModal, setShowReturnModal] = useState(false);
   
@@ -537,7 +537,7 @@ const TransactionDetailModal: React.FC<{
   };
 
   const handlePrint = () => {
-      printThermalTicket(transaction, getCustomerName(transaction.customerId), settings, sendBtData);
+      printThermalTicket(transaction, getCustomerName(transaction.customerId), settings, btDevice ? sendBtData : undefined);
   };
   
   const handlePrintInvoice = () => {
@@ -754,7 +754,7 @@ const TransactionDetailModal: React.FC<{
 };
 
 export const SalesHistory: React.FC = () => {
-  const { transactions, customers, deleteTransaction, registerTransactionPayment, addTransaction, updateStockAfterSale, settings, notify, products, sendBtData } = useStore();
+  const { transactions, customers, deleteTransaction, registerTransactionPayment, addTransaction, updateStockAfterSale, settings, notify, products, sendBtData, btDevice } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
