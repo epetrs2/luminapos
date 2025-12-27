@@ -487,15 +487,30 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         await pullFromCloud(undefined, undefined, false, true);
     };
 
+    // --- AUTO-SYNC LOGIC ---
     useEffect(() => {
+        // Fallback interval (every 30s)
         const interval = setInterval(() => {
             if (settings.enableCloudSync && settings.googleWebAppUrl) {
+                // If we have pending changes, push. If not, pull to get updates from others.
                 if (hasPendingChanges) pushToCloud();
                 else pullFromCloud(undefined, undefined, true);
             }
         }, 30000); 
         return () => clearInterval(interval);
     }, [hasPendingChanges, settings.enableCloudSync, settings.googleWebAppUrl]);
+
+    // NEW: Reactive Auto-Sync (Debounce)
+    // Triggers save 5 seconds after a change is made, improving UX
+    useEffect(() => {
+        if (hasPendingChanges && settings.enableCloudSync && settings.googleWebAppUrl) {
+            const debounceTimer = setTimeout(() => {
+                console.log("Auto-saving pending changes...");
+                pushToCloud();
+            }, 5000); // 5 seconds debounce
+            return () => clearTimeout(debounceTimer);
+        }
+    }, [hasPendingChanges, settings.enableCloudSync, settings.googleWebAppUrl, pushToCloud]);
 
     // --- RECOVERY LOGIC (FIXED) ---
     const getUserPublicInfo = (username: string) => {

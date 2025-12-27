@@ -103,10 +103,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
                     <button 
                         onClick={handleForceSync} 
                         disabled={isSyncing}
-                        className={`ml-auto p-1.5 hover:bg-white/10 rounded transition-colors ${isSyncing ? 'cursor-not-allowed opacity-50' : 'hover:text-white text-slate-400'}`} 
+                        className={`ml-auto p-2 bg-slate-800 hover:bg-slate-700 rounded-full transition-all active:scale-95 border border-slate-700 ${isSyncing ? 'cursor-not-allowed opacity-50' : 'hover:text-white text-indigo-400 hover:border-indigo-500'}`} 
                         title="Forzar Sincronización"
                     >
-                        <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-indigo-400' : ''}`} />
+                        <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-white' : ''}`} />
                     </button>
                 )}
             </div>
