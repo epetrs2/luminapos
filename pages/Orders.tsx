@@ -21,16 +21,19 @@ const OrderCard: React.FC<{
 }> = ({ order, statusColor, onMove, onPrint, onCancel, isReady, onConvert, onDragStart, onTouchStart }) => {
     return (
         <div 
-            className={`bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 ${statusColor} shadow-sm group hover:shadow-md transition-all relative cursor-grab active:cursor-grabbing select-none touch-none`}
+            className={`bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 ${statusColor} shadow-sm group hover:shadow-md transition-all relative select-none`}
             draggable
             onDragStart={(e) => onDragStart(e, order.id)}
-            onTouchStart={(e) => onTouchStart(e, order.id)}
         >
-            <div className="absolute top-2 right-2 text-slate-300 dark:text-slate-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                <GripVertical className="w-5 h-5" />
+            {/* Mobile Drag Handle - Increased touch area and touch-none to prevent scroll interference ONLY on handle */}
+            <div 
+                className="absolute top-0 right-0 p-4 cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity touch-none z-10"
+                onTouchStart={(e) => onTouchStart(e, order.id)}
+            >
+                <GripVertical className="w-6 h-6" />
             </div>
 
-            <div className="flex justify-between items-start mb-2 pr-6">
+            <div className="flex justify-between items-start mb-2 pr-8">
                 <div>
                     <h4 className="font-bold text-slate-800 dark:text-white text-sm line-clamp-1">{order.customerName}</h4>
                     <p className="text-xs text-slate-500 font-mono">#{order.id}</p>
@@ -40,7 +43,7 @@ const OrderCard: React.FC<{
                 )}
             </div>
             
-            <div className="space-y-1 mb-3">
+            <div className="space-y-1 mb-3 pointer-events-none">
                 {order.items.slice(0, 3).map((item, idx) => (
                     <div key={idx} className="flex justify-between text-xs text-slate-600 dark:text-slate-300">
                         <span><span className="font-bold">{item.quantity}</span> x {item.name}</span>
@@ -57,7 +60,7 @@ const OrderCard: React.FC<{
                 </div>
             )}
 
-            <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700 pt-2 mb-3">
+            <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700 pt-2 mb-3 pointer-events-none">
                 <span className="flex items-center gap-1" title="Fecha Creación"><Clock className="w-3 h-3"/> {new Date(order.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
                 {order.deliveryDate && (
                     <span className={`font-bold flex items-center gap-1 ${new Date(order.deliveryDate) <= new Date() ? 'text-red-500' : 'text-indigo-500'}`} title="Fecha Entrega">
@@ -66,7 +69,7 @@ const OrderCard: React.FC<{
                 )}
             </div>
 
-            <div className="flex justify-between items-center gap-2 mt-auto">
+            <div className="flex justify-between items-center gap-2 mt-auto relative z-20">
                 <div className="flex gap-1" onTouchStart={(e) => e.stopPropagation()}>
                     <button onClick={onPrint} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-indigo-500 rounded transition-colors" title="Imprimir"><Printer className="w-4 h-4"/></button>
                     <button onClick={onCancel} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 rounded transition-colors" title="Cancelar"><Trash2 className="w-4 h-4"/></button>
@@ -298,6 +301,9 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
 
     // --- MOBILE TOUCH DRAG AND DROP HANDLERS ---
     const handleTouchStart = (e: React.TouchEvent, id: string) => {
+        // Haptic Feedback for better feel
+        if (navigator.vibrate) navigator.vibrate(50);
+        
         const touch = e.touches[0];
         setTouchDraggingId(id);
         setTouchPos({ x: touch.clientX, y: touch.clientY });
@@ -308,7 +314,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         if (!touchDraggingId) return;
         const touch = e.touches[0];
         setTouchPos({ x: touch.clientX, y: touch.clientY });
-        e.preventDefault(); // Prevent standard scroll
+        // e.preventDefault(); // Removed to allow underlying events if needed, handled by touch-none CSS on grip
     };
 
     const handleTouchEnd = (e: React.TouchEvent) => {
@@ -316,15 +322,20 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         document.body.style.overflow = ''; // Unlock scroll
         
         const touch = e.changedTouches[0];
+        // Use elementsFromPoint to find the column underneath the finger
         const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
         
-        // Find column by traversing elements
-        const col = elements.find(el => el.hasAttribute('data-column-status'));
+        // Find column by traversing elements up
+        const col = elements.find(el => el.hasAttribute('data-column-status') || el.closest('[data-column-status]'));
         
         if (col) {
-            const newStatus = col.getAttribute('data-column-status');
-            if (newStatus) {
+            // Extract status from element or its closest parent
+            const targetEl = col.hasAttribute('data-column-status') ? col : col.closest('[data-column-status]');
+            const newStatus = targetEl?.getAttribute('data-column-status');
+            
+            if (newStatus && draggedOrder && draggedOrder.status !== newStatus) {
                 updateOrderStatus(touchDraggingId, newStatus);
+                if (navigator.vibrate) navigator.vibrate([30, 30, 30]); // Success vibration
             }
         }
         
@@ -343,7 +354,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 onDragOver={(e) => handleDragOver(e, status)}
                 onDrop={(e) => handleDrop(e, status)}
                 onDragLeave={handleDragLeave}
-                data-column-status={status} // Key for mobile DnD
+                data-column-status={status} // Key for mobile DnD logic
             >
                 <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-100 dark:bg-slate-900/80 rounded-t-2xl">
                     <div className="flex items-center gap-2">
@@ -682,7 +693,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                 </div>
                             </div>
 
-                            <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
+                            <div className="p-5 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
                                 <div className="flex justify-between items-center mb-4">
                                     <span className="text-slate-500 font-medium">Total Estimado</span>
                                     <span className="text-2xl font-black text-slate-800 dark:text-white">
@@ -719,14 +730,14 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 </div>
             )}
 
-            {/* Touch Drag Overlay/Ghost (Optional - Current implementation handles visual via fixed positioning if needed, but here sticking to transform/z-index logic in state would be ideal for smoother UX. For simplicity, just dragging the real card or using status updates on drop) */}
+            {/* Touch Drag Overlay/Ghost */}
             {touchDraggingId && draggedOrder && (
                 <div 
-                    className="fixed z-50 pointer-events-none p-4 rounded-xl bg-white dark:bg-slate-800 shadow-2xl border-l-4 border-indigo-500 w-64 opacity-90"
-                    style={{ left: touchPos.x + 10, top: touchPos.y + 10 }}
+                    className="fixed z-[100] pointer-events-none p-4 rounded-xl bg-white dark:bg-slate-800 shadow-2xl border-l-4 border-indigo-500 w-64 opacity-90 scale-105"
+                    style={{ left: touchPos.x - 128, top: touchPos.y - 50 }} 
                 >
                     <h4 className="font-bold text-sm line-clamp-1">{draggedOrder.customerName}</h4>
-                    <p className="text-xs text-slate-500">Moviendo...</p>
+                    <p className="text-xs text-slate-500 flex items-center gap-1"><GripVertical className="w-3 h-3"/> Moviendo...</p>
                 </div>
             )}
         </div>
