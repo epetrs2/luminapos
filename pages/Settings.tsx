@@ -7,19 +7,116 @@ import { generateTestTicket } from '../utils/escPosHelper';
 import { optimizeForThermal } from '../utils/imageHelper';
 import { SoundType } from '../types';
 
-// --- SOUNDS LIBRARY (Short Base64 for Demo Purposes) ---
-// Note: In a real production app, these should be hosted files to save bundle size, but for "no external deps" request we use data URIs.
-const SOUNDS: Record<SoundType, { label: string, src: string }> = {
-    'SUCCESS': { label: 'Éxito (Cash)', src: 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//uQZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWgAAAA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//uQZAAABhgWAEAAAAAIgAAAAAAAAYYFgBAAAAAACAAAAAAAAAA//uQZAAABhgWAEAAAAAIgAAAAAAAAYYFgBAAAAAACAAAAAAAAAA//uQZAAABhgWAEAAAAAIgAAAAAAAAYYFgBAAAAAACAAAAAAAAAA' }, // Placeholder for brevity, using a real sound is recommended
-    'GLASS': { label: 'Cristal (Apple)', src: 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YT...' }, // Placeholder
-    'POP': { label: 'Pop', src: 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YT...' }, // Placeholder
-    'CHORD': { label: 'Acorde', src: 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YT...' }, // Placeholder
-    'ERROR': { label: 'Error (Bonk)', src: 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YT...' }, // Placeholder
-    'NOTE': { label: 'Nota Simple', src: 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YT...' }, // Placeholder
-    'NONE': { label: 'Silencio', src: '' }
+// --- SOUND SYNTHESIZER ---
+// Generates "Apple-style" satisfying UI sounds using Web Audio API
+// No external files required, zero loading time, works offline.
+const playSystemSound = (type: SoundType, volume: number = 0.5) => {
+    if (type === 'NONE') return;
+
+    try {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContext) return;
+
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+        
+        // Configuration for different sound types
+        switch (type) {
+            case 'SUCCESS': // "Cash Register" / Success Ding
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, now); // A5
+                osc.frequency.exponentialRampToValueAtTime(1760, now + 0.1); // Quick slide up
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+                osc.start(now);
+                osc.stop(now + 0.6);
+                
+                // Add a second harmonic for richness
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.type = 'triangle';
+                osc2.frequency.setValueAtTime(1760, now);
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                gain2.gain.setValueAtTime(volume * 0.3, now);
+                gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+                osc2.start(now);
+                osc2.stop(now + 0.6);
+                break;
+
+            case 'GLASS': // "Note" / iPhone Glass
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(1200, now);
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
+                osc.start(now);
+                osc.stop(now + 1.5);
+                break;
+
+            case 'POP': // "Pop" / Bubble
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.1);
+                break;
+
+            case 'ERROR': // "Bonk" / Error
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(100, now + 0.3);
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+                break;
+
+            case 'CHORD': // Soft Chord
+                const freqs = [440, 554.37, 659.25]; // A Major
+                freqs.forEach((f, i) => {
+                    const o = ctx.createOscillator();
+                    const g = ctx.createGain();
+                    o.type = 'sine';
+                    o.frequency.value = f;
+                    o.connect(g);
+                    g.connect(ctx.destination);
+                    g.gain.setValueAtTime(0, now);
+                    g.gain.linearRampToValueAtTime(volume * 0.3, now + 0.05 + (i * 0.02));
+                    g.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
+                    o.start(now);
+                    o.stop(now + 1.5);
+                });
+                break;
+
+            case 'NOTE': // Simple Notification
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, now); // C5
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+                osc.start(now);
+                osc.stop(now + 0.8);
+                break;
+        }
+
+        // Close context after sound finishes to save resources
+        setTimeout(() => {
+            if(ctx.state !== 'closed') ctx.close();
+        }, 2000);
+
+    } catch (e) {
+        console.error("Audio error", e);
+    }
 };
 
-// --- IMAGE CROPPER COMPONENT (Unchanged) ---
+// --- IMAGE CROPPER COMPONENT ---
 interface ImageCropperProps {
     imageSrc: string;
     onCancel: () => void;
@@ -342,18 +439,6 @@ export const Settings: React.FC = () => {
       }
   };
 
-  // --- SOUND PREVIEW LOGIC ---
-  const playPreviewSound = (soundType: SoundType) => {
-      // In a real app with file assets, we'd use new Audio(SOUNDS[soundType].src).play();
-      // Since we are using mock base64/placeholder urls for this demo, we simulate it.
-      // But we will use a generic 'beep' if the src is empty to show feedback.
-      if (soundType === 'NONE') return;
-      
-      const audio = new Audio("https://codeskulptor-demos.commondatastorage.googleapis.com/pang/pop.mp3"); // Simple placeholder for satisfaction demo
-      audio.volume = formData.soundConfig?.volume || 0.5;
-      audio.play().catch(e => console.log("Audio play prevented", e));
-  };
-
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       {cropImage && <ImageCropper imageSrc={cropImage} onCancel={() => setCropImage(null)} onSave={onCropComplete} target={cropTarget} />}
@@ -429,7 +514,7 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* --- NOTIFICATIONS SETTINGS (NEW TAB) --- */}
+            {/* --- NOTIFICATIONS SETTINGS --- */}
             {activeTab === 'NOTIFICATIONS' && (
                 <div className="animate-[fadeIn_0.3s_ease-out]">
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
@@ -490,7 +575,7 @@ export const Settings: React.FC = () => {
                                             <option value="CHORD">Acorde Suave</option>
                                             <option value="NONE">Silencio</option>
                                         </select>
-                                        <button onClick={() => playPreviewSound(formData.soundConfig.saleSound)} className="p-2.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
+                                        <button onClick={() => playSystemSound(formData.soundConfig.saleSound, formData.soundConfig.volume)} className="p-2.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
                                             <Play className="w-4 h-4" />
                                         </button>
                                     </div>
@@ -506,10 +591,10 @@ export const Settings: React.FC = () => {
                                             className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
                                         >
                                             <option value="ERROR">Error (Bonk)</option>
-                                            <option value="pop">Pop</option>
+                                            <option value="POP">Pop</option>
                                             <option value="NONE">Silencio</option>
                                         </select>
-                                        <button onClick={() => playPreviewSound(formData.soundConfig.errorSound)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-100 transition-colors">
+                                        <button onClick={() => playSystemSound(formData.soundConfig.errorSound, formData.soundConfig.volume)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-100 transition-colors">
                                             <Play className="w-4 h-4" />
                                         </button>
                                     </div>
@@ -528,7 +613,7 @@ export const Settings: React.FC = () => {
                                             <option value="NOTE">Nota Simple</option>
                                             <option value="NONE">Silencio</option>
                                         </select>
-                                        <button onClick={() => playPreviewSound(formData.soundConfig.clickSound)} className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors">
+                                        <button onClick={() => playSystemSound(formData.soundConfig.clickSound, formData.soundConfig.volume)} className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors">
                                             <Play className="w-4 h-4" />
                                         </button>
                                     </div>
@@ -547,7 +632,7 @@ export const Settings: React.FC = () => {
                                             <option value="CHORD">Acorde</option>
                                             <option value="NONE">Silencio</option>
                                         </select>
-                                        <button onClick={() => playPreviewSound(formData.soundConfig.notificationSound)} className="p-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors">
+                                        <button onClick={() => playSystemSound(formData.soundConfig.notificationSound, formData.soundConfig.volume)} className="p-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors">
                                             <Play className="w-4 h-4" />
                                         </button>
                                     </div>
@@ -561,7 +646,6 @@ export const Settings: React.FC = () => {
             {/* --- OPERATIONS SETTINGS (Kept same) --- */}
             {activeTab === 'OPERATIONS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
-                    {/* ... Existing Operations content ... */}
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
                         <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-2">
                             <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><PieChart className="w-5 h-5"/></div>
@@ -636,7 +720,6 @@ export const Settings: React.FC = () => {
             )}
 
             {/* --- TICKETS, BLUETOOTH & DATA TABS (kept same) --- */}
-            {/* The rest of the tabs are preserved as they were, just ensuring they render when activeTab matches */}
             {activeTab === 'TICKETS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-[fadeIn_0.3s_ease-out]">
                     <div className="space-y-6">
