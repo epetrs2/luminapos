@@ -637,7 +637,7 @@ const TransactionDetailModal: React.FC<{
             </div>
             <div className="flex flex-col mt-1">
               {isEditing ? (
-                  <div className="flex items-center gap-2 mt-2">
+                  <div className="flex items-center gap-2 mt-2 animate-[fadeIn_0.2s]">
                       <span className="text-xs font-bold text-slate-500">Folio:</span>
                       <input 
                         type="text" 
@@ -648,16 +648,21 @@ const TransactionDetailModal: React.FC<{
                       />
                   </div>
               ) : (
-                  <span className="text-xs font-mono text-slate-400 flex items-center gap-2 group">
-                      ID: {transaction.id}
+                  <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs font-mono text-slate-400">ID: {transaction.id}</span>
                       {!isReturnTx && (
-                          <button onClick={() => setIsEditing(true)} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-indigo-500" title="Editar Folio/Pago">
+                          <button 
+                            onClick={() => setIsEditing(true)} 
+                            className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-indigo-600 dark:text-indigo-400 transition-colors" 
+                            title="Editar Folio/Pago"
+                          >
                               <Edit2 className="w-3 h-3" />
+                              <span className="text-[10px] font-bold">Editar</span>
                           </button>
                       )}
-                  </span>
+                  </div>
               )}
-              <span className="text-sm text-slate-500 dark:text-slate-400">{new Date(transaction.date).toLocaleString()}</span>
+              <span className="text-sm text-slate-500 dark:text-slate-400 mt-1 block">{new Date(transaction.date).toLocaleString()}</span>
             </div>
           </div>
           
@@ -712,24 +717,27 @@ const TransactionDetailModal: React.FC<{
               )}
             </div>
 
-            <div className={`p-5 rounded-xl border border-slate-100 dark:border-slate-800 ${isEditing ? 'bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800' : 'bg-slate-50 dark:bg-slate-800/50'}`}>
+            <div className={`p-5 rounded-xl border border-slate-100 dark:border-slate-800 transition-all ${isEditing ? 'bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800 ring-2 ring-indigo-500/20' : 'bg-slate-50 dark:bg-slate-800/50'}`}>
               <h4 className="text-xs font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <PaymentIcon method={isEditing ? tempMethod : transaction.paymentMethod} />
                 Estado Financiero
               </h4>
               
               {isEditing ? (
-                  <select 
-                    value={tempMethod}
-                    onChange={(e) => setTempMethod(e.target.value as any)}
-                    className="w-full mb-2 px-3 py-2 rounded-lg border border-indigo-300 bg-white dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                      <option value="cash">Efectivo</option>
-                      <option value="card">Tarjeta</option>
-                      <option value="transfer">Transferencia</option>
-                      <option value="credit">Crédito</option>
-                      <option value="split">Dividido</option>
-                  </select>
+                  <div className="mb-2">
+                      <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Método de Pago</label>
+                      <select 
+                        value={tempMethod}
+                        onChange={(e) => setTempMethod(e.target.value as any)}
+                        className="w-full px-3 py-2 rounded-lg border border-indigo-300 bg-white dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                      >
+                          <option value="cash">Efectivo</option>
+                          <option value="card">Tarjeta</option>
+                          <option value="transfer">Transferencia</option>
+                          <option value="credit">Crédito</option>
+                          <option value="split">Dividido</option>
+                      </select>
+                  </div>
               ) : (
                   <p className="font-bold text-slate-800 dark:text-white capitalize text-lg mb-2">
                     {getPaymentLabel(transaction.paymentMethod)}
