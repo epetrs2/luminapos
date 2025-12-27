@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Search, Plus, Calendar, User, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, CreditCard, Banknote, Smartphone, Wallet, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt } from 'lucide-react';
+import { Search, Plus, Calendar, User, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, CreditCard, Banknote, Smartphone, Wallet, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Order, CartItem, Product } from '../types';
 import { printOrderInvoice, printProductionSummary } from '../utils/printService';
@@ -14,10 +14,23 @@ const OrderCard: React.FC<{
     prevStatus?: boolean;
     isReady?: boolean;
     onConvert?: () => void;
-}> = ({ order, statusColor, onMove, onPrint, onCancel, isReady, onConvert }) => {
+    // DnD Props
+    onDragStart: (e: React.DragEvent, id: string) => void;
+    // Mobile Touch Props
+    onTouchStart: (e: React.TouchEvent, id: string) => void;
+}> = ({ order, statusColor, onMove, onPrint, onCancel, isReady, onConvert, onDragStart, onTouchStart }) => {
     return (
-        <div className={`bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 ${statusColor} shadow-sm group hover:shadow-md transition-all relative`}>
-            <div className="flex justify-between items-start mb-2">
+        <div 
+            className={`bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 ${statusColor} shadow-sm group hover:shadow-md transition-all relative cursor-grab active:cursor-grabbing select-none touch-none`}
+            draggable
+            onDragStart={(e) => onDragStart(e, order.id)}
+            onTouchStart={(e) => onTouchStart(e, order.id)}
+        >
+            <div className="absolute top-2 right-2 text-slate-300 dark:text-slate-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                <GripVertical className="w-5 h-5" />
+            </div>
+
+            <div className="flex justify-between items-start mb-2 pr-6">
                 <div>
                     <h4 className="font-bold text-slate-800 dark:text-white text-sm line-clamp-1">{order.customerName}</h4>
                     <p className="text-xs text-slate-500 font-mono">#{order.id}</p>
@@ -54,17 +67,17 @@ const OrderCard: React.FC<{
             </div>
 
             <div className="flex justify-between items-center gap-2 mt-auto">
-                <div className="flex gap-1">
+                <div className="flex gap-1" onTouchStart={(e) => e.stopPropagation()}>
                     <button onClick={onPrint} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-indigo-500 rounded transition-colors" title="Imprimir"><Printer className="w-4 h-4"/></button>
                     <button onClick={onCancel} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 rounded transition-colors" title="Cancelar"><Trash2 className="w-4 h-4"/></button>
                 </div>
                 
                 {isReady ? (
-                    <button onClick={onConvert} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm">
+                    <button onClick={onConvert} onTouchStart={(e) => e.stopPropagation()} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm">
                         <CheckCircle className="w-3.5 h-3.5"/> Entregar
                     </button>
                 ) : (
-                    <button onClick={onMove} className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm">
+                    <button onClick={onMove} onTouchStart={(e) => e.stopPropagation()} className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm md:hidden">
                         Avanzar <ArrowRight className="w-3.5 h-3.5"/>
                     </button>
                 )}
@@ -103,17 +116,23 @@ export const Orders: React.FC = () => {
     // Delete Confirmation State
     const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
 
+    // Desktop DnD State
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+
+    // Mobile Touch DnD State
+    const [touchDraggingId, setTouchDraggingId] = useState<string | null>(null);
+    const [touchPos, setTouchPos] = useState({ x: 0, y: 0 });
+    const draggedOrder = useMemo(() => orders.find(o => o.id === touchDraggingId), [touchDraggingId, orders]);
+
     const activeOrders = orders.filter(o => o.status !== 'COMPLETED').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku.includes(searchTerm));
 
-    // Get today's date in local ISO string YYYY-MM-DD for the min attribute
     const todayStr = useMemo(() => {
         const d = new Date();
         d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
         return d.toISOString().split('T')[0];
     }, []);
 
-    // Focus input when editing starts
     useEffect(() => {
         if (editingItemId && editInputRef.current) {
             editInputRef.current.focus();
@@ -164,11 +183,11 @@ export const Orders: React.FC = () => {
         const orderTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
         const newOrder: Order = {
-            id: '', // Will be generated in StoreContext
+            id: '',
             customerId: selectedCustomerId,
             customerName: customer ? customer.name : 'Cliente General',
             date: new Date().toISOString(),
-            deliveryDate: deliveryDate, // Ensure this string "YYYY-MM-DD" is passed correctly
+            deliveryDate: deliveryDate, 
             items: [...cart],
             total: orderTotal,
             status: 'PENDING',
@@ -206,7 +225,6 @@ export const Orders: React.FC = () => {
         const order = orders.find(o => o.id === convertToSaleId);
         if (!order) return;
 
-        // Credit Validation Logic
         if (paymentMethod === 'credit') {
             const customer = customers.find(c => c.id === order.customerId);
             
@@ -239,7 +257,6 @@ export const Orders: React.FC = () => {
             alert("No hay pedidos activos para imprimir.");
             return;
         }
-        // Default: Select all active orders initially, or keep logic simple
         const allIds = new Set<string>(activeOrders.map(o => o.id));
         setSelectedOrdersForPrint(allIds);
         setPrintModalOpen(true);
@@ -275,13 +292,122 @@ export const Orders: React.FC = () => {
             alert("Selecciona al menos un pedido.");
             return;
         }
-        // UPDATED: Pass products (inventory) to calculate production needs
         printProductionSummary(ordersToPrint, settings, products);
         setPrintModalOpen(false);
     };
 
+    // --- DESKTOP DRAG AND DROP HANDLERS ---
+    const handleDragStart = (e: React.DragEvent, id: string) => {
+        e.dataTransfer.setData("orderId", id);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleDragOver = (e: React.DragEvent, status: string) => {
+        e.preventDefault();
+        setDragOverColumn(status);
+    };
+
+    const handleDrop = (e: React.DragEvent, newStatus: string) => {
+        e.preventDefault();
+        const orderId = e.dataTransfer.getData("orderId");
+        setDragOverColumn(null);
+        if (orderId) {
+            updateOrderStatus(orderId, newStatus);
+        }
+    };
+
+    const handleDragLeave = () => {
+        setDragOverColumn(null);
+    };
+
+    // --- MOBILE TOUCH DRAG AND DROP HANDLERS ---
+    const handleTouchStart = (e: React.TouchEvent, id: string) => {
+        const touch = e.touches[0];
+        setTouchDraggingId(id);
+        setTouchPos({ x: touch.clientX, y: touch.clientY });
+        document.body.style.overflow = 'hidden'; // Lock scroll
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (!touchDraggingId) return;
+        const touch = e.touches[0];
+        setTouchPos({ x: touch.clientX, y: touch.clientY });
+        e.preventDefault(); // Prevent standard scroll
+    };
+
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (!touchDraggingId) return;
+        document.body.style.overflow = ''; // Unlock scroll
+        
+        const touch = e.changedTouches[0];
+        const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
+        
+        // Find column by traversing elements
+        const col = elements.find(el => el.hasAttribute('data-column-status'));
+        
+        if (col) {
+            const newStatus = col.getAttribute('data-column-status');
+            if (newStatus) {
+                updateOrderStatus(touchDraggingId, newStatus);
+            }
+        }
+        
+        setTouchDraggingId(null);
+    };
+
+    const OrderColumn = ({ status, title, colorClass, badgeColor }: { status: string, title: string, colorClass: string, badgeColor: string }) => {
+        const columnOrders = activeOrders.filter(o => o.status === status);
+        const isOver = dragOverColumn === status;
+
+        return (
+            <div 
+                className={`flex-1 min-w-[85vw] md:min-w-0 flex flex-col rounded-2xl border transition-colors snap-center backdrop-blur-sm
+                    ${isOver ? 'bg-indigo-50 border-indigo-300 dark:bg-indigo-900/20 dark:border-indigo-700' : 'bg-slate-100/50 dark:bg-slate-900/30 border-slate-200/60 dark:border-slate-800'}
+                `}
+                onDragOver={(e) => handleDragOver(e, status)}
+                onDrop={(e) => handleDrop(e, status)}
+                onDragLeave={handleDragLeave}
+                data-column-status={status} // Key for mobile DnD
+            >
+                <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-100 dark:bg-slate-900/80 rounded-t-2xl">
+                    <div className="flex items-center gap-2">
+                        <div className={`w-3 h-3 rounded-full ${badgeColor} shadow-sm`}></div>
+                        <h3 className="font-bold text-slate-700 dark:text-slate-200">{title}</h3>
+                    </div>
+                    <span className="bg-white dark:bg-slate-800 text-slate-500 text-xs font-bold px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
+                        {columnOrders.length}
+                    </span>
+                </div>
+                <div className="p-3 space-y-3 flex-1 overflow-y-auto custom-scrollbar min-h-[200px]">
+                    {columnOrders.map(order => (
+                        <OrderCard 
+                            key={order.id} 
+                            order={order} 
+                            statusColor={colorClass}
+                            onMove={() => updateOrderStatus(order.id, status === 'PENDING' ? 'IN_PROGRESS' : 'READY')} 
+                            onPrint={() => handlePrintOrder(order)}
+                            onCancel={() => setOrderToDelete(order.id)}
+                            isReady={status === 'READY'}
+                            onConvert={() => handleConvertClick(order.id)}
+                            onDragStart={handleDragStart}
+                            onTouchStart={handleTouchStart}
+                        />
+                    ))}
+                    {columnOrders.length === 0 && (
+                        <div className="text-center py-10 opacity-40 pointer-events-none">
+                            <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 inline-block mb-2">
+                                <Package className="w-6 h-6 text-slate-400" />
+                            </div>
+                            <p className="text-sm text-slate-500">Arrastra pedidos aquí</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     return (
-        <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
+        <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200" onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
             <div className="max-w-7xl mx-auto h-full flex flex-col">
                 {/* Header Section */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -301,7 +427,7 @@ export const Orders: React.FC = () => {
                                 <ListChecks className="w-4 h-4" /> Hoja de Producción
                             </button>
                         )}
-                        <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1.5 shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-auto">
+                        <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-auto">
                             <button 
                                 onClick={() => setActiveTab('LIST')}
                                 className={`flex-1 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 whitespace-nowrap ${activeTab === 'LIST' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
@@ -321,90 +447,24 @@ export const Orders: React.FC = () => {
                 {activeTab === 'LIST' && (
                     <div className="flex-1 overflow-x-auto pb-6 -mx-4 px-4 md:mx-0 md:px-0">
                         <div className="flex gap-6 min-w-[90vw] md:min-w-[1000px] h-full snap-x snap-mandatory">
-                            {/* PENDING COLUMN */}
-                            <div className="flex-1 min-w-[85vw] md:min-w-0 flex flex-col bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm snap-center">
-                                <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-100 dark:bg-slate-900/80 rounded-t-2xl">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-3 h-3 rounded-full bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.6)]"></div>
-                                        <h3 className="font-bold text-slate-700 dark:text-slate-200">Pendientes</h3>
-                                    </div>
-                                    <span className="bg-white dark:bg-slate-800 text-slate-500 text-xs font-bold px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
-                                        {activeOrders.filter(o => o.status === 'PENDING').length}
-                                    </span>
-                                </div>
-                                <div className="p-3 space-y-3 flex-1 overflow-y-auto custom-scrollbar">
-                                    {activeOrders.filter(o => o.status === 'PENDING').map(order => (
-                                        <OrderCard 
-                                            key={order.id} 
-                                            order={order} 
-                                            statusColor="border-yellow-400"
-                                            onMove={() => updateOrderStatus(order.id, 'IN_PROGRESS')} 
-                                            onPrint={() => handlePrintOrder(order)}
-                                            onCancel={() => setOrderToDelete(order.id)}
-                                        />
-                                    ))}
-                                    {activeOrders.filter(o => o.status === 'PENDING').length === 0 && (
-                                        <div className="text-center py-10 opacity-40">
-                                            <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 inline-block mb-2">
-                                                <Package className="w-6 h-6 text-slate-400" />
-                                            </div>
-                                            <p className="text-sm text-slate-500">Sin pedidos pendientes</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                             {/* IN PROGRESS COLUMN */}
-                             <div className="flex-1 min-w-[85vw] md:min-w-0 flex flex-col bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm snap-center">
-                                <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-100 dark:bg-slate-900/80 rounded-t-2xl">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></div>
-                                        <h3 className="font-bold text-slate-700 dark:text-slate-200">En Producción</h3>
-                                    </div>
-                                    <span className="bg-white dark:bg-slate-800 text-slate-500 text-xs font-bold px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
-                                        {activeOrders.filter(o => o.status === 'IN_PROGRESS').length}
-                                    </span>
-                                </div>
-                                <div className="p-3 space-y-3 flex-1 overflow-y-auto custom-scrollbar">
-                                    {activeOrders.filter(o => o.status === 'IN_PROGRESS').map(order => (
-                                        <OrderCard 
-                                            key={order.id} 
-                                            order={order} 
-                                            statusColor="border-blue-500"
-                                            onMove={() => updateOrderStatus(order.id, 'READY')} 
-                                            onPrint={() => handlePrintOrder(order)}
-                                            onCancel={() => setOrderToDelete(order.id)}
-                                            prevStatus 
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-
-                             {/* READY COLUMN */}
-                             <div className="flex-1 min-w-[85vw] md:min-w-0 flex flex-col bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-slate-200/60 dark:border-slate-800 backdrop-blur-sm snap-center">
-                                <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-100 dark:bg-slate-900/80 rounded-t-2xl">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
-                                        <h3 className="font-bold text-slate-700 dark:text-slate-200">Listos / Por Entregar</h3>
-                                    </div>
-                                    <span className="bg-white dark:bg-slate-800 text-slate-500 text-xs font-bold px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
-                                        {activeOrders.filter(o => o.status === 'READY').length}
-                                    </span>
-                                </div>
-                                <div className="p-3 space-y-3 flex-1 overflow-y-auto custom-scrollbar">
-                                    {activeOrders.filter(o => o.status === 'READY').map(order => (
-                                        <OrderCard 
-                                            key={order.id} 
-                                            order={order} 
-                                            statusColor="border-emerald-500"
-                                            isReady 
-                                            onConvert={() => handleConvertClick(order.id)}
-                                            onPrint={() => handlePrintOrder(order)}
-                                            onCancel={() => setOrderToDelete(order.id)}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
+                            <OrderColumn 
+                                status="PENDING" 
+                                title="Pendientes" 
+                                colorClass="border-yellow-400" 
+                                badgeColor="bg-yellow-400" 
+                            />
+                            <OrderColumn 
+                                status="IN_PROGRESS" 
+                                title="En Producción" 
+                                colorClass="border-blue-500" 
+                                badgeColor="bg-blue-500" 
+                            />
+                            <OrderColumn 
+                                status="READY" 
+                                title="Listos / Por Entregar" 
+                                colorClass="border-emerald-500" 
+                                badgeColor="bg-emerald-500" 
+                            />
                         </div>
                     </div>
                 )}
@@ -419,7 +479,7 @@ export const Orders: React.FC = () => {
                                         <Printer className="w-5 h-5 text-indigo-500" />
                                         Seleccionar Pedidos
                                     </h3>
-                                    <p className="text-xs text-slate-500">Evita imprimir lo que ya tienes. Filtra y selecciona.</p>
+                                    <p className="text-xs text-slate-500">Calcula automáticamente qué necesitas producir.</p>
                                 </div>
                                 <button onClick={() => setPrintModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                                     <X className="w-5 h-5" />
@@ -479,7 +539,7 @@ export const Orders: React.FC = () => {
                                     disabled={selectedOrdersForPrint.size === 0}
                                     className="w-full py-3 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity shadow-lg"
                                 >
-                                    Imprimir ({selectedOrdersForPrint.size}) Pedidos
+                                    Generar Hoja Inteligente ({selectedOrdersForPrint.size})
                                 </button>
                             </div>
                         </div>
@@ -489,8 +549,7 @@ export const Orders: React.FC = () => {
                 {/* --- RESTORED CREATE TAB CONTENT --- */}
                 {activeTab === 'CREATE' && (
                     <div className="flex flex-col lg:flex-row gap-6 h-full overflow-hidden pb-4 relative">
-                        
-                        {/* Mobile Toggle Tabs */}
+                        {/* (Keep existing CREATE content same as before) */}
                         <div className="md:hidden flex border-b border-slate-200 dark:border-slate-800">
                             <button 
                                 onClick={() => setMobileCreateStep('CATALOG')} 
@@ -667,6 +726,7 @@ export const Orders: React.FC = () => {
                 )}
             </div>
 
+            {/* ... (Convert and Delete Modals remain unchanged) ... */}
             {/* Convert to Sale Modal */}
             {convertToSaleId && (
                 <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
@@ -718,6 +778,17 @@ export const Orders: React.FC = () => {
                             <button onClick={confirmDeleteOrder} className="flex-[2] py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg">Sí, Eliminar</button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Touch Drag Overlay/Ghost (Optional - Current implementation handles visual via fixed positioning if needed, but here sticking to transform/z-index logic in state would be ideal for smoother UX. For simplicity, just dragging the real card or using status updates on drop) */}
+            {touchDraggingId && draggedOrder && (
+                <div 
+                    className="fixed z-50 pointer-events-none p-4 rounded-xl bg-white dark:bg-slate-800 shadow-2xl border-l-4 border-indigo-500 w-64 opacity-90"
+                    style={{ left: touchPos.x + 10, top: touchPos.y + 10 }}
+                >
+                    <h4 className="font-bold text-sm line-clamp-1">{draggedOrder.customerName}</h4>
+                    <p className="text-xs text-slate-500">Moviendo...</p>
                 </div>
             )}
         </div>
