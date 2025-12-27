@@ -76,6 +76,7 @@ export interface Purchase {
     supplierName: string;
     date: string;
     items: PurchaseItem[];
+    shippingCost?: number; // NEW FIELD
     total: number;
     status: 'COMPLETED' | 'CANCELLED';
     notes?: string;

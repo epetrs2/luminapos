@@ -23,6 +23,7 @@ export const Suppliers: React.FC = () => {
   const [productSearch, setProductSearch] = useState('');
   const [purchaseCart, setPurchaseCart] = useState<PurchaseItem[]>([]);
   const [purchaseNotes, setPurchaseNotes] = useState('');
+  const [purchaseShipping, setPurchaseShipping] = useState(''); // NEW: Shipping Cost
 
   // Quick Product Create State
   const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
@@ -102,7 +103,10 @@ export const Suppliers: React.FC = () => {
       setPurchaseCart(prev => prev.filter((_, idx) => idx !== index));
   };
 
-  const purchaseTotal = purchaseCart.reduce((sum, item) => sum + item.total, 0);
+  // Calculate Total Including Shipping
+  const subtotal = purchaseCart.reduce((sum, item) => sum + item.total, 0);
+  const shippingCost = parseFloat(purchaseShipping) || 0;
+  const purchaseTotal = subtotal + shippingCost;
 
   const handleConfirmPurchase = () => {
       if (!selectedSupplierId) {
@@ -122,6 +126,7 @@ export const Suppliers: React.FC = () => {
           supplierName: supplier?.name || 'Desconocido',
           date: new Date().toISOString(),
           items: purchaseCart,
+          shippingCost: shippingCost, // Save shipping
           total: purchaseTotal,
           status: 'COMPLETED',
           notes: purchaseNotes
@@ -132,6 +137,7 @@ export const Suppliers: React.FC = () => {
       // Reset Form
       setPurchaseCart([]);
       setPurchaseNotes('');
+      setPurchaseShipping('');
       setProductSearch('');
       setSubTab('LIST');
       setMobilePurchaseStep('CATALOG');
@@ -348,7 +354,8 @@ export const Suppliers: React.FC = () => {
                                         {purchase.items.length} items: {purchase.items.map(i => i.name).join(', ')}
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                        {(purchase.shippingCost || 0) > 0 && <span className="text-[10px] text-slate-400 flex items-center gap-1"><Truck className="w-3 h-3"/> Envío: ${purchase.shippingCost?.toFixed(2)}</span>}
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 ml-auto">
                                             <Check className="w-3 h-3" /> Completado
                                         </span>
                                     </div>
@@ -364,6 +371,7 @@ export const Suppliers: React.FC = () => {
                                         <th className="px-6 py-4 text-left">Fecha</th>
                                         <th className="px-6 py-4 text-left">Proveedor</th>
                                         <th className="px-6 py-4 text-left">Items</th>
+                                        <th className="px-6 py-4 text-right">Envío</th>
                                         <th className="px-6 py-4 text-right">Total Compra</th>
                                         <th className="px-6 py-4 text-center">Estado</th>
                                     </tr>
@@ -381,6 +389,9 @@ export const Suppliers: React.FC = () => {
                                             <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">
                                                 <span className="font-bold">{purchase.items.length}</span> productos
                                                 <div className="text-xs text-slate-400 truncate max-w-[200px]">{purchase.items.map(i => i.name + (i.variantName ? ` (${i.variantName})` : '')).join(', ')}</div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right text-slate-500 dark:text-slate-400 font-medium">
+                                                {purchase.shippingCost ? `$${purchase.shippingCost.toFixed(2)}` : '-'}
                                             </td>
                                             <td className="px-6 py-4 text-right font-black text-slate-800 dark:text-white">${purchase.total.toFixed(2)}</td>
                                             <td className="px-6 py-4 text-center">
@@ -553,6 +564,20 @@ export const Suppliers: React.FC = () => {
                             </div>
 
                             <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30">
+                                <div className="mb-4">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Costo Envío / Flete</label>
+                                    <div className="relative">
+                                        <Truck className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                        <input 
+                                            type="number"
+                                            placeholder="0.00"
+                                            className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none font-medium"
+                                            value={purchaseShipping}
+                                            onChange={(e) => setPurchaseShipping(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Notas</label>
                                 <textarea 
                                     rows={2}
@@ -561,9 +586,15 @@ export const Suppliers: React.FC = () => {
                                     value={purchaseNotes}
                                     onChange={(e) => setPurchaseNotes(e.target.value)}
                                 />
-                                <div className="flex justify-between items-end mb-4">
-                                    <span className="text-slate-500 font-medium">Total a Pagar</span>
-                                    <span className="text-3xl font-black text-slate-800 dark:text-white">${purchaseTotal.toFixed(2)}</span>
+                                <div className="space-y-1 mb-4 text-sm">
+                                    <div className="flex justify-between text-slate-500">
+                                        <span>Subtotal</span>
+                                        <span>${subtotal.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-end">
+                                        <span className="text-slate-500 font-medium">Total a Pagar</span>
+                                        <span className="text-3xl font-black text-slate-800 dark:text-white">${purchaseTotal.toFixed(2)}</span>
+                                    </div>
                                 </div>
                                 <button 
                                     onClick={handleConfirmPurchase}
