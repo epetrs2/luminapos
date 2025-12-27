@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { generateBusinessInsight } from '../services/geminiService';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ReferenceLine } from 'recharts';
-import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb } from 'lucide-react';
+import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { printFinancialReport, printZCutTicket } from '../utils/printService';
 
@@ -11,7 +11,7 @@ import { printFinancialReport, printZCutTicket } from '../utils/printService';
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#f97316'];
 
 type DateRangeOption = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
-type ReportTab = 'GENERAL' | 'Z_HISTORY' | 'DISTRIBUTION';
+type ReportTab = 'GENERAL' | 'Z_HISTORY' | 'DISTRIBUTION' | 'INVENTORY';
 
 export const Reports: React.FC = () => {
   const { transactions, products, cashMovements, settings, btDevice, sendBtData } = useStore();
@@ -33,6 +33,9 @@ export const Reports: React.FC = () => {
   // --- AI STATE ---
   const [insight, setInsight] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
+
+  // --- INVENTORY ANALYSIS STATE ---
+  const [invSort, setInvSort] = useState<'URGENT' | 'VALUE' | 'SLOW'>('URGENT');
 
   // --- DATA PREPARATION & FILTERING ---
   const { 
@@ -246,18 +249,15 @@ export const Reports: React.FC = () => {
   }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
   // --- DISTRIBUTION METRICS MEMO ---
-  // Calculates data specifically for the "Budget & Distribution" tab
   const distMetrics = useMemo(() => {
       const now = new Date();
       const start = new Date();
       if (distPeriod === 'WEEK') start.setDate(now.getDate() - 7);
       else start.setDate(now.getDate() - 30);
       
-      // Filter relevant data for this period
       const relevantTx = transactions.filter(t => t.status !== 'cancelled' && new Date(t.date) >= start);
       const relevantMovs = cashMovements.filter(m => new Date(m.date) >= start);
 
-      // 1. Total Income (Own Sales)
       let income = 0;
       relevantTx.forEach(t => {
           t.items.forEach(i => {
@@ -265,15 +265,10 @@ export const Reports: React.FC = () => {
           });
       });
       
-      // 2. Actual Expenses
       const actualOpEx = relevantMovs.filter(m => m.type === 'EXPENSE').reduce((s, m) => s + m.amount, 0);
       const actualProfitTaken = relevantMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s, m) => s + m.amount, 0);
-      
-      // 3. Derived Investment (Retained Earnings)
-      // Math: Income - (OpEx + ProfitTaken). This is what's left in the business to grow.
       const actualInvestment = Math.max(0, income - (actualOpEx + actualProfitTaken));
 
-      // 4. Targets based on Settings
       const config = settings.budgetConfig;
       const targetOpEx = income * (config.expensesPercentage / 100);
       const targetProfit = income * (config.profitPercentage / 100);
@@ -286,6 +281,112 @@ export const Reports: React.FC = () => {
           config // % values
       };
   }, [distPeriod, transactions, cashMovements, settings.budgetConfig]);
+
+  // --- INVENTORY ANALYTICS MEMO ---
+  const inventoryMetrics = useMemo(() => {
+      const now = new Date();
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(now.getDate() - 30);
+
+      // Filter sales last 30 days
+      const recentSales = transactions
+          .filter(t => t.status !== 'cancelled' && new Date(t.date) >= thirtyDaysAgo)
+          .flatMap(t => t.items);
+
+      const salesByProduct: Record<string, number> = {};
+      recentSales.forEach(i => {
+          salesByProduct[i.id] = (salesByProduct[i.id] || 0) + i.quantity;
+      });
+
+      let totalStockValue = 0;
+      let totalPotentialRevenue = 0;
+      const analysisItems: any[] = [];
+
+      products.forEach(p => {
+          if (!p.isActive) return;
+          const cost = p.cost || 0;
+          const price = p.price || 0;
+          const stock = p.stock || 0;
+          
+          totalStockValue += stock * cost;
+          totalPotentialRevenue += stock * price;
+
+          const sold30Days = salesByProduct[p.id] || 0;
+          const dailyRate = sold30Days / 30;
+          // Avoid division by zero, set high days if 0 sales
+          const daysRemaining = dailyRate > 0 ? stock / dailyRate : (stock > 0 ? 999 : 0);
+
+          analysisItems.push({
+              ...p,
+              sold30Days,
+              daysRemaining,
+              stockValue: stock * cost,
+              stockPotential: stock * price
+          });
+      });
+
+      // Analyze
+      const msgs: {title: string, desc: string, type: 'good'|'bad'|'info'}[] = [];
+      let status: 'ok'|'warning'|'critical' = 'ok';
+
+      // 1. Critical Stockouts (High velocity, low days remaining)
+      const criticals = analysisItems.filter(i => i.daysRemaining < 7 && i.stock > 0 && i.sold30Days > 5);
+      if (criticals.length > 0) {
+          status = 'critical';
+          msgs.push({
+              title: 'Riesgo de Quiebre de Stock',
+              desc: `${criticals.length} productos de alta rotación tienen menos de 1 semana de inventario. Prioriza producción de: ${criticals.slice(0,3).map((i:any) => i.name).join(', ')}...`,
+              type: 'bad'
+          });
+      }
+
+      // 2. Dead Stock (High value, 0 sales)
+      const deadStock = analysisItems.filter(i => i.stockValue > 500 && i.sold30Days === 0);
+      if (deadStock.length > 0) {
+          if (status !== 'critical') status = 'warning';
+          msgs.push({
+              title: 'Capital Estancado (Inventario Muerto)',
+              desc: `Tienes capital detenido en productos que no se han vendido en 30 días. Considera promociones para: ${deadStock.slice(0,3).map((i:any) => i.name).join(', ')}.`,
+              type: 'info'
+          });
+      }
+
+      // 3. Overstock (Low velocity, years of stock)
+      const overstock = analysisItems.filter(i => i.daysRemaining > 365 && i.sold30Days > 0);
+      if (overstock.length > 0) {
+           msgs.push({
+              title: 'Exceso de Inventario',
+              desc: `${overstock.length} productos tienen stock para más de un año al ritmo actual. Reduce la producción de estos ítems para liberar flujo.`,
+              type: 'info'
+          });
+      }
+
+      if (msgs.length === 0) {
+          msgs.push({
+              title: 'Inventario Saludable',
+              desc: 'Tus niveles de stock parecen estar balanceados con tu ritmo de ventas actual.',
+              type: 'good'
+          });
+      }
+
+      // Sort items based on user selection
+      const sortedItems = [...analysisItems].sort((a, b) => {
+          if (invSort === 'URGENT') return a.daysRemaining - b.daysRemaining; // Ascending days (0 first)
+          if (invSort === 'VALUE') return b.stockValue - a.stockValue; // Descending value
+          if (invSort === 'SLOW') return a.sold30Days - b.sold30Days; // Ascending sales (0 first)
+          return 0;
+      });
+
+      return {
+          totalStockValue,
+          totalPotentialRevenue,
+          sortedItems,
+          status,
+          messages: msgs,
+          criticalCount: criticals.length,
+          deadStockCount: deadStock.length
+      };
+  }, [products, transactions, invSort]);
 
   // --- AI HANDLER ---
   const handleGenerateInsight = async () => {
@@ -432,12 +533,18 @@ export const Reports: React.FC = () => {
                     </button>
                 )}
 
-                <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800">
+                <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 flex-wrap">
                     <button 
                         onClick={() => setActiveTab('GENERAL')}
                         className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'GENERAL' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                     >
                         General
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('INVENTORY')}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'INVENTORY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    >
+                        Inventario Detallado
                     </button>
                     <button 
                         onClick={() => setActiveTab('DISTRIBUTION')}
@@ -769,6 +876,164 @@ export const Reports: React.FC = () => {
                     </div>
                 </div>
             </>
+        ) : activeTab === 'INVENTORY' ? (
+            // --- INVENTORY DETAILED REPORT TAB ---
+            <div className="animate-[fadeIn_0.3s_ease-out]">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                            <Layers className="w-6 h-6 text-indigo-500" /> Auditoría de Inventario
+                        </h3>
+                        <p className="text-sm text-slate-500">Optimización de stock basada en rotación y valor.</p>
+                    </div>
+                    
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <button onClick={() => setInvSort('URGENT')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${invSort === 'URGENT' ? 'bg-white dark:bg-slate-700 shadow-sm text-red-600 dark:text-red-400' : 'text-slate-500'}`}>Urgentes</button>
+                        <button onClick={() => setInvSort('VALUE')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${invSort === 'VALUE' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>Valor $$</button>
+                        <button onClick={() => setInvSort('SLOW')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${invSort === 'SLOW' ? 'bg-white dark:bg-slate-700 shadow-sm text-orange-600 dark:text-orange-400' : 'text-slate-500'}`}>Sin Mov.</button>
+                    </div>
+                </div>
+
+                {/* Top Metrics Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                                <DollarSign className="w-5 h-5"/>
+                            </div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Valor en Costo</p>
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-800 dark:text-white">${inventoryMetrics.totalStockValue.toLocaleString()}</h3>
+                        <p className="text-[10px] text-slate-400">Dinero invertido en bodega</p>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg">
+                                <TrendingUp className="w-5 h-5"/>
+                            </div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Potencial Venta</p>
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-800 dark:text-white">${inventoryMetrics.totalPotentialRevenue.toLocaleString()}</h3>
+                        <p className="text-[10px] text-slate-400">Si se vende todo el stock actual</p>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg">
+                                <AlertTriangle className="w-5 h-5"/>
+                            </div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Riesgo Quiebre</p>
+                        </div>
+                        <h3 className="text-2xl font-black text-red-600 dark:text-red-400">{inventoryMetrics.criticalCount}</h3>
+                        <p className="text-[10px] text-slate-400">Productos con less de 7 días de stock</p>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-lg">
+                                <TrendingDown className="w-5 h-5"/>
+                            </div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Stock Muerto</p>
+                        </div>
+                        <h3 className="text-2xl font-black text-orange-600 dark:text-orange-400">{inventoryMetrics.deadStockCount}</h3>
+                        <p className="text-[10px] text-slate-400">Sin ventas en 30 días (Alto valor)</p>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Inventory Analyst Panel */}
+                    <div className="lg:col-span-1">
+                        <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden h-full">
+                            <div className="absolute top-0 right-0 p-6 opacity-10">
+                                <Box className="w-32 h-32" />
+                            </div>
+                            <h3 className="text-xl font-bold mb-4 relative z-10 flex items-center gap-2">
+                                <Lightbulb className="w-5 h-5 text-yellow-300" /> Analista de Stock
+                            </h3>
+                            
+                            <div className="space-y-4 relative z-10 custom-scrollbar max-h-[500px] overflow-y-auto">
+                                {inventoryMetrics.messages.map((msg, i) => (
+                                    <div key={i} className={`p-4 rounded-xl border ${msg.type === 'bad' ? 'bg-red-500/20 border-red-500/50' : msg.type === 'good' ? 'bg-emerald-500/20 border-emerald-500/50' : 'bg-white/10 border-white/20'}`}>
+                                        <p className={`text-xs font-bold mb-1 uppercase tracking-wide ${msg.type === 'bad' ? 'text-red-300' : msg.type === 'good' ? 'text-emerald-300' : 'text-blue-300'}`}>{msg.title}</p>
+                                        <p className="text-sm text-indigo-100 leading-relaxed">{msg.desc}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Detailed Table */}
+                    <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col">
+                        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                            <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm flex items-center gap-2">
+                                <ClipboardList className="w-4 h-4"/> Detalle de Productos
+                            </h4>
+                        </div>
+                        <div className="flex-1 overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase text-xs">
+                                    <tr>
+                                        <th className="px-4 py-3">Producto</th>
+                                        <th className="px-4 py-3 text-center">Stock</th>
+                                        <th className="px-4 py-3 text-center">Ventas (30d)</th>
+                                        <th className="px-4 py-3 text-center">Días Restantes</th>
+                                        <th className="px-4 py-3 text-right">Valor Stock</th>
+                                        <th className="px-4 py-3 text-center">Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {inventoryMetrics.sortedItems.slice(0, 50).map((item: any) => {
+                                        let badgeColor = 'bg-slate-100 text-slate-500';
+                                        let label = 'Normal';
+
+                                        if (item.daysRemaining < 7 && item.sold30Days > 0) {
+                                            badgeColor = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+                                            label = 'Urgente';
+                                        } else if (item.sold30Days === 0) {
+                                            badgeColor = 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400';
+                                            label = 'Sin Mov.';
+                                        } else if (item.daysRemaining > 180) {
+                                            badgeColor = 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
+                                            label = 'Exceso';
+                                        } else {
+                                            badgeColor = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+                                            label = 'Saludable';
+                                        }
+
+                                        return (
+                                            <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                                <td className="px-4 py-3 font-medium text-slate-800 dark:text-white">
+                                                    <div className="line-clamp-1">{item.name}</div>
+                                                    <div className="text-[10px] text-slate-400">{item.category}</div>
+                                                </td>
+                                                <td className="px-4 py-3 text-center font-bold text-slate-600 dark:text-slate-300">{item.stock}</td>
+                                                <td className="px-4 py-3 text-center text-slate-600 dark:text-slate-300">{item.sold30Days}</td>
+                                                <td className="px-4 py-3 text-center font-mono text-xs">
+                                                    {item.daysRemaining > 900 ? '∞' : item.daysRemaining.toFixed(0)} días
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-xs text-slate-600 dark:text-slate-400">
+                                                    ${item.stockValue.toFixed(0)}
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className={`text-[10px] font-bold px-2 py-1 rounded ${badgeColor}`}>
+                                                        {label}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                            {inventoryMetrics.sortedItems.length > 50 && (
+                                <div className="p-3 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+                                    Mostrando 50 de {inventoryMetrics.sortedItems.length} items
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
         ) : activeTab === 'DISTRIBUTION' ? (
             // --- BUDGET & DISTRIBUTION TAB ---
             <div className="animate-[fadeIn_0.3s_ease-out]">
