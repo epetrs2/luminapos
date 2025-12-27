@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight } from 'lucide-react';
+import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
 import { printInvoice, printThermalTicket } from '../utils/printService';
@@ -755,6 +755,10 @@ export const SalesHistory: React.FC = () => {
   const [paymentMode, setPaymentMode] = useState<'PAYMENT' | 'CONFIRM_TRANSFER'>('PAYMENT');
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
+  // New Filters
+  const [filterType, setFilterType] = useState<'ALL' | 'PAID' | 'PENDING' | 'CANCELLED'>('ALL');
+  const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT'>('DATE');
+
   // Helper functions
   const getCustomerName = (id?: string) => {
       if (!id) return 'Cliente General';
@@ -850,10 +854,42 @@ export const SalesHistory: React.FC = () => {
       notify("Registro Exitoso", "Venta manual agregada al historial.", "success");
   };
 
-  const filteredTransactions = transactions.filter(t => 
-      t.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      getCustomerName(t.customerId).toLowerCase().includes(searchTerm.toLowerCase())
-  ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  // --- MEMOIZED DATA PROCESSING ---
+  const counts = useMemo(() => {
+        return {
+            all: transactions.length,
+            paid: transactions.filter(t => t.status === 'completed' && t.paymentStatus === 'paid').length,
+            pending: transactions.filter(t => t.status === 'completed' && (t.paymentStatus === 'pending' || t.paymentStatus === 'partial')).length,
+            cancelled: transactions.filter(t => t.status === 'cancelled' || t.status === 'returned').length
+        };
+  }, [transactions]);
+
+  const filteredTransactions = useMemo(() => {
+        let result = transactions.filter(t => 
+            t.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
+            getCustomerName(t.customerId).toLowerCase().includes(searchTerm.toLowerCase())
+        );
+
+        // Apply Tab Filter
+        if (filterType === 'PAID') {
+            result = result.filter(t => t.status === 'completed' && t.paymentStatus === 'paid');
+        } else if (filterType === 'PENDING') {
+            result = result.filter(t => t.status === 'completed' && (t.paymentStatus === 'pending' || t.paymentStatus === 'partial'));
+        } else if (filterType === 'CANCELLED') {
+            result = result.filter(t => t.status === 'cancelled' || t.status === 'returned');
+        }
+
+        // Apply Sorting
+        result.sort((a, b) => {
+            if (sortBy === 'AMOUNT') {
+                return b.total - a.total;
+            }
+            // Default DATE (Newest first)
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
+        });
+
+        return result;
+  }, [transactions, searchTerm, filterType, sortBy]);
 
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
@@ -872,16 +908,44 @@ export const SalesHistory: React.FC = () => {
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col">
-          <div className="p-6 border-b border-slate-100 dark:border-slate-800">
-            <div className="relative max-w-md w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <input 
-                type="text" 
-                placeholder="Buscar por Folio o Cliente..." 
-                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-              />
+          
+          {/* Controls Bar */}
+          <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row gap-4 justify-between items-center bg-slate-50/50 dark:bg-slate-800/20">
+            {/* Filter Tabs */}
+            <div className="flex p-1 bg-slate-200 dark:bg-slate-800 rounded-xl overflow-x-auto w-full lg:w-auto custom-scrollbar">
+                <button onClick={() => setFilterType('ALL')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterType === 'ALL' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    Todas <span className="bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded-md text-[10px]">{counts.all}</span>
+                </button>
+                <button onClick={() => setFilterType('PAID')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterType === 'PAID' ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    <CheckCircle className="w-3 h-3"/> Pagadas <span className="bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded-md text-[10px]">{counts.paid}</span>
+                </button>
+                <button onClick={() => setFilterType('PENDING')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterType === 'PENDING' ? 'bg-white dark:bg-slate-700 text-yellow-600 dark:text-yellow-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    <Clock className="w-3 h-3"/> Pendientes <span className="bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded-md text-[10px]">{counts.pending}</span>
+                </button>
+                <button onClick={() => setFilterType('CANCELLED')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterType === 'CANCELLED' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-red-500 dark:hover:text-red-400'}`}>
+                    <Ban className="w-3 h-3"/> Anuladas <span className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded-md text-[10px]">{counts.cancelled}</span>
+                </button>
+            </div>
+
+            <div className="flex gap-3 w-full lg:w-auto">
+                <div className="relative flex-1 lg:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                    <input 
+                        type="text" 
+                        placeholder="Buscar por Folio o Cliente..." 
+                        className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-sm transition-all"
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                <button 
+                    onClick={() => setSortBy(prev => prev === 'DATE' ? 'AMOUNT' : 'DATE')}
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap"
+                    title={sortBy === 'DATE' ? 'Ordenar por Monto' : 'Ordenar por Fecha'}
+                >
+                    {sortBy === 'DATE' ? <ArrowDownWideNarrow className="w-4 h-4"/> : <ArrowUpNarrowWide className="w-4 h-4 text-emerald-500"/>}
+                    <span className="hidden md:inline">{sortBy === 'DATE' ? 'Más Recientes' : 'Mayor Monto'}</span>
+                </button>
             </div>
           </div>
 
