@@ -26,15 +26,14 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
         imgRef.current.src = imageSrc;
         imgRef.current.onload = () => {
             setImgLoaded(true);
-            const canvasSize = 320; // Slightly larger canvas
-            // Initial fit logic
+            const canvasSize = 320; 
             let initialScale = 1;
             if (imgRef.current.width > imgRef.current.height) {
                 initialScale = canvasSize / imgRef.current.height;
             } else {
                 initialScale = canvasSize / imgRef.current.width;
             }
-            setScale(initialScale * 0.6); // Start slightly zoomed out for easier adjustment
+            setScale(initialScale * 0.6); 
         };
     }, [imageSrc]);
 
@@ -44,9 +43,8 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        // Clear and set background
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#FFFFFF'; // Always white background for thermal printer compatibility
+        ctx.fillStyle = '#FFFFFF'; 
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         const centerX = canvas.width / 2;
@@ -58,21 +56,17 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
         ctx.drawImage(imgRef.current, -imgRef.current.width / 2, -imgRef.current.height / 2);
         ctx.restore();
 
-        // Draw Guide Grid (Overlay)
         if (showGrid) {
             ctx.strokeStyle = 'rgba(0,0,0,0.1)';
             ctx.lineWidth = 1;
             ctx.beginPath();
-            // Vertical lines
             ctx.moveTo(canvas.width * 0.33, 0); ctx.lineTo(canvas.width * 0.33, canvas.height);
             ctx.moveTo(canvas.width * 0.66, 0); ctx.lineTo(canvas.width * 0.66, canvas.height);
-            // Horizontal lines
             ctx.moveTo(0, canvas.height * 0.33); ctx.lineTo(canvas.width, canvas.height * 0.33);
             ctx.moveTo(0, canvas.height * 0.66); ctx.lineTo(canvas.width, canvas.height * 0.66);
             ctx.stroke();
             
-            // Center Crosshair
-            ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)'; // Indigo color
+            ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)'; 
             ctx.beginPath();
             ctx.moveTo(centerX - 10, centerY); ctx.lineTo(centerX + 10, centerY);
             ctx.moveTo(centerX, centerY - 10); ctx.lineTo(centerX, centerY + 10);
@@ -104,8 +98,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
 
     const handleFinalSave = () => {
         if (!canvasRef.current) return;
-        // Optimization: Standardize to 200x200 for sync efficiency
-        const outputSize = 200; 
+        const outputSize = 300; // Increased for better quality
         const outputCanvas = document.createElement('canvas');
         outputCanvas.width = outputSize;
         outputCanvas.height = outputSize;
@@ -114,7 +107,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
         if (ctx) {
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, outputSize, outputSize);
-            const ratio = outputSize / 320; // 320 is the view canvas size
+            const ratio = outputSize / 320; 
             const centerX = outputSize / 2;
             const centerY = outputSize / 2;
 
@@ -123,8 +116,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
             ctx.scale(scale * ratio, scale * ratio);
             ctx.drawImage(imgRef.current, -imgRef.current.width / 2, -imgRef.current.height / 2);
             ctx.restore();
-            // Lower quality slightly to ensure sync robustness (0.6 is good for logos)
-            onSave(outputCanvas.toDataURL('image/jpeg', 0.6)); 
+            onSave(outputCanvas.toDataURL('image/jpeg', 0.85)); 
         }
     };
 
@@ -155,7 +147,6 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
                     </button>
                 </div>
 
-                {/* Precision Zoom Controls */}
                 <div className="mt-6 mb-8">
                     <div className="flex items-center gap-4 justify-between">
                         <button onClick={() => adjustZoom(-0.1)} className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-indigo-100 hover:text-indigo-600 transition-colors"><Minus className="w-4 h-4"/></button>
@@ -201,12 +192,12 @@ export const Settings: React.FC = () => {
   const [isScanningBt, setIsScanningBt] = useState(false);
   const [btError, setBtError] = useState('');
 
-  // Sync internal state with context updates
+  const isCloudConfigured = !!settings.googleWebAppUrl && settings.enableCloudSync;
+
   useEffect(() => {
       setFormData(settings);
   }, [settings]);
 
-  // Preview Theme Immediately
   useEffect(() => {
       const root = window.document.documentElement;
       if (formData.theme === 'dark') {
@@ -214,9 +205,7 @@ export const Settings: React.FC = () => {
       } else {
           root.classList.remove('dark');
       }
-      // Revert if navigating away without saving happens via unmount of component
       return () => {
-          // Re-apply the globally saved setting to ensure consistency
           const globalIsDark = settings.theme === 'dark';
           if (globalIsDark) root.classList.add('dark');
           else root.classList.remove('dark');
@@ -275,22 +264,16 @@ export const Settings: React.FC = () => {
   // --- BLUETOOTH FUNCTIONS ---
   const handleBtScan = async () => {
       setBtError('');
-      
-      // Check for browser support first
       if (!(navigator as any).bluetooth) {
           setBtError("Tu navegador no soporta Bluetooth Web. Usa Chrome o Edge en Android/PC.");
           return;
       }
-
       setIsScanningBt(true);
       try {
           await connectBtPrinter();
       } catch (error: any) {
-          console.error("BT Error:", error);
-          if (error.name === 'NotFoundError' || error.message?.includes('cancelled')) {
-              // User cancelled the dialog, just ignore
-          } else {
-              setBtError(error.message || 'Error al escanear. Asegúrate de tener Bluetooth encendido.');
+          if (error.name !== 'NotFoundError') {
+              setBtError(error.message || 'Error al escanear.');
           }
       } finally {
           setIsScanningBt(false);
@@ -303,8 +286,7 @@ export const Settings: React.FC = () => {
           const data = generateTestTicket();
           await sendBtData(data);
       } catch (error) {
-          console.error("Print Error:", error);
-          setBtError("Error al enviar datos. Intenta reconectar.");
+          setBtError("Error al enviar datos.");
       }
   };
 
@@ -324,9 +306,6 @@ export const Settings: React.FC = () => {
       </div>
   );
 
-  // Derived state for Cloud Connection Status
-  const isCloudConfigured = formData.enableCloudSync && formData.googleWebAppUrl && formData.googleWebAppUrl.trim().length > 10;
-
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       {cropImage && <ImageCropper imageSrc={cropImage} onCancel={() => setCropImage(null)} onSave={onCropComplete} />}
@@ -343,7 +322,6 @@ export const Settings: React.FC = () => {
           </button>
         </div>
 
-        {/* --- NAVIGATION TABS --- */}
         <div className="flex flex-wrap gap-2 mb-8 bg-white dark:bg-slate-900 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-fit">
             {[
                 { id: 'GENERAL', label: 'Identidad', icon: Store },
@@ -365,10 +343,8 @@ export const Settings: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-            {/* ... (GENERAL, OPERATIONS, TICKETS tabs remain mostly unchanged) ... */}
             {activeTab === 'GENERAL' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-[fadeIn_0.3s_ease-out]">
-                    {/* Basic Info Column */}
                     <div className="lg:col-span-2 space-y-6">
                         <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
                             <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
@@ -384,40 +360,20 @@ export const Settings: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-
-                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
-                                <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg text-pink-600"><Palette className="w-5 h-5"/></div>
-                                Apariencia
-                            </h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <button onClick={() => setFormData({ ...formData, theme: 'light' })} className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${formData.theme === 'light' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-100 dark:border-slate-800 hover:border-slate-300'}`}>
-                                    <Sun className={`w-8 h-8 ${formData.theme === 'light' ? 'text-indigo-600' : 'text-slate-400'}`} />
-                                    <span className="font-bold text-sm">Modo Claro</span>
-                                </button>
-                                <button onClick={() => setFormData({ ...formData, theme: 'dark' })} className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${formData.theme === 'dark' ? 'border-indigo-500 bg-slate-800' : 'border-slate-100 dark:border-slate-800 hover:border-slate-300'}`}>
-                                    <Moon className={`w-8 h-8 ${formData.theme === 'dark' ? 'text-indigo-400' : 'text-slate-400'}`} />
-                                    <span className="font-bold text-sm">Modo Oscuro</span>
-                                </button>
-                            </div>
-                        </div>
                     </div>
 
-                    {/* Branding Column */}
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 h-fit">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-6">Logotipos</h3>
-                        
-                        <div className="space-y-8">
-                            <div className="text-center">
-                                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Logo Principal (App & Web)</p>
-                                <div className="relative group mx-auto w-40 h-40 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 transition-colors">
-                                    {formData.logo ? <img src={formData.logo} className="w-full h-full object-contain p-2" /> : <ImageIcon className="w-12 h-12 text-slate-300" />}
-                                    <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
-                                        <Upload className="w-8 h-8 mb-2" />
-                                        <span className="text-xs font-bold">Cambiar Logo</span>
-                                        <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'MAIN')} />
-                                    </div>
-                                </div>
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-6">Apariencia</h3>
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                <button onClick={() => setFormData({ ...formData, theme: 'light' })} className={`p-3 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${formData.theme === 'light' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-100 dark:border-slate-800'}`}>
+                                    <Sun className={`w-6 h-6 ${formData.theme === 'light' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                                    <span className="font-bold text-xs">Claro</span>
+                                </button>
+                                <button onClick={() => setFormData({ ...formData, theme: 'dark' })} className={`p-3 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${formData.theme === 'dark' ? 'border-indigo-500 bg-slate-800' : 'border-slate-100 dark:border-slate-800'}`}>
+                                    <Moon className={`w-6 h-6 ${formData.theme === 'dark' ? 'text-indigo-400' : 'text-slate-400'}`} />
+                                    <span className="font-bold text-xs">Oscuro</span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -458,16 +414,6 @@ export const Settings: React.FC = () => {
                                     <span className="bg-pink-50 dark:bg-pink-900/30 px-2 py-0.5 rounded text-pink-700 dark:text-pink-300">{formData.budgetConfig?.profitPercentage}%</span>
                                 </div>
                                 <input type="range" className="w-full h-3 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400" min="0" max="100" value={formData.budgetConfig?.profitPercentage || 20} onChange={e => setFormData({ ...formData, budgetConfig: { ...formData.budgetConfig, profitPercentage: parseInt(e.target.value) } })} />
-                            </div>
-
-                            <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-700">
-                                <span className="text-xs font-bold text-slate-500 uppercase">Suma Total</span>
-                                <div className="flex items-center gap-2">
-                                    <span className={`text-xl font-black ${((formData.budgetConfig?.expensesPercentage || 0) + (formData.budgetConfig?.investmentPercentage || 0) + (formData.budgetConfig?.profitPercentage || 0)) === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-                                        {(formData.budgetConfig?.expensesPercentage || 0) + (formData.budgetConfig?.investmentPercentage || 0) + (formData.budgetConfig?.profitPercentage || 0)}%
-                                    </span>
-                                    {((formData.budgetConfig?.expensesPercentage || 0) + (formData.budgetConfig?.investmentPercentage || 0) + (formData.budgetConfig?.profitPercentage || 0)) !== 100 && <AlertTriangle className="w-5 h-5 text-red-500" />}
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -520,46 +466,83 @@ export const Settings: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-
-                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
-                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><FileText className="w-5 h-5"/></div>
-                                Hoja de Producción
-                            </h3>
-                            <InputField label="Título del Documento" value={formData.productionDoc?.title} onChange={(e: any) => setFormData({ ...formData, productionDoc: { ...formData.productionDoc, title: e.target.value } })} />
-                            
-                            <div className="mt-4 space-y-3">
-                                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-xl cursor-pointer" onClick={() => setFormData({ ...formData, productionDoc: { ...formData.productionDoc, showPrices: !formData.productionDoc?.showPrices } })}>
-                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Mostrar Precios</span>
-                                    <div className={`w-12 h-6 rounded-full p-1 transition-colors ${formData.productionDoc?.showPrices ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
-                                        <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${formData.productionDoc?.showPrices ? 'translate-x-6' : ''}`} />
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-xl cursor-pointer" onClick={() => setFormData({ ...formData, productionDoc: { ...formData.productionDoc, showCustomerContact: !formData.productionDoc?.showCustomerContact } })}>
-                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Mostrar Contacto Cliente</span>
-                                    <div className={`w-12 h-6 rounded-full p-1 transition-colors ${formData.productionDoc?.showCustomerContact ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
-                                        <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${formData.productionDoc?.showCustomerContact ? 'translate-x-6' : ''}`} />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             )}
 
-            {/* --- TICKETS & PRINTING (NEW TAB) --- */}
+            {/* --- TICKETS & PRINTING (UPDATED TAB) --- */}
             {activeTab === 'TICKETS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-[fadeIn_0.3s_ease-out]">
+                    
                     {/* Controls Column */}
                     <div className="space-y-6">
+                        
+                        {/* INVOICE SETTINGS */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><FileText className="w-5 h-5"/></div>
+                                Nota de Venta (Carta / PDF)
+                            </h3>
+                            
+                            <div className="mb-6 border-b border-slate-100 dark:border-slate-800 pb-6">
+                                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Logo para Nota de Venta</p>
+                                <div className="flex items-center gap-4">
+                                    <div className="relative group w-24 h-24 bg-white rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 hover:border-slate-900 transition-colors shadow-sm shrink-0">
+                                        {formData.logo ? <img src={formData.logo} className="w-full h-full object-contain p-2" /> : <ImageIcon className="w-8 h-8 text-slate-300" />}
+                                        <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
+                                            <Upload className="w-5 h-5" />
+                                            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'MAIN')} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-sm text-slate-800 dark:text-white">Logo Principal</p>
+                                        <p className="text-[10px] text-slate-500 mt-1 max-w-[200px]">Se usará en la App y en documentos PDF a color (Nota de Venta, Orden de Producción).</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Márgenes de Impresión</label>
+                                    <span className="text-xs font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-slate-600 dark:text-slate-300">{formData.invoicePadding || 10}px</span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="50" 
+                                    step="1" 
+                                    value={formData.invoicePadding || 10} 
+                                    onChange={(e) => setFormData({...formData, invoicePadding: parseInt(e.target.value)})}
+                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                />
+                            </div>
+                        </div>
+
+                        {/* THERMAL TICKET SETTINGS */}
                         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
                             <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
                                 <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Printer className="w-5 h-5"/></div>
                                 Ticket Térmico
                             </h3>
 
+                            <div className="mb-6 border-b border-slate-100 dark:border-slate-800 pb-6">
+                                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Logo para Impresora Térmica</p>
+                                <div className="flex items-center gap-4">
+                                    <div className="relative group w-24 h-24 bg-white rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 hover:border-slate-900 transition-colors shadow-sm shrink-0">
+                                        {formData.receiptLogo ? <img src={formData.receiptLogo} className="w-full h-full object-contain p-2 grayscale contrast-125" style={{imageRendering: 'pixelated'}} /> : <Printer className="w-8 h-8 text-slate-300" />}
+                                        <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
+                                            <Upload className="w-5 h-5" />
+                                            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'RECEIPT')} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-sm text-slate-800 dark:text-white">Logo Ticket (B/N)</p>
+                                        <p className="text-[10px] text-slate-500 mt-1 max-w-[200px]">Optimizado para impresora térmica. Se convierte a blanco y negro con tramado (dithering).</p>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="space-y-6">
-                                {/* Paper Size */}
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1 mb-2 block">Ancho de Papel</label>
                                     <div className="grid grid-cols-2 gap-3">
@@ -580,23 +563,6 @@ export const Settings: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Logo Uploader for Receipt */}
-                                <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
-                                    <div className="flex items-center gap-4">
-                                        <div className="relative group w-24 h-24 bg-white rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 hover:border-slate-900 transition-colors shadow-sm shrink-0">
-                                            {formData.receiptLogo ? <img src={formData.receiptLogo} className="w-full h-full object-contain p-2" /> : <Printer className="w-8 h-8 text-slate-300" />}
-                                            <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
-                                                <Upload className="w-5 h-5" />
-                                                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'RECEIPT')} />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-sm text-slate-800 dark:text-white">Logo de Ticket</p>
-                                            <p className="text-xs text-slate-500 mt-1 leading-tight">Recomendado: Fondo blanco puro y líneas negras (B/N) para impresión térmica nítida.</p>
-                                        </div>
-                                    </div>
-                                </div>
-
                                 <InputField label="Encabezado / Slogan" value={formData.receiptHeader || ''} onChange={(e: any) => setFormData({ ...formData, receiptHeader: e.target.value })} placeholder="Ej. ¡Bienvenido!" />
                                 
                                 <div>
@@ -609,30 +575,6 @@ export const Settings: React.FC = () => {
                                         placeholder="Ej. Gracias por su compra"
                                     />
                                 </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
-                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><FileText className="w-5 h-5"/></div>
-                                Nota de Venta (Carta)
-                            </h3>
-                            
-                            <div>
-                                <div className="flex justify-between items-center mb-2">
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Márgenes de Impresión</label>
-                                    <span className="text-xs font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-slate-600 dark:text-slate-300">{formData.invoicePadding || 10}px</span>
-                                </div>
-                                <input 
-                                    type="range" 
-                                    min="0" 
-                                    max="50" 
-                                    step="1" 
-                                    value={formData.invoicePadding || 10} 
-                                    onChange={(e) => setFormData({...formData, invoicePadding: parseInt(e.target.value)})}
-                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                                />
-                                <p className="text-[10px] text-slate-400 mt-2">Ajusta si el contenido se corta al imprimir en tu impresora.</p>
                             </div>
                         </div>
                     </div>
@@ -652,9 +594,9 @@ export const Settings: React.FC = () => {
                             {/* Thermal Header */}
                             <div className="text-center mb-4 pb-2 border-b border-dashed border-black">
                                 {formData.receiptLogo ? (
-                                    <img src={formData.receiptLogo} className="max-w-[60%] h-auto mx-auto mb-2 block" alt="Logo Ticket" />
+                                    <img src={formData.receiptLogo} className="max-w-[60%] h-auto mx-auto mb-2 block grayscale" alt="Logo Ticket" />
                                 ) : (
-                                    <div className="text-xs font-bold mb-1">[LOGO]</div>
+                                    <div className="text-xs font-bold mb-1">[LOGO TICKET]</div>
                                 )}
                                 {formData.receiptHeader && <div className="font-bold text-[10px] mb-1 whitespace-pre-wrap">{formData.receiptHeader}</div>}
                                 <div className="font-bold text-sm uppercase">{formData.name}</div>
@@ -669,15 +611,18 @@ export const Settings: React.FC = () => {
                             </div>
                             <div className="border-b border-dashed border-black my-2"></div>
                             
-                            <div className="space-y-1 mb-4">
-                                <div className="flex justify-between">
-                                    <span>2 x Producto A</span>
-                                    <span>$50.00</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span>1 x Producto B</span>
-                                    <span>$120.00</span>
-                                </div>
+                            <div className="space-y-1 mb-4 font-mono text-[10px]">
+                                {formData.ticketPaperWidth === '58mm' ? (
+                                    <>
+                                        <div className="whitespace-pre">1   Producto A       $50.00</div>
+                                        <div className="whitespace-pre">2   Producto B      $120.00</div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="whitespace-pre">1    Producto A                     $50.00</div>
+                                        <div className="whitespace-pre">2    Producto B                    $120.00</div>
+                                    </>
+                                )}
                             </div>
 
                             <div className="border-t border-dashed border-black pt-2 mt-auto">
@@ -696,7 +641,7 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* --- BLUETOOTH PRINTER TAB --- */}
+            {/* --- BLUETOOTH PRINTER TAB (Keep existing) --- */}
             {activeTab === 'BLUETOOTH' && (
                 <div className="animate-[fadeIn_0.3s_ease-out]">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -761,48 +706,15 @@ export const Settings: React.FC = () => {
                                 )}
                             </div>
                         </div>
-
-                        {/* Instructions Panel */}
-                        <div className="bg-indigo-900 text-white p-6 md:p-8 rounded-3xl shadow-lg relative overflow-hidden flex flex-col justify-between">
-                            <div className="absolute top-0 right-0 p-8 opacity-10">
-                                <Bluetooth className="w-40 h-40" />
-                            </div>
-                            
-                            <div className="relative z-10">
-                                <h4 className="font-bold text-lg mb-4 flex items-center gap-2">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div> Guía Rápida
-                                </h4>
-                                <ul className="space-y-4 text-sm text-indigo-100">
-                                    <li className="flex gap-3">
-                                        <span className="font-bold bg-indigo-800 w-6 h-6 flex items-center justify-center rounded-full text-xs">1</span>
-                                        <span>Enciende tu impresora térmica portátil.</span>
-                                    </li>
-                                    <li className="flex gap-3">
-                                        <span className="font-bold bg-indigo-800 w-6 h-6 flex items-center justify-center rounded-full text-xs">2</span>
-                                        <span>Activa el Bluetooth y la Ubicación (GPS) en tu celular o computadora.</span>
-                                    </li>
-                                    <li className="flex gap-3">
-                                        <span className="font-bold bg-indigo-800 w-6 h-6 flex items-center justify-center rounded-full text-xs">3</span>
-                                        <span>Presiona "Buscar Dispositivo" y selecciona tu impresora en la lista.</span>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div className="mt-8 p-4 bg-white/10 rounded-xl border border-white/10 backdrop-blur-sm relative z-10">
-                                <p className="text-xs font-bold text-indigo-200 uppercase mb-1">Nota de Compatibilidad</p>
-                                <p className="text-xs text-white leading-relaxed">
-                                    Funciona con la mayoría de impresoras térmicas genéricas que soporten protocolo <strong>Bluetooth LE (Low Energy)</strong>. Si tu impresora es muy antigua (Classic Bluetooth), es posible que no aparezca en la lista web.
-                                </p>
-                            </div>
-                        </div>
                     </div>
                 </div>
             )}
 
-            {/* --- DATA & SYNC SETTINGS --- */}
+            {/* --- DATA & SYNC SETTINGS (Keep existing) --- */}
             {activeTab === 'DATA' && (
                 <div className="grid grid-cols-1 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        {/* ... Keep existing cloud setup content ... */}
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                             <div>
                                 <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3">

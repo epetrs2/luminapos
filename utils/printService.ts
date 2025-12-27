@@ -367,8 +367,9 @@ const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: Bus
     const emptyRows = Math.max(0, minRows - t.items.length);
     const emptyRowsArray = Array.from({ length: emptyRows });
     
-    const logoHtml = (settings.logo || settings.receiptLogo) 
-        ? `<div class="logo-area"><img src="${settings.receiptLogo || settings.logo}" /></div>` 
+    // FOR INVOICE: Use Main Logo (settings.logo) exclusively
+    const logoHtml = settings.logo 
+        ? `<div class="logo-area"><img src="${settings.logo}" /></div>` 
         : '<div class="logo-area" style="font-size:10px; color:#ccc;">SIN LOGO</div>';
 
     return `
@@ -586,6 +587,7 @@ export const printThermalTicket = async (
         .footer { text-align: center; margin-top: 10px; font-size: 10px; }
     `;
     
+    // For thermal ticket HTML fallback, also use Receipt Logo
     const html = `
         <html>
         <head><style>${TICKET_CSS}</style></head>
@@ -602,10 +604,14 @@ export const printThermalTicket = async (
                 <div>Cliente: ${customerName}</div>
             </div>
             <div class="line"></div>
+            <div class="row" style="font-weight:bold; border-bottom:1px solid #000;"><span>Cant</span><span>Desc.</span><span>Total</span></div>
             ${transaction.items.map(item => `
                 <div class="item-row">
-                    <div>${item.quantity} x ${item.name}</div>
-                    <div style="text-align:right">$${(item.price * item.quantity).toFixed(2)}</div>
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="width:10%">${item.quantity}</span>
+                        <span style="width:60%">${item.name}</span>
+                        <span style="width:30%; text-align:right;">$${(item.price * item.quantity).toFixed(2)}</span>
+                    </div>
                 </div>
             `).join('')}
             <div class="line"></div>
@@ -869,6 +875,8 @@ export const printZCutTicket = (movement: CashMovement, settings: BusinessSettin
         .footer { text-align: center; margin-top: 10px; font-size: 10px; }
     `;
 
+    // Z-Cut is thermal by definition, use Receipt Logo if possible for HTML preview, 
+    // or rely on escPosHelper for real print.
     const html = `
         <html>
         <head><style>${TICKET_CSS}</style></head>
