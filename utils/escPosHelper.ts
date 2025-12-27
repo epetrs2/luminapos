@@ -7,6 +7,8 @@ const GS = 0x1D;
 
 const COMMANDS = {
     INIT: [ESC, 0x40], // Initialize printer
+    CODE_PAGE: [ESC, 0x74, 0], // Select character code table (0 = PC437 standard)
+    CHAR_SET: [ESC, 0x52, 0], // Select international character set (0 = USA)
     TEXT_FORMAT: [ESC, 0x21], // Select print mode
     ALIGN_LEFT: [ESC, 0x61, 0],
     ALIGN_CENTER: [ESC, 0x61, 1],
@@ -17,10 +19,14 @@ const COMMANDS = {
     FEED_LINES: (n: number) => [ESC, 0x64, n], // Feed n lines
 };
 
-// Helper to sanitize text (remove accents for basic printers if needed, though most support standard codepages)
-// For broader compatibility with cheap printers, we remove accents.
+// Helper to sanitize text 
+// We aggressively strip accents and convert to ASCII to ensure compatibility with basic firmware
+// that doesn't support UTF-8 multibyte characters.
 const normalize = (str: string) => {
-    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return str
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Remove accents
+        .replace(/[^\x20-\x7E\n]/g, "?"); // Replace non-printable/non-ASCII with ?
 };
 
 const encode = (str: string) => {
@@ -51,24 +57,32 @@ export const generateEscPosTicket = (transaction: Transaction, customerName: str
 
     // --- 1. INITIALIZE ---
     add(COMMANDS.INIT);
+    add(COMMANDS.CODE_PAGE); // Force PC437
+    add(COMMANDS.CHAR_SET);
     
     // --- 2. HEADER ---
     add(COMMANDS.ALIGN_CENTER);
     add(COMMANDS.BOLD_ON);
-    // Double Height/Width for Shop Name (Optional, sticking to bold for compat)
+    
+    // Header Info
     addLine(settings.name);
     add(COMMANDS.BOLD_OFF);
     
     if (settings.address) addLine(settings.address);
     if (settings.phone) addLine(`Tel: ${settings.phone}`);
-    if (settings.receiptHeader) addLine(settings.receiptHeader);
+    addLine('\n'); // Spacer
+    
+    if (settings.receiptHeader) {
+        addLine(settings.receiptHeader);
+        addLine('\n');
+    }
     
     addLine(separator);
 
     // --- 3. TRANSACTION INFO ---
     add(COMMANDS.ALIGN_LEFT);
     addLine(`Folio: #${transaction.id}`);
-    addLine(`Fecha: ${new Date(transaction.date).toLocaleString()}`);
+    addLine(`Fecha: ${new Date(transaction.date).toLocaleString('es-MX')}`);
     addLine(`Cliente: ${customerName}`);
     addLine(separator);
 
@@ -92,10 +106,8 @@ export const generateEscPosTicket = (transaction: Transaction, customerName: str
             const nameStr = name.padEnd(18);
             const totalStr = total.padStart(9);
             addLine(`${qtyStr} ${nameStr} ${totalStr}`);
-            if (item.name.length > 16) {
-                // Print remainder of name on next line if needed
-                addLine(`    ${item.name.substring(16)}`);
-            }
+            // If name was truncated or long, maybe print full on next line? 
+            // For simplicity/cleanliness, we truncated.
         } else {
             // 80mm layout
             addLine(`${item.quantity} x ${item.name}`);
@@ -138,9 +150,9 @@ export const generateEscPosTicket = (transaction: Transaction, customerName: str
     addLine("Gracias por su compra");
     
     // --- 7. FEED & CUT ---
-    add(COMMANDS.FEED_LINES(4));
-    // add(COMMANDS.CUT); // Some cheap printers hang on cut command, feed is safer
-
+    // Feed 5 lines to clear the cutter/tear bar
+    add(COMMANDS.FEED_LINES(5)); 
+    
     return new Uint8Array(buffer);
 };
 
@@ -148,9 +160,15 @@ export const generateTestTicket = (): Uint8Array => {
     const buffer: number[] = [];
     const add = (data: number[]) => buffer.push(...data);
     const enc = new TextEncoder();
-    const addText = (str: string) => buffer.push(...Array.from(enc.encode(str)));
+    const addText = (str: string) => {
+        // Simple normalization for test
+        const safeStr = str.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); 
+        buffer.push(...Array.from(enc.encode(safeStr)));
+    };
 
     add(COMMANDS.INIT);
+    add(COMMANDS.CODE_PAGE); // PC437
+    
     add(COMMANDS.ALIGN_CENTER);
     add(COMMANDS.BOLD_ON);
     addText("LUMINA POS\n");
@@ -160,10 +178,10 @@ export const generateTestTicket = (): Uint8Array => {
     add(COMMANDS.ALIGN_LEFT);
     addText("Si puedes leer esto,\n");
     addText("tu impresora funciona.\n");
-    addText("Caracteres: ABC 123 Ñ $ % &\n");
+    addText("Caracteres: ABC 123 USD\n");
     add(COMMANDS.ALIGN_CENTER);
     addText("--------------------------------\n");
-    addText("\n\n\n"); // Feed lines manually to ensure it scrolls out
+    addText("\n\n\n\n\n"); // Feed lines manually to ensure it scrolls out
     
     return new Uint8Array(buffer);
 };

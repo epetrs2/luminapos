@@ -267,10 +267,20 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             const characteristics = await service.getCharacteristics();
             let writer: any = null;
             
+            // Priority: WriteWithoutResponse > Write
+            // WriteWithoutResponse is faster for streaming print data and prevents buffer stalls
             for (const c of characteristics) {
-                if (c.properties.write || c.properties.writeWithoutResponse) {
+                if (c.properties.writeWithoutResponse) {
                     writer = c;
                     break;
+                }
+            }
+            if (!writer) {
+                for (const c of characteristics) {
+                    if (c.properties.write) {
+                        writer = c;
+                        break;
+                    }
                 }
             }
 
@@ -318,13 +328,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             throw new Error("Impresora no conectada.");
         }
         
-        // Chunking for stability (max 512 bytes per chunk is safe for BLE)
+        // Chunking for stability.
+        // For WriteWithoutResponse, we can go slightly larger but 100-128 is a safe sweet spot for cheap printers.
         const CHUNK_SIZE = 100; 
         for (let i = 0; i < data.length; i += CHUNK_SIZE) {
             const chunk = data.slice(i, i + CHUNK_SIZE);
-            await btCharacteristic.writeValue(chunk);
+            
+            if (btCharacteristic.properties.writeWithoutResponse) {
+                await btCharacteristic.writeValueWithoutResponse(chunk);
+            } else {
+                await btCharacteristic.writeValue(chunk);
+            }
             // Small delay to prevent buffer overflow on cheap printers
-            await new Promise(r => setTimeout(r, 20)); 
+            await new Promise(r => setTimeout(r, 25)); 
         }
     }, [btCharacteristic, btDevice]);
 
