@@ -1,9 +1,10 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
-import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, Purchase, UserInvite, UserRole } from '../types';
+import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, Purchase, UserInvite, UserRole, SoundType } from '../types';
 import { hashPassword, verifyPassword, sanitizeDataStructure, generateSalt } from '../utils/security';
 import { verify2FAToken } from '../utils/twoFactor';
 import { pushFullDataToCloud, fetchFullDataFromCloud } from '../services/syncService';
+import { playSystemSound } from '../utils/sound';
 
 interface StoreContextType {
   products: Product[];
@@ -74,6 +75,7 @@ interface StoreContextType {
   registerWithInvite: (code: string, userData: any) => Promise<string>;
   deleteInvite: (code: string) => void;
   hardReset: () => Promise<void>;
+  playSound: (event: 'SALE' | 'ERROR' | 'CLICK' | 'NOTIFICATION') => void;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -516,6 +518,21 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const id = crypto.randomUUID();
         setToasts(prev => [...prev, { id, title, message, type }]);
         setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 5000);
+        // Play notification sound
+        if (type === 'success') playSound('SALE');
+        else if (type === 'error') playSound('ERROR');
+        else playSound('NOTIFICATION');
+    };
+
+    const playSound = (event: 'SALE' | 'ERROR' | 'CLICK' | 'NOTIFICATION') => {
+        if (!settings.soundConfig?.enabled) return;
+        const vol = settings.soundConfig.volume;
+        switch(event) {
+            case 'SALE': playSystemSound(settings.soundConfig.saleSound, vol); break;
+            case 'ERROR': playSystemSound(settings.soundConfig.errorSound, vol); break;
+            case 'CLICK': playSystemSound(settings.soundConfig.clickSound, vol); break;
+            case 'NOTIFICATION': playSystemSound(settings.soundConfig.notificationSound, vol); break;
+        }
     };
 
     const logout = () => { setCurrentUser(null); localStorage.removeItem('currentUser'); };
@@ -583,6 +600,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }));
         }
         logActivity('SALE', `Venta #${final.id}`);
+        // Play Sale Sound
+        playSound('SALE');
         markLocalChange();
     };
 
@@ -628,6 +647,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 category: 'SALES'
             });
         }
+        playSound('SALE');
         markLocalChange();
     };
 
@@ -701,7 +721,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addSupplier, updateSupplier, deleteSupplier, addPurchase,
             addCashMovement, deleteCashMovement,
             addOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale: (id, m)=>{}, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
-            notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset
+            notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset,
+            playSound
         }}>
             {children}
         </StoreContext.Provider>
