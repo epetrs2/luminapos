@@ -180,6 +180,23 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave 
     );
 };
 
+// --- REUSABLE COMPONENTS ---
+const InputField = ({ label, value, onChange, type = "text", placeholder = "", icon: Icon }: any) => (
+    <div className="space-y-1.5">
+        <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1">{label}</label>
+        <div className="relative group">
+            {Icon && <Icon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 group-focus-within:text-indigo-500 transition-colors" />}
+            <input 
+                type={type} 
+                value={value} 
+                onChange={onChange}
+                placeholder={placeholder}
+                className={`w-full ${Icon ? 'pl-9' : 'pl-4'} pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all font-medium text-sm shadow-sm`}
+            />
+        </div>
+    </div>
+);
+
 export const Settings: React.FC = () => {
   const { settings, updateSettings, hardReset, pushToCloud, notify, btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData } = useStore();
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA' | 'BLUETOOTH'>('GENERAL');
@@ -289,22 +306,6 @@ export const Settings: React.FC = () => {
           setBtError("Error al enviar datos.");
       }
   };
-
-  const InputField = ({ label, value, onChange, type = "text", placeholder = "", icon: Icon }: any) => (
-      <div className="space-y-1.5">
-          <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1">{label}</label>
-          <div className="relative group">
-              {Icon && <Icon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 group-focus-within:text-indigo-500 transition-colors" />}
-              <input 
-                  type={type} 
-                  value={value} 
-                  onChange={onChange}
-                  placeholder={placeholder}
-                  className={`w-full ${Icon ? 'pl-9' : 'pl-4'} pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all font-medium text-sm shadow-sm`}
-              />
-          </div>
-      </div>
-  );
 
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
