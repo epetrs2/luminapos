@@ -371,16 +371,15 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const pushToCloud = useCallback(async (overrides?: any) => {
         const currentData = storeRef.current;
         const config = overrides?.settings || currentData.settings;
-        if (!config.enableCloudSync || !config.googleWebAppUrl) return;
+        if (!config.enableCloudSync || !config.googleWebAppUrl) return false;
         
         // --- SAFETY GUARD: EMPTY DEVICE PROTECTION ---
-        // Prevents a new, empty device from overwriting the cloud database on auto-sync
         const isLocalEmpty = currentData.products.length === 0 && currentData.customers.length === 0;
         const isForced = overrides?.forcePush === true;
 
         if (isLocalEmpty && !isForced) {
             console.warn("🛡️ DATA SAFETY: Sincronización de subida bloqueada. Base de datos local vacía.");
-            return;
+            return false;
         }
         // ---------------------------------------------
 
@@ -391,9 +390,17 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             lastCloudSyncTimestamp.current = Date.now();
             lastPushSuccessAt.current = Date.now();
             hasPendingChangesRef.current = false;
-            setHasPendingChanges(false); 
+            setHasPendingChanges(false);
+            
+            // Only notify if explicit manual sync
+            if (overrides?.manual) {
+                notify("Sincronizado", "Cambios guardados correctamente.", "success");
+            }
+            return true;
         } catch (e) {
             console.error("Sync Error (Push):", e);
+            notify("Error de Sincronización", "No se pudieron guardar los cambios en la nube.", "error");
+            return false;
         } finally { 
             setIsSyncing(false); 
         }
@@ -405,8 +412,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (!url) return false;
         
         if (!force && hasPendingChangesRef.current) {
-            pushToCloud();
-            return false;
+            // Await push so user sees the result of the "pending changes" save
+            return await pushToCloud({ manual: !silent });
         }
 
         if (!silent) setIsSyncing(true);
