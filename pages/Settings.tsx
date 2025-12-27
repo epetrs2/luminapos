@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
@@ -236,6 +236,12 @@ export const Settings: React.FC = () => {
 
   const isCloudConfigured = !!settings.googleWebAppUrl && settings.enableCloudSync;
 
+  // Calculate Budget Total for Validation
+  const budgetTotal = useMemo(() => {
+      const b = formData.budgetConfig || { expensesPercentage: 0, investmentPercentage: 0, profitPercentage: 0 };
+      return (b.expensesPercentage || 0) + (b.investmentPercentage || 0) + (b.profitPercentage || 0);
+  }, [formData.budgetConfig]);
+
   useEffect(() => {
       setFormData(settings);
   }, [settings]);
@@ -255,6 +261,12 @@ export const Settings: React.FC = () => {
   }, [formData.theme, settings.theme]);
 
   const handleSave = () => {
+    // Operations Budget Validation
+    if (budgetTotal > 100) {
+        notify("Error en Distribución", `La suma de porcentajes es ${budgetTotal}%. No puedes exceder el 100%.`, "error");
+        return;
+    }
+
     updateSettings(formData);
     pushToCloud({ settings: formData });
     notify("Configuración Guardada", "Los cambios se han guardado y sincronizado.", "success");
@@ -542,12 +554,12 @@ export const Settings: React.FC = () => {
             {/* ... rest of the component (OPERATIONS, TICKETS, BLUETOOTH, DATA) ... */}
             {activeTab === 'OPERATIONS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
-                    {/* ... content for OPERATIONS tab ... */}
-                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                    <div className={`bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border transition-colors ${budgetTotal > 100 ? 'border-red-300 dark:border-red-900' : 'border-slate-100 dark:border-slate-800'}`}>
                         <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-2">
                             <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><PieChart className="w-5 h-5"/></div>
                             Distribución de Ingresos
                         </h3>
+                        
                         <div className="space-y-8 mt-6">
                             <div className="relative">
                                 <div className="flex justify-between text-sm font-bold mb-2">
@@ -572,6 +584,15 @@ export const Settings: React.FC = () => {
                                 </div>
                                 <input type="range" className="w-full h-3 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-pink-500 hover:accent-pink-400" min="0" max="100" value={formData.budgetConfig?.profitPercentage || 20} onChange={e => setFormData({ ...formData, budgetConfig: { ...formData.budgetConfig, profitPercentage: parseInt(e.target.value) } })} />
                             </div>
+                        </div>
+
+                        {/* Total Indicator */}
+                        <div className={`mt-8 p-4 rounded-2xl border flex justify-between items-center transition-colors ${budgetTotal > 100 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                            <div className="flex flex-col">
+                                <span className="font-bold text-sm uppercase tracking-wide">Total Distribución</span>
+                                {budgetTotal > 100 && <span className="text-xs font-bold mt-1">⚠️ Excede el 100%</span>}
+                            </div>
+                            <span className="font-black text-2xl">{budgetTotal}%</span>
                         </div>
                     </div>
 
