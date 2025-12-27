@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, Search, Users, Mail, Phone, DollarSign, Wallet, Infinity, Building2, User, Clock, FileText, ArrowRight, X, Hash, ShoppingBag, CheckCircle, ChevronRight } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Plus, Edit2, Trash2, Search, Users, Mail, Phone, DollarSign, Wallet, Infinity, Building2, User, Clock, FileText, ArrowRight, X, Hash, ShoppingBag, CheckCircle, ChevronRight, Filter, ArrowDownAZ, ArrowUpNarrowWide, AlertCircle } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Customer } from '../types';
 
@@ -11,6 +11,10 @@ export const Customers: React.FC = () => {
   const [formData, setFormData] = useState<Partial<Customer>>({});
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Filtering & Sorting State
+  const [filterType, setFilterType] = useState<'ALL' | 'INDIVIDUAL' | 'BUSINESS' | 'DEBTORS'>('ALL');
+  const [sortBy, setSortBy] = useState<'NAME' | 'DEBT'>('NAME');
+
   // Debt Payment Modal
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [payCustomer, setPayCustomer] = useState<Customer | null>(null);
@@ -18,6 +22,44 @@ export const Customers: React.FC = () => {
 
   // History Modal
   const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
+
+  // Counts for tabs
+  const counts = useMemo(() => {
+      return {
+          all: customers.length,
+          individual: customers.filter(c => c.clientType !== 'BUSINESS').length,
+          business: customers.filter(c => c.clientType === 'BUSINESS').length,
+          debtors: customers.filter(c => c.currentDebt > 0.01).length
+      };
+  }, [customers]);
+
+  const filteredCustomers = useMemo(() => {
+      let result = customers.filter(c => 
+        c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        c.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.id.includes(searchTerm)
+      );
+
+      // Apply Category Filter
+      if (filterType === 'INDIVIDUAL') {
+          result = result.filter(c => c.clientType !== 'BUSINESS');
+      } else if (filterType === 'BUSINESS') {
+          result = result.filter(c => c.clientType === 'BUSINESS');
+      } else if (filterType === 'DEBTORS') {
+          result = result.filter(c => c.currentDebt > 0.01);
+      }
+
+      // Apply Sorting
+      result.sort((a, b) => {
+          if (sortBy === 'DEBT') {
+              return b.currentDebt - a.currentDebt;
+          }
+          // Default to Name A-Z
+          return a.name.localeCompare(b.name);
+      });
+
+      return result;
+  }, [customers, searchTerm, filterType, sortBy]);
 
   const handleOpenModal = (customer?: Customer) => {
     if (customer) {
@@ -84,12 +126,6 @@ El equipo de LuminaPOS`;
       }
   };
 
-  const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    c.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.id.includes(searchTerm)
-  );
-
   return (
     <div className="p-4 md:p-8 md:pl-72 pt-20 md:pt-8 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       <div className="max-w-6xl mx-auto">
@@ -108,16 +144,44 @@ El equipo de LuminaPOS`;
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col">
-          <div className="p-4 md:p-6 border-b border-slate-100 dark:border-slate-800 flex gap-4">
-            <div className="relative flex-1 max-w-md w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Buscar cliente..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"
-              />
+          
+          {/* Controls Bar */}
+          <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row gap-4 justify-between items-center bg-slate-50/50 dark:bg-slate-800/20">
+            {/* Filter Tabs */}
+            <div className="flex p-1 bg-slate-200 dark:bg-slate-800 rounded-xl overflow-x-auto w-full lg:w-auto custom-scrollbar">
+                <button onClick={() => setFilterType('ALL')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterType === 'ALL' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    Todos <span className="bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded-md text-[10px]">{counts.all}</span>
+                </button>
+                <button onClick={() => setFilterType('INDIVIDUAL')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterType === 'INDIVIDUAL' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    <User className="w-3 h-3"/> Particulares <span className="bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded-md text-[10px]">{counts.individual}</span>
+                </button>
+                <button onClick={() => setFilterType('BUSINESS')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterType === 'BUSINESS' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                    <Building2 className="w-3 h-3"/> Empresas <span className="bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded-md text-[10px]">{counts.business}</span>
+                </button>
+                <button onClick={() => setFilterType('DEBTORS')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterType === 'DEBTORS' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 hover:text-red-500 dark:hover:text-red-400'}`}>
+                    <AlertCircle className="w-3 h-3"/> Con Deuda <span className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded-md text-[10px]">{counts.debtors}</span>
+                </button>
+            </div>
+
+            <div className="flex gap-3 w-full lg:w-auto">
+                <div className="relative flex-1 lg:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                    <input
+                        type="text"
+                        placeholder="Buscar cliente..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-sm transition-all"
+                    />
+                </div>
+                <button 
+                    onClick={() => setSortBy(prev => prev === 'NAME' ? 'DEBT' : 'NAME')}
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap"
+                    title={sortBy === 'NAME' ? 'Ordenar por Deuda' : 'Ordenar Alfabéticamente'}
+                >
+                    {sortBy === 'NAME' ? <ArrowDownAZ className="w-4 h-4"/> : <ArrowUpNarrowWide className="w-4 h-4 text-red-500"/>}
+                    <span className="hidden md:inline">{sortBy === 'NAME' ? 'Alfabético' : 'Mayor Deuda'}</span>
+                </button>
             </div>
           </div>
 
@@ -167,7 +231,7 @@ El equipo de LuminaPOS`;
           {/* Desktop Table View */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm uppercase font-semibold">
+              <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs uppercase font-semibold">
                 <tr>
                   <th className="px-6 py-4 text-left">Clave</th>
                   <th className="px-6 py-4 text-left">Nombre</th>
@@ -187,8 +251,8 @@ El equipo de LuminaPOS`;
                     </td>
                     <td className="px-6 py-4 font-medium text-slate-800 dark:text-slate-200">
                         <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm ${customer.clientType === 'BUSINESS' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'}`}>
-                                {customer.clientType === 'BUSINESS' ? <Building2 className="w-5 h-5" /> : <User className="w-5 h-5" />}
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold shadow-sm ${customer.clientType === 'BUSINESS' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'}`}>
+                                {customer.clientType === 'BUSINESS' ? <Building2 className="w-4 h-4" /> : <User className="w-4 h-4" />}
                             </div>
                             <div>
                                 <p className="font-bold text-slate-800 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{customer.name}</p>
@@ -197,7 +261,7 @@ El equipo de LuminaPOS`;
                         </div>
                     </td>
                     <td className="px-6 py-4">
-                        <div className="flex flex-col gap-1 text-sm">
+                        <div className="flex flex-col gap-1 text-xs">
                             {customer.email && (
                                 <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
                                     <Mail className="w-3 h-3" /> {customer.email}
@@ -212,7 +276,7 @@ El equipo de LuminaPOS`;
                     </td>
                     <td className="px-6 py-4 text-right">
                         {customer.hasUnlimitedCredit ? (
-                            <div className="flex items-center justify-end gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
+                            <div className="flex items-center justify-end gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
                                 <Infinity className="w-4 h-4" /> Ilimitado
                             </div>
                         ) : (
@@ -220,17 +284,17 @@ El equipo de LuminaPOS`;
                                 <span className="text-sm font-bold text-slate-600 dark:text-slate-400">
                                     ${(customer.creditLimit - customer.currentDebt).toFixed(2)}
                                 </span>
-                                <p className="text-xs text-slate-400">Límite: ${customer.creditLimit.toFixed(2)}</p>
+                                <p className="text-[10px] text-slate-400">Límite: ${customer.creditLimit.toFixed(2)}</p>
                             </>
                         )}
                     </td>
                     <td className="px-6 py-4 text-right">
-                        {customer.currentDebt > 0 ? (
+                        {customer.currentDebt > 0.01 ? (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
                                 -${customer.currentDebt.toFixed(2)}
                             </span>
                         ) : (
-                             <span className="text-xs text-slate-400">Sin deuda</span>
+                             <span className="text-xs text-slate-400 flex items-center justify-end gap-1"><CheckCircle className="w-3 h-3"/> Al día</span>
                         )}
                     </td>
                     <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
@@ -270,7 +334,7 @@ El equipo de LuminaPOS`;
           {filteredCustomers.length === 0 && (
             <div className="p-12 text-center text-slate-400 dark:text-slate-500">
               <Users className="w-12 h-12 mx-auto mb-3 opacity-20" />
-              <p>No se encontraron clientes</p>
+              <p>No se encontraron clientes con este filtro.</p>
             </div>
           )}
         </div>
