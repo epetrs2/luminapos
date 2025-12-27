@@ -1,5 +1,5 @@
 
-import { Transaction, BusinessSettings, Order, CashMovement, Customer, CartItem, Product } from '../types';
+import { Transaction, BusinessSettings, CashMovement, Order, CartItem, Product } from '../types';
 import { generateEscPosTicket, generateEscPosZReport } from './escPosHelper';
 
 // Estilos CSS base compartidos
@@ -806,7 +806,7 @@ export const printProductionSummary = (orders: Order[], settings: BusinessSettin
                                         ${item.variantName ? `<div style="font-style: italic; margin-top: 2px;">Var: ${item.variantName}</div>` : ''}
                                     </td>
                                     <td style="font-size: 10px; color: #555;">
-                                        ${item.orders.map(id => `#${id.slice(-4)}`).join(', ')}
+                                        ${item.orders.map((id: string) => `#${id.slice(-4)}`).join(', ')}
                                     </td>
                                 </tr>
                             `).join('')}
