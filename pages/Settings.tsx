@@ -464,6 +464,7 @@ export const Settings: React.FC = () => {
                                         >
                                             <option value="SUCCESS">Éxito (Cash)</option>
                                             <option value="GLASS">Cristal (Apple)</option>
+                                            <option value="GAMING">Gaming (Arcade)</option>
                                             <option value="CHORD">Acorde Suave</option>
                                             <option value="NONE">Silencio</option>
                                         </select>
@@ -483,7 +484,8 @@ export const Settings: React.FC = () => {
                                             className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
                                         >
                                             <option value="ERROR">Error (Bonk)</option>
-                                            <option value="POP">Pop</option>
+                                            <option value="ALERT">Alerta (Doble)</option>
+                                            <option value="RETRO">Retro (8-bit)</option>
                                             <option value="NONE">Silencio</option>
                                         </select>
                                         <button onClick={() => playSystemSound(formData.soundConfig.errorSound, formData.soundConfig.volume)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-100 transition-colors">
@@ -503,6 +505,7 @@ export const Settings: React.FC = () => {
                                         >
                                             <option value="POP">Pop Suave</option>
                                             <option value="NOTE">Nota Simple</option>
+                                            <option value="BEEP">Beep Digital</option>
                                             <option value="NONE">Silencio</option>
                                         </select>
                                         <button onClick={() => playSystemSound(formData.soundConfig.clickSound, formData.soundConfig.volume)} className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors">
@@ -521,6 +524,7 @@ export const Settings: React.FC = () => {
                                             className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
                                         >
                                             <option value="GLASS">Cristal (Apple)</option>
+                                            <option value="BELL">Campana Suave</option>
                                             <option value="CHORD">Acorde</option>
                                             <option value="NONE">Silencio</option>
                                         </select>
@@ -535,9 +539,10 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* --- OPERATIONS SETTINGS (Kept same) --- */}
+            {/* ... rest of the component (OPERATIONS, TICKETS, BLUETOOTH, DATA) ... */}
             {activeTab === 'OPERATIONS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
+                    {/* ... content for OPERATIONS tab ... */}
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
                         <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-2">
                             <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><PieChart className="w-5 h-5"/></div>
@@ -611,7 +616,7 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* --- TICKETS, BLUETOOTH & DATA TABS (kept same) --- */}
+            {/* --- TICKETS, BLUETOOTH & DATA TABS (kept same as before, truncated for brevity in XML unless changed) --- */}
             {activeTab === 'TICKETS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-[fadeIn_0.3s_ease-out]">
                     <div className="space-y-6">

@@ -196,7 +196,7 @@ export interface ProductionDocConfig {
     customFooter: string;
 }
 
-export type SoundType = 'NOTE' | 'CHORD' | 'POP' | 'GLASS' | 'SUCCESS' | 'ERROR' | 'NONE';
+export type SoundType = 'NOTE' | 'CHORD' | 'POP' | 'GLASS' | 'SUCCESS' | 'ERROR' | 'NONE' | 'BEEP' | 'ALERT' | 'RETRO' | 'BELL' | 'GAMING';
 
 export interface SoundConfig {
     enabled: boolean;
