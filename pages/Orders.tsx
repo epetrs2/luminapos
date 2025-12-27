@@ -141,8 +141,8 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     
     // Refs to bypass React State
     const dragInfoRef = useRef<{ id: string, originalEl: HTMLElement } | null>(null);
-    const columnRectsRef = useRef<{[key: string]: {rect: DOMRect, el: HTMLElement}}>({}); 
     const currentOverColumnRef = useRef<string | null>(null);
+    const currentOverColumnElRef = useRef<HTMLElement | null>(null); // Store the specific element for rollback styles
     const autoScrollSpeedRef = useRef(0);
     const animationFrameRef = useRef<number | null>(null);
 
@@ -331,7 +331,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     const handleDragLeave = () => setDragOverColumn(null);
 
     // --- ZERO LATENCY TOUCH HANDLER ---
-    // This function does NOT use state. It uses Refs and DOM only.
+    // Uses refs and DOM directly. No React state updates during drag.
     const handleTouchStart = useCallback((e: React.TouchEvent, id: string, name: string, element: HTMLElement | null) => {
         if (!element) return;
         if (navigator.vibrate) navigator.vibrate(50);
@@ -352,16 +352,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             if (ghostTextRef.current) ghostTextRef.current.innerText = name;
         }
 
-        // 4. Cache Column Positions
-        const cols = document.querySelectorAll<HTMLElement>('[data-column-status]');
-        const rects: {[key: string]: {rect: DOMRect, el: HTMLElement}} = {};
-        cols.forEach(el => {
-            const status = el.getAttribute('data-column-status');
-            if (status) rects[status] = { rect: el.getBoundingClientRect(), el: el };
-        });
-        columnRectsRef.current = rects;
-
-        // 5. Lock Scroll
+        // 4. Lock Scroll
         document.body.style.overflow = 'hidden'; 
         startAutoScroll();
     }, []);
@@ -382,36 +373,38 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 ghostRef.current.style.transform = `translate3d(${x - 20}px, ${y - 20}px, 0) rotate(3deg)`;
             }
 
-            // 2. Hit Test
-            let foundStatus: string | null = null;
-            for (const [status, data] of Object.entries(columnRectsRef.current)) {
-                const r = (data as {rect: DOMRect}).rect;
-                if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-                    foundStatus = status;
-                    break;
-                }
-            }
+            // 2. Hit Test using elementFromPoint (Robust against scrolling)
+            // We use this because scrolling the container changes the rects relative to viewport.
+            // elementFromPoint checks what is CURRENTLY under the finger.
+            const elUnderFinger = document.elementFromPoint(x, y);
+            const colEl = elUnderFinger?.closest('[data-column-status]') as HTMLElement | null;
+            const foundStatus = colEl?.getAttribute('data-column-status') || null;
 
             // 3. Highlight Column (Direct DOM)
             if (currentOverColumnRef.current !== foundStatus) {
                 // Clear old
-                if (currentOverColumnRef.current && columnRectsRef.current[currentOverColumnRef.current]) {
-                    const el = columnRectsRef.current[currentOverColumnRef.current].el;
+                if (currentOverColumnRef.current && currentOverColumnElRef.current) {
+                    const el = currentOverColumnElRef.current;
                     el.style.backgroundColor = '';
                     el.style.borderColor = '';
+                    el.style.transform = '';
                 }
+                
                 // Set new
-                if (foundStatus && columnRectsRef.current[foundStatus]) {
-                    const el = columnRectsRef.current[foundStatus].el;
-                    el.style.backgroundColor = 'rgba(99, 102, 241, 0.1)'; // indigo-50 approx
-                    el.style.borderColor = '#6366f1';
+                if (foundStatus && colEl) {
+                    colEl.style.backgroundColor = 'rgba(99, 102, 241, 0.1)'; // indigo-50
+                    colEl.style.borderColor = '#6366f1';
+                    colEl.style.transform = 'scale(1.01)';
+                    currentOverColumnElRef.current = colEl;
+                } else {
+                    currentOverColumnElRef.current = null;
                 }
                 currentOverColumnRef.current = foundStatus;
             }
 
-            // 4. Auto Scroll
+            // 4. Auto Scroll (Horizontal)
             const screenW = window.innerWidth;
-            const edgeZone = 50; 
+            const edgeZone = 60; 
             if (x < edgeZone) autoScrollSpeedRef.current = -12; 
             else if (x > screenW - edgeZone) autoScrollSpeedRef.current = 12; 
             else autoScrollSpeedRef.current = 0;
@@ -433,10 +426,11 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             }
             
             // Cleanup Highlights
-            if (currentOverColumnRef.current && columnRectsRef.current[currentOverColumnRef.current]) {
-                const el = columnRectsRef.current[currentOverColumnRef.current].el;
+            if (currentOverColumnRef.current && currentOverColumnElRef.current) {
+                const el = currentOverColumnElRef.current;
                 el.style.backgroundColor = '';
                 el.style.borderColor = '';
+                el.style.transform = '';
             }
 
             // 2. Logic Drop
@@ -454,6 +448,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             // 3. Reset Refs
             dragInfoRef.current = null;
             currentOverColumnRef.current = null;
+            currentOverColumnElRef.current = null;
         };
 
         // Bind with { passive: false } to allow e.preventDefault()
@@ -523,7 +518,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                     <div 
                                         key={status}
                                         data-column-status={status}
-                                        className={`flex-1 min-w-[85vw] md:min-w-0 flex flex-col rounded-2xl border transition-colors duration-200 snap-center backdrop-blur-sm ${isDesktopOver ? 'bg-indigo-50 border-indigo-400' : 'bg-slate-100/50 dark:bg-slate-900/30 border-slate-200/60 dark:border-slate-800'}`}
+                                        className={`flex-1 min-w-[85vw] md:min-w-0 flex flex-col rounded-2xl border transition-all duration-200 snap-center backdrop-blur-sm ${isDesktopOver ? 'bg-indigo-50 border-indigo-400' : 'bg-slate-100/50 dark:bg-slate-900/30 border-slate-200/60 dark:border-slate-800'}`}
                                         onDragOver={(e) => handleDragOver(e, status)}
                                         onDrop={(e) => handleDrop(e, status)}
                                         onDragLeave={handleDragLeave}
