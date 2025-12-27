@@ -18,16 +18,18 @@ const OrderCard: React.FC<{
     onDragStart: (e: React.DragEvent, id: string) => void;
     // Mobile Touch Props
     onTouchStart: (e: React.TouchEvent, id: string) => void;
-}> = ({ order, statusColor, onMove, onPrint, onCancel, isReady, onConvert, onDragStart, onTouchStart }) => {
+    isDragging: boolean;
+}> = ({ order, statusColor, onMove, onPrint, onCancel, isReady, onConvert, onDragStart, onTouchStart, isDragging }) => {
     return (
         <div 
-            className={`bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 ${statusColor} shadow-sm group hover:shadow-md transition-all relative select-none touch-manipulation`}
+            className={`bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 ${statusColor} shadow-sm group transition-all relative select-none ${isDragging ? 'opacity-30 scale-95' : 'hover:shadow-md'}`}
             draggable
             onDragStart={(e) => onDragStart(e, order.id)}
         >
-            {/* Mobile Drag Handle - Large touch target */}
+            {/* Mobile Drag Handle - Critical for touch UX */}
             <div 
                 className="absolute top-0 right-0 p-2 w-14 h-14 flex justify-end items-start z-20 cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ touchAction: 'none' }} // Prevents browser scrolling initiated on the handle
                 onTouchStart={(e) => onTouchStart(e, order.id)}
             >
                 <GripVertical className="w-6 h-6" /> 
@@ -125,10 +127,10 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const ghostRef = useRef<HTMLDivElement>(null); 
     const [touchDraggingId, setTouchDraggingId] = useState<string | null>(null);
-    const [touchOverColumn, setTouchOverColumn] = useState<string | null>(null);
     
-    // Cache for column positions to avoid expensive DOM reads during drag
-    const columnRectsRef = useRef<{[key: string]: DOMRect}>({}); 
+    // Refs for performance (Avoid React State updates during drag)
+    const columnRectsRef = useRef<{[key: string]: {rect: DOMRect, el: HTMLElement}}>({}); 
+    const currentOverColumnRef = useRef<string | null>(null);
     const autoScrollSpeedRef = useRef(0);
     const animationFrameRef = useRef<number | null>(null);
 
@@ -330,27 +332,25 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
 
     // --- MOBILE TOUCH DRAG AND DROP HANDLERS (OPTIMIZED 60FPS) ---
     const handleTouchStart = (e: React.TouchEvent, id: string) => {
-        // Haptic Feedback
         if (navigator.vibrate) navigator.vibrate(50);
         
         const touch = e.touches[0];
         setTouchDraggingId(id);
         
-        // CACHE COLUMN POSITIONS (Crucial for performance)
-        const cols = document.querySelectorAll('[data-column-status]');
-        const rects: {[key: string]: DOMRect} = {};
+        // CACHE COLUMN RECTS
+        const cols = document.querySelectorAll<HTMLElement>('[data-column-status]');
+        const rects: {[key: string]: {rect: DOMRect, el: HTMLElement}} = {};
         cols.forEach(el => {
             const status = el.getAttribute('data-column-status');
-            if (status) rects[status] = el.getBoundingClientRect();
+            if (status) rects[status] = { rect: el.getBoundingClientRect(), el: el };
         });
         columnRectsRef.current = rects;
 
-        // Lock body scroll
+        // Lock scroll globally
         document.body.style.overflow = 'hidden'; 
         
-        // Initialize ghost position
+        // Initialize ghost position immediately
         if (ghostRef.current) {
-            // Offset to center under finger slightly
             ghostRef.current.style.transform = `translate3d(${touch.clientX - 100}px, ${touch.clientY - 50}px, 0) rotate(3deg)`;
             ghostRef.current.style.opacity = '0.95';
         }
@@ -358,13 +358,12 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         startAutoScroll();
     };
 
-    // Global listeners for robust touch handling
+    // Global Window Listeners - Passive: false is CRITICAL
     useEffect(() => {
         if (!touchDraggingId) return;
 
         const handleWindowTouchMove = (e: TouchEvent) => {
-            // CRITICAL: Prevent default scrolling
-            e.preventDefault(); 
+            e.preventDefault(); // This is the key to preventing the "lag" / scroll interference
             const touch = e.touches[0];
             const x = touch.clientX;
             const y = touch.clientY;
@@ -374,26 +373,38 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 ghostRef.current.style.transform = `translate3d(${x - 100}px, ${y - 50}px, 0) rotate(3deg)`;
             }
 
-            // 2. DETECT COLUMN HOVER (Math instead of DOM read)
+            // 2. DETECT COLUMN HOVER (Math instead of React State)
             let foundStatus: string | null = null;
-            for (const [status, r] of Object.entries(columnRectsRef.current)) {
-                const rect = r as DOMRect; // Explicit cast to fix 'unknown' error
-                if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            for (const [status, data] of Object.entries(columnRectsRef.current)) {
+                const r = (data as {rect: DOMRect}).rect;
+                // Add margins for easier detection
+                if (x >= r.left && x <= r.right && y >= r.top - 50 && y <= r.bottom + 50) {
                     foundStatus = status;
                     break;
                 }
             }
-            // Only update React state if changed to avoid re-renders
-            setTouchOverColumn(prev => (prev !== foundStatus ? foundStatus : prev));
 
-            // 3. AUTO SCROLL CALCULATION
+            // 3. APPLY HIGHLIGHT CLASS DIRECTLY (Bypassing React Render Cycle)
+            if (currentOverColumnRef.current !== foundStatus) {
+                // Remove class from old
+                if (currentOverColumnRef.current && columnRectsRef.current[currentOverColumnRef.current]) {
+                    columnRectsRef.current[currentOverColumnRef.current].el.classList.remove('ring-4', 'ring-indigo-500', 'bg-indigo-50', 'dark:bg-indigo-900/30');
+                }
+                // Add class to new
+                if (foundStatus && columnRectsRef.current[foundStatus]) {
+                    columnRectsRef.current[foundStatus].el.classList.add('ring-4', 'ring-indigo-500', 'bg-indigo-50', 'dark:bg-indigo-900/30');
+                }
+                currentOverColumnRef.current = foundStatus;
+            }
+
+            // 4. AUTO SCROLL CALCULATION
             const screenW = window.innerWidth;
             const edgeZone = 60; // px from edge
             
             if (x < edgeZone) {
-                autoScrollSpeedRef.current = -12; // Scroll Left Speed
+                autoScrollSpeedRef.current = -15; 
             } else if (x > screenW - edgeZone) {
-                autoScrollSpeedRef.current = 12; // Scroll Right Speed
+                autoScrollSpeedRef.current = 15; 
             } else {
                 autoScrollSpeedRef.current = 0;
             }
@@ -403,18 +414,24 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             stopAutoScroll();
             document.body.style.overflow = ''; // Unlock scroll
             
+            // Cleanup Highlights
+            if (currentOverColumnRef.current && columnRectsRef.current[currentOverColumnRef.current]) {
+                columnRectsRef.current[currentOverColumnRef.current].el.classList.remove('ring-4', 'ring-indigo-500', 'bg-indigo-50', 'dark:bg-indigo-900/30');
+            }
+
             // Logic to drop
-            if (touchOverColumn) {
+            const finalStatus = currentOverColumnRef.current;
+            if (finalStatus) {
                 const order = orders.find(o => o.id === touchDraggingId);
-                if (order && order.status !== touchOverColumn) {
-                    updateOrderStatus(touchDraggingId, touchOverColumn);
+                if (order && order.status !== finalStatus) {
+                    updateOrderStatus(touchDraggingId, finalStatus);
                     if (navigator.vibrate) navigator.vibrate([30, 50, 30]); // Success vibration
                 }
             }
             
-            // Cleanup
+            // Reset
             setTouchDraggingId(null);
-            setTouchOverColumn(null);
+            currentOverColumnRef.current = null;
             if (ghostRef.current) {
                 ghostRef.current.style.opacity = '0';
                 ghostRef.current.style.transform = 'translate3d(-1000px, -1000px, 0)'; 
@@ -433,27 +450,27 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             window.removeEventListener('touchcancel', handleWindowTouchEnd);
             document.body.style.overflow = ''; 
         };
-    }, [touchDraggingId, orders, updateOrderStatus, touchOverColumn]); // Added touchOverColumn dep to ensure latest value is used in drop? No, ref is better but state works here as it triggers re-bind.
+    }, [touchDraggingId, orders, updateOrderStatus]);
 
 
     const OrderColumn = ({ status, title, colorClass, badgeColor }: { status: string, title: string, colorClass: string, badgeColor: string }) => {
         const columnOrders = activeOrders.filter(o => o.status === status);
-        const isOver = dragOverColumn === status || touchOverColumn === status;
+        const isDesktopOver = dragOverColumn === status;
 
         return (
             <div 
-                className={`flex-1 min-w-[85vw] md:min-w-0 flex flex-col rounded-2xl border transition-all duration-200 snap-center backdrop-blur-sm
-                    ${isOver ? 'bg-indigo-50 border-indigo-400 dark:bg-indigo-900/40 dark:border-indigo-500 ring-2 ring-indigo-500 ring-opacity-50 shadow-xl scale-[1.01]' : 'bg-slate-100/50 dark:bg-slate-900/30 border-slate-200/60 dark:border-slate-800'}
+                className={`flex-1 min-w-[85vw] md:min-w-0 flex flex-col rounded-2xl border transition-colors duration-200 snap-center backdrop-blur-sm
+                    ${isDesktopOver ? 'bg-indigo-50 border-indigo-400 dark:bg-indigo-900/40 dark:border-indigo-500 ring-2 ring-indigo-500' : 'bg-slate-100/50 dark:bg-slate-900/30 border-slate-200/60 dark:border-slate-800'}
                 `}
                 onDragOver={(e) => handleDragOver(e, status)}
                 onDrop={(e) => handleDrop(e, status)}
                 onDragLeave={handleDragLeave}
-                data-column-status={status} // Key for hit detection
+                data-column-status={status} // CRITICAL: This allows the DOM hit test to work
             >
-                <div className={`p-4 border-b flex justify-between items-center rounded-t-2xl ${isOver ? 'bg-indigo-100 dark:bg-indigo-900 border-indigo-200' : 'bg-slate-100 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800'}`}>
+                <div className={`p-4 border-b flex justify-between items-center rounded-t-2xl bg-slate-100 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800`}>
                     <div className="flex items-center gap-2">
                         <div className={`w-3 h-3 rounded-full ${badgeColor} shadow-sm`}></div>
-                        <h3 className={`font-bold ${isOver ? 'text-indigo-800 dark:text-indigo-200' : 'text-slate-700 dark:text-slate-200'}`}>{title}</h3>
+                        <h3 className={`font-bold text-slate-700 dark:text-slate-200`}>{title}</h3>
                     </div>
                     <span className="bg-white dark:bg-slate-800 text-slate-500 text-xs font-bold px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
                         {columnOrders.length}
@@ -461,19 +478,19 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 </div>
                 <div className="p-3 space-y-3 flex-1 overflow-y-auto custom-scrollbar min-h-[200px]">
                     {columnOrders.map(order => (
-                        <div key={order.id} className={touchDraggingId === order.id ? 'opacity-30 transition-opacity' : ''}>
-                            <OrderCard 
-                                order={order} 
-                                statusColor={colorClass}
-                                onMove={() => updateOrderStatus(order.id, status === 'PENDING' ? 'IN_PROGRESS' : 'READY')} 
-                                onPrint={() => handlePrintOrder(order)}
-                                onCancel={() => setOrderToDelete(order.id)}
-                                isReady={status === 'READY'}
-                                onConvert={() => handleDeliverToPOS(order.id)}
-                                onDragStart={handleDragStart}
-                                onTouchStart={handleTouchStart}
-                            />
-                        </div>
+                        <OrderCard 
+                            key={order.id}
+                            order={order} 
+                            statusColor={colorClass}
+                            onMove={() => updateOrderStatus(order.id, status === 'PENDING' ? 'IN_PROGRESS' : 'READY')} 
+                            onPrint={() => handlePrintOrder(order)}
+                            onCancel={() => setOrderToDelete(order.id)}
+                            isReady={status === 'READY'}
+                            onConvert={() => handleDeliverToPOS(order.id)}
+                            onDragStart={handleDragStart}
+                            onTouchStart={handleTouchStart}
+                            isDragging={touchDraggingId === order.id}
+                        />
                     ))}
                     {columnOrders.length === 0 && (
                         <div className="text-center py-10 opacity-40 pointer-events-none">
@@ -493,7 +510,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             {/* OPTIMIZED GHOST ELEMENT (Always in DOM, hidden/shown via opacity/transform) */}
             <div 
                 ref={ghostRef}
-                className="fixed top-0 left-0 z-[200] pointer-events-none p-4 rounded-xl bg-white dark:bg-slate-800 shadow-2xl border-l-4 border-indigo-500 w-56 opacity-0 transition-opacity duration-75 will-change-transform"
+                className="fixed top-0 left-0 z-[9999] pointer-events-none p-4 rounded-xl bg-white dark:bg-slate-800 shadow-2xl border-l-4 border-indigo-500 w-56 opacity-0 will-change-transform"
                 style={{ transform: 'translate3d(-1000px, -1000px, 0)' }}
             >
                 {touchDraggingId && draggedOrder && (
