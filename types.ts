@@ -136,7 +136,7 @@ export interface Order {
   priority: 'NORMAL' | 'HIGH';
 }
 
-export type BudgetCategory = 'OPERATIONAL' | 'INVESTMENT' | 'PROFIT' | 'SALES' | 'EQUITY' | 'THIRD_PARTY' | 'OTHER';
+export type BudgetCategory = 'OPERATIONAL' | 'INVESTMENT' | 'PROFIT' | 'SALES' | 'EQUITY' | 'THIRD_PARTY' | 'LOAN' | 'OTHER';
 
 export interface ZReportData {
     openingFund: number;

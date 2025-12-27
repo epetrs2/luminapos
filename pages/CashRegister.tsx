@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle, Tag, List } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle, Tag, List, Repeat } from 'lucide-react';
 import { CashMovement, BudgetCategory, ZReportData } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { printZCutTicket } from '../utils/printService';
@@ -13,6 +13,7 @@ const CAT_COLORS: Record<string, string> = {
     'EQUITY': '#3b82f6', // Blue
     'PROFIT': '#ec4899', // Pink
     'THIRD_PARTY': '#f97316', // Orange
+    'LOAN': '#8b5cf6', // Violet (New)
     'OTHER': '#64748b' // Slate
 };
 
@@ -22,6 +23,7 @@ const CAT_LABELS: Record<string, string> = {
     'EQUITY': 'Aporte Dueño',
     'PROFIT': 'Retiro Ganancia',
     'THIRD_PARTY': 'Liq. Terceros',
+    'LOAN': 'Reembolso/Préstamo',
     'OTHER': 'Otros'
 };
 
@@ -355,8 +357,10 @@ export const CashRegister: React.FC = () => {
                          <button type="button" onClick={() => handleTypeChange('DEPOSIT', 'EQUITY')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'DEPOSIT' && category === 'EQUITY' ? 'bg-blue-100 border-blue-300 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Aporte Dueño</button>
                          {/* PROFIT WITHDRAWAL */}
                          <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'PROFIT')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'PROFIT' ? 'bg-pink-100 border-pink-300 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Retiro Ganancia</button>
-                         {/* THIRD PARTY PAYOUT (NEW) */}
-                         <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'THIRD_PARTY')} className={`col-span-2 py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'THIRD_PARTY' ? 'bg-orange-100 border-orange-300 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Liquidación Tercero / Consignación</button>
+                         {/* REEMBOLSO (NEW BUTTON) */}
+                         <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'LOAN')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'LOAN' ? 'bg-violet-100 border-violet-300 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Reembolso Dueño</button>
+                         {/* THIRD PARTY PAYOUT */}
+                         <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'THIRD_PARTY')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'THIRD_PARTY' ? 'bg-orange-100 border-orange-300 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Liq. Tercero</button>
                     </div>
                     
                     <div className="relative">
@@ -365,7 +369,7 @@ export const CashRegister: React.FC = () => {
                     </div>
                     
                     {/* Category Input (Autocomplete) */}
-                    {(type === 'EXPENSE' || category === 'THIRD_PARTY') && (
+                    {(type === 'EXPENSE' || category === 'THIRD_PARTY' || category === 'LOAN') && (
                         <div className="relative">
                             <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                             <input 
@@ -373,7 +377,7 @@ export const CashRegister: React.FC = () => {
                                 type="text"
                                 value={subCategory}
                                 onChange={(e) => setSubCategory(e.target.value)}
-                                placeholder={category === 'THIRD_PARTY' ? "Nombre del Proveedor / Dueño..." : "Categoría (Luz, Renta, Limpieza...)"}
+                                placeholder={category === 'THIRD_PARTY' ? "Nombre del Proveedor / Dueño..." : category === 'LOAN' ? "Motivo del reembolso (Ej. Pago Luz)" : "Categoría (Luz, Renta, Limpieza...)"}
                                 className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm outline-none font-medium"
                                 disabled={!isRegisterOpen}
                             />
@@ -410,14 +414,15 @@ export const CashRegister: React.FC = () => {
                 {cashMovements.map((movement) => {
                     const isEquity = movement.category === 'EQUITY';
                     const isThirdParty = movement.category === 'THIRD_PARTY';
+                    const isLoan = movement.category === 'LOAN';
                     const isExpense = movement.type === 'EXPENSE';
                     
                     return (
                       <tr key={movement.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 group">
                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">{new Date(movement.date).toLocaleDateString()} {new Date(movement.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${movement.isZCut ? 'bg-indigo-100 text-indigo-700' : isExpense ? 'bg-red-100 text-red-700' : isThirdParty ? 'bg-orange-100 text-orange-700' : isEquity ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {movement.isZCut ? 'CORTE Z' : isEquity ? 'APORTE' : isThirdParty ? 'LIQ. 3RO' : movement.type}
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${movement.isZCut ? 'bg-indigo-100 text-indigo-700' : isExpense ? 'bg-red-100 text-red-700' : isLoan ? 'bg-violet-100 text-violet-700' : isThirdParty ? 'bg-orange-100 text-orange-700' : isEquity ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {movement.isZCut ? 'CORTE Z' : isEquity ? 'APORTE' : isLoan ? 'REEMBOLSO' : isThirdParty ? 'LIQ. 3RO' : movement.type}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-slate-500">
