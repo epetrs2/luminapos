@@ -26,7 +26,7 @@ const CAT_LABELS: Record<string, string> = {
 };
 
 export const CashRegister: React.FC = () => {
-  const { cashMovements, addCashMovement, deleteCashMovement, settings, transactions } = useStore();
+  const { cashMovements, addCashMovement, deleteCashMovement, settings, transactions, btDevice, sendBtData } = useStore();
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [subCategory, setSubCategory] = useState(''); // New: Specific category input
@@ -196,7 +196,7 @@ export const CashRegister: React.FC = () => {
           setSavingZCut(false);
           setZCutModalOpen(false);
           setDeclaredCash('');
-          printZCutTicket(zCutMovement, settings);
+          printZCutTicket(zCutMovement, settings, btDevice ? sendBtData : undefined);
       }, 1000);
   };
 
@@ -208,7 +208,7 @@ export const CashRegister: React.FC = () => {
   };
 
   const reprintZReport = (movement: CashMovement) => {
-      printZCutTicket(movement, settings);
+      printZCutTicket(movement, settings, btDevice ? sendBtData : undefined);
   };
 
   return (

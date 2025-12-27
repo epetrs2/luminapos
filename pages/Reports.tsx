@@ -14,7 +14,7 @@ type DateRangeOption = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 type ReportTab = 'GENERAL' | 'Z_HISTORY' | 'DISTRIBUTION';
 
 export const Reports: React.FC = () => {
-  const { transactions, products, cashMovements, settings } = useStore();
+  const { transactions, products, cashMovements, settings, btDevice, sendBtData } = useStore();
   
   // --- NAVIGATION STATE ---
   const [activeTab, setActiveTab] = useState<ReportTab>('GENERAL');
@@ -929,7 +929,7 @@ export const Reports: React.FC = () => {
                             </div>
 
                             <button 
-                                onClick={() => printZCutTicket(report, settings)}
+                                onClick={() => printZCutTicket(report, settings, btDevice ? sendBtData : undefined)}
                                 className="w-full py-2 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl flex items-center justify-center gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                             >
                                 <Printer className="w-4 h-4" /> Reimprimir Reporte

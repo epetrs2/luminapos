@@ -1,5 +1,5 @@
 
-import { Transaction, BusinessSettings } from "../types";
+import { Transaction, BusinessSettings, CashMovement } from "../types";
 
 // Standard ESC/POS Commands
 const ESC = 0x1B;
@@ -29,28 +29,35 @@ const encode = (str: string) => {
 };
 
 // --- HELPER: FIXED WIDTH COLUMNS ---
-/**
- * Creates a fixed-width row for thermal printers.
- * Handles text truncation or padding to ensure alignment.
- */
 const formatRow = (col1: string, col2: string, col3: string, widthType: '58mm' | '80mm') => {
     const totalWidth = widthType === '58mm' ? 32 : 48;
     
-    // Configuración de anchos
-    // 58mm: Cant(3) + Space(1) + Name(18) + Space(1) + Total(9) = 32
-    // 80mm: Cant(4) + Space(1) + Name(31) + Space(1) + Total(11) = 48
-    let w1 = widthType === '58mm' ? 3 : 4;
-    let w3 = widthType === '58mm' ? 9 : 11;
-    let w2 = totalWidth - w1 - w3 - 2; // -2 for spaces
+    // Config: 58mm [Qty 4][Space 1][Name 17][Space 1][Total 9]
+    // Config: 80mm [Qty 5][Space 1][Name 30][Space 1][Total 11]
+    
+    const w1 = widthType === '58mm' ? 4 : 5;
+    const w3 = widthType === '58mm' ? 9 : 11;
+    const w2 = totalWidth - w1 - w3 - 2; 
 
+    // Truncate and Pad
     const c1 = col1.substring(0, w1).padEnd(w1);
-    const c3 = col3.substring(0, w3).padStart(w3); // Price aligned to right
     const c2 = col2.substring(0, w2).padEnd(w2);
+    const c3 = col3.substring(0, w3).padStart(w3); // Align right
 
     return `${c1} ${c2} ${c3}`;
 };
 
-// --- IMAGE PROCESSING: FLOYD-STEINBERG DITHERING ---
+const formatTwoCols = (left: string, right: string, widthType: '58mm' | '80mm') => {
+    const totalWidth = widthType === '58mm' ? 32 : 48;
+    const wRight = Math.floor(totalWidth * 0.4); 
+    const wLeft = totalWidth - wRight - 1;
+    
+    const l = left.substring(0, wLeft).padEnd(wLeft);
+    const r = right.substring(0, wRight).padStart(wRight);
+    return `${l} ${r}`;
+};
+
+// --- IMAGE PROCESSING ---
 const loadImage = (url: string): Promise<HTMLImageElement> => {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -66,7 +73,7 @@ const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): nu
     const ctx = canvas.getContext('2d');
     if (!ctx) return [];
 
-    // Resize
+    // Resize logic
     let width = img.width;
     let height = img.height;
     if (width > maxWidth) {
@@ -79,59 +86,34 @@ const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): nu
     canvas.width = roundedWidth;
     canvas.height = height;
 
-    // Draw white background
+    // Draw white bg
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, roundedWidth, height);
     ctx.drawImage(img, 0, 0, roundedWidth, height);
 
     const imgData = ctx.getImageData(0, 0, roundedWidth, height);
-    const data = imgData.data; // RGBA array
+    const data = imgData.data;
 
-    // Convert to Grayscale
+    // Convert to Grayscale & Threshold (Simple binary for printer)
     const grayData = new Uint8Array(roundedWidth * height);
     for (let i = 0; i < data.length; i += 4) {
-        // Luminance formula
         const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-        grayData[i / 4] = gray;
+        grayData[i / 4] = gray < 128 ? 0 : 1; // 0 = Black, 1 = White
     }
 
-    // Apply Floyd-Steinberg Dithering
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < roundedWidth; x++) {
-            const idx = y * roundedWidth + x;
-            const oldPixel = grayData[idx];
-            const newPixel = oldPixel < 128 ? 0 : 255; // Threshold
-            grayData[idx] = newPixel;
-            
-            const quantError = oldPixel - newPixel;
-
-            // Distribute error to neighbors
-            if (x + 1 < roundedWidth) 
-                grayData[idx + 1] += (quantError * 7) / 16;
-            if (x - 1 >= 0 && y + 1 < height) 
-                grayData[idx + roundedWidth - 1] += (quantError * 3) / 16;
-            if (y + 1 < height) 
-                grayData[idx + roundedWidth] += (quantError * 5) / 16;
-            if (x + 1 < roundedWidth && y + 1 < height) 
-                grayData[idx + roundedWidth + 1] += (quantError * 1) / 16;
-        }
-    }
-
-    // Pack bits for ESC/POS (GS v 0)
+    // GS v 0 command
     const rasterData: number[] = [];
     const xL = (roundedWidth / 8) % 256;
     const xH = Math.floor((roundedWidth / 8) / 256);
     const yL = height % 256;
     const yH = Math.floor(height / 256);
 
-    // Command Header
     rasterData.push(GS, 0x76, 0x30, 0, xL, xH, yL, yH);
 
     for (let i = 0; i < grayData.length; i += 8) {
         let byte = 0;
         for (let b = 0; b < 8; b++) {
-            // If pixel is black (0), set bit to 1
-            if (grayData[i + b] === 0) {
+            if (grayData[i + b] === 0) { // If black
                 byte |= (1 << (7 - b));
             }
         }
@@ -141,48 +123,30 @@ const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): nu
     return rasterData;
 };
 
-// --- MAIN GENERATOR ---
-
+// --- TICKET GENERATOR ---
 export const generateEscPosTicket = async (transaction: Transaction, customerName: string, settings: BusinessSettings): Promise<Uint8Array> => {
     const buffer: number[] = [];
-
-    const add = (data: number[] | Uint8Array) => {
-        if (data instanceof Uint8Array) {
-            buffer.push(...Array.from(data));
-        } else {
-            buffer.push(...data);
-        }
-    };
-
-    const addText = (text: string) => add(encode(text));
-    const addLine = (text: string) => addText(text + '\n');
+    const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
+    const addLine = (text: string) => add(encode(text + '\n'));
     const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
 
-    // 1. Init
     add(COMMANDS.INIT);
     add(COMMANDS.CODE_PAGE); 
     add(COMMANDS.ALIGN_CENTER);
 
-    // 2. Logo (Receipt Logo Only - Optimized)
     if (settings.receiptLogo) {
         try {
             const img = await loadImage(settings.receiptLogo);
-            // 384 dots for 58mm, 576 dots for 80mm
             const maxDots = settings.ticketPaperWidth === '58mm' ? 384 : 576; 
             const rasterData = convertImageToRaster(img, maxDots);
-            
             add(rasterData);
             add(COMMANDS.FEED_LINES(1));
-        } catch (e) {
-            console.warn("Logo print failed", e);
-        }
+        } catch (e) { console.warn("Logo failed", e); }
     }
 
-    // 3. Header
     add(COMMANDS.BOLD_ON);
     addLine(settings.name);
     add(COMMANDS.BOLD_OFF);
-    
     if (settings.address) addLine(settings.address);
     if (settings.phone) addLine(`Tel: ${settings.phone}`);
     addLine('\n');
@@ -193,49 +157,33 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
     }
     
     addLine(separator);
-
-    // 4. Info
     add(COMMANDS.ALIGN_LEFT);
     addLine(`Folio: #${transaction.id}`);
     addLine(`Fecha: ${new Date(transaction.date).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', hour: '2-digit', minute:'2-digit'})}`);
-    addLine(`Cliente: ${customerName.substring(0, settings.ticketPaperWidth === '58mm' ? 22 : 38)}`);
+    addLine(`Cliente: ${customerName.substring(0, 20)}`);
     addLine(separator);
 
-    // 5. Items (Grid Layout)
     add(COMMANDS.BOLD_ON);
-    addLine(formatRow("Cnt", "Descripcion", "Total", settings.ticketPaperWidth));
+    addLine(formatRow("Cnt", "Descrip.", "Total", settings.ticketPaperWidth));
     add(COMMANDS.BOLD_OFF);
     addLine(separator);
     
     transaction.items.forEach(item => {
         const total = (item.price * item.quantity).toFixed(2);
-        const qty = item.quantity.toString();
-        // Use the formatter
-        addLine(formatRow(qty, item.name, `$${total}`, settings.ticketPaperWidth));
-        
-        // Optional: If name is very long, print rest on next line?
-        // Current logic truncates to keep table clean.
-        // If variant exists, print below indented
-        if (item.variantName) {
-            const indent = settings.ticketPaperWidth === '58mm' ? "    " : "     ";
-            addLine(`${indent}${item.variantName}`);
-        }
+        addLine(formatRow(item.quantity.toString(), item.name, `$${total}`, settings.ticketPaperWidth));
+        if (item.variantName) addLine(`  ${item.variantName}`);
     });
 
     addLine(separator);
-
-    // 6. Totals
     add(COMMANDS.ALIGN_RIGHT);
     
-    if (transaction.discount > 0) {
-        addLine(`Subtotal: $${transaction.subtotal.toFixed(2)}`);
-        addLine(`Desc: -$${transaction.discount.toFixed(2)}`);
-    }
+    if (transaction.discount > 0) addLine(`Desc: -$${transaction.discount.toFixed(2)}`);
+    if (transaction.shipping > 0) addLine(`Envio: $${transaction.shipping.toFixed(2)}`);
     
     add(COMMANDS.BOLD_ON);
-    add([GS, 0x21, 0x11]); // Double size
+    add([GS, 0x21, 0x11]); // Double Height/Width
     addLine(`TOTAL: $${transaction.total.toFixed(2)}`);
-    add([GS, 0x21, 0x00]); // Reset size
+    add([GS, 0x21, 0x00]); // Reset
     add(COMMANDS.BOLD_OFF);
 
     if (transaction.paymentMethod === 'cash') {
@@ -243,25 +191,94 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
         const change = Math.max(0, paid - transaction.total);
         addLine(`Efectivo: $${paid.toFixed(2)}`);
         addLine(`Cambio: $${change.toFixed(2)}`);
-    } else if (transaction.paymentMethod === 'split') {
-        addLine(`Efectivo: $${transaction.splitDetails?.cash.toFixed(2)}`);
-        addLine(`Otro: $${transaction.splitDetails?.other.toFixed(2)}`);
     } else {
-        addLine(`Pago: ${transaction.paymentMethod === 'card' ? 'TARJETA' : transaction.paymentMethod === 'transfer' ? 'TRANSFERENCIA' : 'CREDITO'}`);
+        addLine(`Pago: ${transaction.paymentMethod.toUpperCase()}`);
     }
 
-    // 7. Footer
     add(COMMANDS.ALIGN_CENTER);
     addLine(separator);
-    if (settings.receiptFooter) {
-        addLine(settings.receiptFooter);
-    } else {
-        addLine("Gracias por su compra");
+    if (settings.receiptFooter) addLine(settings.receiptFooter);
+    else addLine("Gracias por su compra");
+    
+    add(COMMANDS.FEED_LINES(4)); 
+    return new Uint8Array(buffer);
+};
+
+// --- Z REPORT GENERATOR ---
+export const generateEscPosZReport = async (movement: CashMovement, settings: BusinessSettings): Promise<Uint8Array> => {
+    const z = movement.zReportData;
+    if (!z) return new Uint8Array([]);
+
+    const buffer: number[] = [];
+    const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
+    const addLine = (text: string) => add(encode(text + '\n'));
+    const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
+    const width = settings.ticketPaperWidth;
+
+    add(COMMANDS.INIT);
+    add(COMMANDS.CODE_PAGE); 
+    add(COMMANDS.ALIGN_CENTER);
+
+    if (settings.receiptLogo) {
+        try {
+            const img = await loadImage(settings.receiptLogo);
+            const maxDots = width === '58mm' ? 384 : 576; 
+            const rasterData = convertImageToRaster(img, maxDots);
+            add(rasterData);
+        } catch (e) {}
     }
+
+    // --- ENHANCED TITLE ---
+    add(COMMANDS.ALIGN_CENTER);
+    addLine(separator);
+    add(COMMANDS.BOLD_ON);
+    add([GS, 0x21, 0x11]); // Double width/height
+    addLine("CORTE Z");
+    add([GS, 0x21, 0x00]); // Reset size
+    add(COMMANDS.BOLD_OFF);
+    addLine(separator);
     
-    // 8. Feed & Cut
-    add(COMMANDS.FEED_LINES(5)); 
+    addLine(settings.name);
+    addLine(new Date(movement.date).toLocaleString());
+    addLine(separator);
+
+    add(COMMANDS.ALIGN_LEFT);
+    addLine(formatTwoCols("Fondo Inicial:", `$${z.openingFund.toFixed(2)}`, width));
+    addLine(formatTwoCols("+ Ventas Totales:", `$${z.grossSales.toFixed(2)}`, width));
+    addLine(formatTwoCols("- Gastos (Efe):", `$${z.expenses.toFixed(2)}`, width));
+    addLine(formatTwoCols("- Retiros (Efe):", `$${z.withdrawals.toFixed(2)}`, width));
+    addLine(separator);
+
+    add(COMMANDS.BOLD_ON);
+    addLine(formatTwoCols("Esperado Caja:", `$${z.expectedCash.toFixed(2)}`, width));
+    addLine(formatTwoCols("Declarado:", `$${z.declaredCash.toFixed(2)}`, width));
     
+    const diff = z.difference;
+    if (diff !== 0) {
+        addLine(formatTwoCols("DIFERENCIA:", `$${diff.toFixed(2)}`, width));
+    } else {
+        add(COMMANDS.ALIGN_CENTER);
+        addLine("*** BALANCEADO ***");
+        add(COMMANDS.ALIGN_LEFT);
+    }
+    add(COMMANDS.BOLD_OFF);
+    addLine(separator);
+
+    add(COMMANDS.ALIGN_CENTER);
+    add(COMMANDS.BOLD_ON);
+    addLine("DESGLOSE DE VENTAS");
+    add(COMMANDS.BOLD_OFF);
+    add(COMMANDS.ALIGN_LEFT);
+    addLine(formatTwoCols("Efectivo:", `$${z.cashSales.toFixed(2)}`, width));
+    addLine(formatTwoCols("Tarjeta:", `$${z.cardSales.toFixed(2)}`, width));
+    addLine(formatTwoCols("Transferencia:", `$${z.transferSales.toFixed(2)}`, width));
+    addLine(formatTwoCols("Credito:", `$${z.creditSales.toFixed(2)}`, width));
+
+    add(COMMANDS.ALIGN_CENTER);
+    addLine(separator);
+    addLine("--- FIN DEL REPORTE ---");
+    add(COMMANDS.FEED_LINES(4));
+
     return new Uint8Array(buffer);
 };
 
