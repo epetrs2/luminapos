@@ -605,6 +605,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         markLocalChange();
     };
 
+    const updateStockAfterSale = (items: any[]) => {
+        items.forEach(i => adjustStock(i.id, i.quantity, 'OUT', i.variantId));
+    };
+
     const deleteTransaction = (id: string, items: any[]) => {
         const tx = transactions.find(t => t.id === id);
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled', amountPaid: 0 } : t));
@@ -682,6 +686,58 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         markLocalChange();
         logActivity('ORDER', `Nuevo pedido #${newId}`);
     };
+    
+    // --- UPDATED CONVERT ORDER LOGIC ---
+    const convertOrderToSale = (id: string, paymentMethod: string) => {
+        const order = orders.find(o => o.id === id);
+        if (!order) return;
+
+        // Calculate sequence ID for Transaction
+        const currentMaxId = transactions.reduce((max, curr) => {
+            const idNum = parseInt(curr.id);
+            return !isNaN(idNum) && idNum > max ? idNum : max;
+        }, settings.sequences.ticketStart - 1);
+        const nextId = (currentMaxId + 1).toString();
+
+        // Determine Payment Status
+        let payStatus: Transaction['paymentStatus'] = 'paid';
+        let amountPaid = order.total;
+
+        if (paymentMethod === 'credit') {
+            payStatus = 'pending';
+            amountPaid = 0;
+        }
+
+        const newTx: Transaction = {
+            id: nextId,
+            date: new Date().toISOString(),
+            subtotal: order.total,
+            taxAmount: 0,
+            discount: 0,
+            shipping: 0,
+            total: order.total,
+            items: order.items,
+            paymentMethod: paymentMethod as any,
+            paymentStatus: payStatus,
+            amountPaid: amountPaid,
+            customerId: order.customerId,
+            customerName: order.customerName,
+            status: 'completed'
+        };
+
+        // 1. Create Transaction (Handles Cash Movement & Debt internally)
+        addTransaction(newTx);
+        
+        // 2. Deduct Stock
+        updateStockAfterSale(order.items);
+        
+        // 3. Complete Order (Removes from active view)
+        setOrders(prev => prev.map(o => o.id === id ? { ...o, status: 'COMPLETED' } : o));
+        
+        notify('Orden Entregada', `Venta #${nextId} generada exitosamente`, 'success');
+        markLocalChange();
+    };
+
     const updateCustomer = (c: Customer) => { setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust)); markLocalChange(); };
     const deleteCustomer = async (id: string) => { const c = customers.find(cust=>cust.id===id); setCustomers(prev => prev.filter(c => c.id !== id)); markLocalChange(); return true; };
     const addCashMovement = (m: CashMovement) => { setCashMovements(prev => [m, ...prev]); markLocalChange(); logActivity('CASH', `${m.type}: ${m.description}`); };
@@ -716,11 +772,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing, hasPendingChanges,
             btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, // BT Exports
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), 
-            addTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale: (its)=>its.forEach(i=>adjustStock(i.id, i.quantity, 'OUT', i.variantId)),
+            addTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
             addSupplier, updateSupplier, deleteSupplier, addPurchase,
             addCashMovement, deleteCashMovement,
-            addOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale: (id, m)=>{}, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
+            addOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
             notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset,
             playSound
         }}>
