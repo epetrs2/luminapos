@@ -323,30 +323,94 @@ const FINANCIAL_REPORT_CSS = `
     @page { size: letter portrait; margin: 1cm; }
     body { font-family: 'Inter', sans-serif; color: #1e293b; background: white; }
     
-    .header { text-align: center; margin-bottom: 30px; padding-bottom: 10px; border-bottom: 2px solid #cbd5e1; }
+    .header { text-align: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #cbd5e1; }
     .logo { max-height: 50px; margin-bottom: 10px; }
     .title { font-size: 20px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #0f172a; }
     .subtitle { font-size: 12px; color: #64748b; margin-top: 5px; }
     
-    .period-box { background: #f1f5f9; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 30px; font-weight: 600; font-size: 12px; border: 1px solid #e2e8f0; }
+    .period-box { background: #f1f5f9; padding: 8px; border-radius: 6px; text-align: center; margin-bottom: 20px; font-weight: 600; font-size: 11px; border: 1px solid #e2e8f0; }
 
-    .section { margin-bottom: 30px; }
-    .section-title { font-size: 12px; font-weight: 800; text-transform: uppercase; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin-bottom: 10px; display: flex; justify-content: space-between; }
+    .two-col-layout { display: flex; gap: 20px; margin-bottom: 20px; }
+    .col { flex: 1; }
+
+    .section { margin-bottom: 20px; }
+    .section-title { font-size: 11px; font-weight: 800; text-transform: uppercase; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; }
     
-    .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f8fafc; font-size: 11px; }
+    .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f8fafc; font-size: 10px; }
     .row:last-child { border-bottom: none; }
     .label { color: #334155; }
     .value { font-weight: 600; color: #0f172a; }
     
-    .summary-box { background: #fff; border: 2px solid #0f172a; border-radius: 8px; padding: 15px; margin-top: 20px; }
-    .summary-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; }
-    .summary-row.total { font-size: 16px; font-weight: 900; border-top: 1px solid #cbd5e1; padding-top: 10px; margin-bottom: 0; margin-top: 10px; }
+    .summary-box { background: #fff; border: 2px solid #0f172a; border-radius: 8px; padding: 12px; margin-top: 10px; }
+    .summary-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; }
+    .summary-row.total { font-size: 14px; font-weight: 900; border-top: 1px solid #cbd5e1; padding-top: 8px; margin-bottom: 0; margin-top: 8px; }
     
     .income-text { color: #059669; }
     .expense-text { color: #dc2626; }
     .net-text { color: #2563eb; }
 
-    .footer { margin-top: 50px; text-align: center; font-size: 9px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+    /* --- CHART STYLES --- */
+    .charts-container {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f8fafc;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        page-break-inside: avoid;
+    }
+    
+    .chart-title {
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        color: #64748b;
+        margin-bottom: 10px;
+        text-align: center;
+    }
+
+    .bar-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 6px;
+        font-size: 10px;
+    }
+    .bar-label-text {
+        width: 100px;
+        color: #475569;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .bar-track {
+        flex: 1;
+        background: #e2e8f0;
+        height: 14px;
+        border-radius: 3px;
+        margin: 0 10px;
+        position: relative;
+        overflow: hidden;
+    }
+    .bar-fill {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        padding-left: 5px;
+        color: white;
+        font-size: 8px;
+        font-weight: bold;
+        min-width: 2px;
+        border-radius: 3px;
+    }
+    .bar-value {
+        width: 70px;
+        text-align: right;
+        font-weight: 700;
+        color: #334155;
+        font-family: monospace;
+    }
+
+    .footer { margin-top: 30px; text-align: center; font-size: 9px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
 `;
 
 const openPrintWindow = (content: string) => {
@@ -625,16 +689,6 @@ export const printThermalTicket = async (
 };
 
 export const printProductionSummary = (orders: Order[], settings: BusinessSettings) => {
-    // ... (Keep existing implementation) ...
-    // Note: I'm not pasting the full body to save tokens, assuming it hasn't changed.
-    // In a real patch, I would include the full function if required, but here I focus on ZCut updates.
-    // To ensure consistency, I will just paste the full body from previous context or skip if not modified.
-    // Since printZCutTicket IS modified, I will include it below.
-    
-    // ... (Existing code for printProductionSummary) ...
-    // Just putting a placeholder comment here to indicate I'm not removing it, but focusing on the requested changes.
-    // In XML output, I will include the full file content to be safe.
-    
     // 1. Consolidate items
     const summaryItems: Record<string, {
         name: string, 
@@ -785,8 +839,15 @@ export const printFinancialReport = (
     const startStr = startDate.toLocaleDateString();
     const endStr = endDate.toLocaleDateString();
     
-    const incomes = categories.filter(c => c.name === 'Ventas' || c.name === 'Otros Ingresos');
-    const expenses = categories.filter(c => c.name !== 'Ventas' && c.name !== 'Otros Ingresos');
+    // Sort expenses for chart
+    const expenses = categories.filter(c => c.name !== 'Ventas' && c.name !== 'Otros Ingresos').sort((a,b) => b.value - a.value);
+    
+    // Data for charts
+    const maxVal = Math.max(summary.totalSales, summary.totalExpenses);
+    const salesPct = maxVal > 0 ? (summary.totalSales / maxVal) * 100 : 0;
+    const expPct = maxVal > 0 ? (summary.totalExpenses / maxVal) * 100 : 0;
+    
+    const maxExpenseVal = expenses.length > 0 ? expenses[0].value : 1;
 
     const html = `
         <html>
@@ -805,48 +866,80 @@ export const printFinancialReport = (
                 PERIODO: ${startStr} - ${endStr}
             </div>
 
-            <div class="section">
-                <div class="section-title">INGRESOS Y VENTAS</div>
-                <div class="row">
-                    <span class="label">Ventas Totales Brutas</span>
-                    <span class="value income-text">$${summary.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+            <div class="two-col-layout">
+                <div class="col">
+                    <div class="section-title">RESUMEN DE INGRESOS</div>
+                    <div class="row">
+                        <span class="label">Ventas Brutas</span>
+                        <span class="value income-text">$${summary.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                    </div>
+                    ${summary.thirdParty > 0 ? `
+                    <div class="row">
+                        <span class="label">Venta Terceros</span>
+                        <span class="value" style="color:#f59e0b;">$${summary.thirdParty.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                    </div>
+                    ` : ''}
                 </div>
-                ${summary.thirdParty > 0 ? `
-                <div class="row">
-                    <span class="label">Ventas de Terceros (Consignación)</span>
-                    <span class="value" style="color:#f59e0b;">$${summary.thirdParty.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                
+                <div class="col">
+                    <div class="summary-box" style="margin-top:0;">
+                        <div class="summary-row">
+                            <span>Ingresos Op.</span>
+                            <span class="income-text">$${summary.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Egresos Op.</span>
+                            <span class="expense-text">-$${summary.totalExpenses.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                        </div>
+                        <div class="summary-row total">
+                            <span>UTILIDAD NETA</span>
+                            <span class="net-text">$${summary.netProfit.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                        </div>
+                    </div>
                 </div>
-                ` : ''}
             </div>
 
-            <div class="section">
+            <!-- VISUAL GRAPHS -->
+            <div class="charts-container">
+                <div class="chart-title">COMPARATIVA DE FLUJO</div>
+                
+                <div class="bar-row">
+                    <span class="bar-label-text">Ingresos</span>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: ${salesPct}%; background-color: #10b981;">
+                            ${salesPct > 15 ? salesPct.toFixed(0)+'%' : ''}
+                        </div>
+                    </div>
+                    <span class="bar-value">$${summary.totalSales.toLocaleString()}</span>
+                </div>
+                
+                <div class="bar-row">
+                    <span class="bar-label-text">Egresos</span>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: ${expPct}%; background-color: #ef4444;">
+                            ${expPct > 15 ? expPct.toFixed(0)+'%' : ''}
+                        </div>
+                    </div>
+                    <span class="bar-value">$${summary.totalExpenses.toLocaleString()}</span>
+                </div>
+            </div>
+
+            <div class="section" style="margin-top:20px;">
                 <div class="section-title">DESGLOSE DE EGRESOS</div>
                 ${expenses.length === 0 ? '<div class="row"><span class="label">Sin egresos registrados</span></div>' : ''}
-                ${expenses.map(exp => `
-                    <div class="row">
-                        <span class="label">${exp.name}</span>
-                        <span class="value">$${exp.value.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                
+                ${expenses.map(exp => {
+                    const barWidth = (exp.value / maxExpenseVal) * 100;
+                    return `
+                    <div class="bar-row" style="margin-bottom:8px;">
+                        <span class="bar-label-text" style="width:130px;">${exp.name}</span>
+                        <div class="bar-track" style="height:10px; background:#f1f5f9;">
+                            <div class="bar-fill" style="width: ${barWidth}%; background-color: #64748b;"></div>
+                        </div>
+                        <span class="bar-value">$${exp.value.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                     </div>
-                `).join('')}
-            </div>
-
-            <div class="summary-box">
-                <div class="summary-row">
-                    <span>Total Ingresos Operativos</span>
-                    <span class="income-text">$${summary.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                </div>
-                <div class="summary-row">
-                    <span>Total Egresos y Salidas</span>
-                    <span class="expense-text">-$${summary.totalExpenses.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                </div>
-                <div class="summary-row total">
-                    <span>UTILIDAD NETA ESTIMADA</span>
-                    <span class="net-text">$${summary.netProfit.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                </div>
-                <p style="font-size:9px; color:#64748b; margin-top:5px;">
-                    * La utilidad se calcula: Ventas Propias - Gastos Operativos. 
-                    (No incluye liquidaciones a terceros en el cálculo de utilidad propia).
-                </p>
+                    `;
+                }).join('')}
             </div>
 
             <div class="footer">
