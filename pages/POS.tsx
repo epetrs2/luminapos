@@ -6,7 +6,7 @@ import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartph
 import { printThermalTicket, printInvoice } from '../utils/printService';
 
 export const POS: React.FC = () => {
-    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice } = useStore();
+    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice, incomingOrder, clearIncomingOrder } = useStore();
     
     // State
     const [searchTerm, setSearchTerm] = useState('');
@@ -71,6 +71,18 @@ export const POS: React.FC = () => {
         const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
         return matchesSearch && matchesCategory;
     });
+
+    // --- HANDLE INCOMING ORDERS ---
+    useEffect(() => {
+        if (incomingOrder) {
+            setCart(incomingOrder.items);
+            setSelectedCustomerId(incomingOrder.customerId || '');
+            setShowCheckoutModal(true); // Auto open checkout
+            setMobileTab('CART'); // Switch to cart view on mobile
+            clearIncomingOrder(); // Clear from context
+            notify("Pedido Cargado", "El pedido se ha transferido listo para cobrar.", "success");
+        }
+    }, [incomingOrder]);
 
     useEffect(() => {
         if (showCheckoutModal) {

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { POS } from './pages/POS';
@@ -39,7 +40,7 @@ const MainApp: React.FC = () => {
         switch (currentView) {
         case AppView.DASHBOARD: return <Dashboard setView={setCurrentView} />;
         case AppView.POS: return <POS />;
-        case AppView.ORDERS: return <Orders />; 
+        case AppView.ORDERS: return <Orders setView={setCurrentView} />; 
         case AppView.INVENTORY: return isManager ? <Inventory /> : <Dashboard setView={setCurrentView} />;
         case AppView.HISTORY: return isManager ? <SalesHistory /> : <Dashboard setView={setCurrentView} />;
         case AppView.CUSTOMERS: return <Customers />;

@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Search, Plus, Calendar, User, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, CreditCard, Banknote, Smartphone, Wallet, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
-import { Order, CartItem, Product } from '../types';
+import { Order, CartItem, Product, AppView } from '../types';
 import { printOrderInvoice, printProductionSummary } from '../utils/printService';
 
 const OrderCard: React.FC<{
@@ -86,8 +86,12 @@ const OrderCard: React.FC<{
     );
 };
 
-export const Orders: React.FC = () => {
-    const { orders, products, customers, addOrder, updateOrderStatus, convertOrderToSale, deleteOrder, settings } = useStore();
+interface OrdersProps {
+    setView?: (view: AppView) => void;
+}
+
+export const Orders: React.FC<OrdersProps> = ({ setView }) => {
+    const { orders, products, customers, addOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS } = useStore();
     const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
     const [mobileCreateStep, setMobileCreateStep] = useState<'CATALOG' | 'DETAILS'>('CATALOG');
     
@@ -103,11 +107,6 @@ export const Orders: React.FC = () => {
     const [editingItemId, setEditingItemId] = useState<string | null>(null);
     const [editPrice, setEditPrice] = useState<string>('');
     const editInputRef = useRef<HTMLInputElement>(null);
-
-    // Convert Modal State
-    const [convertToSaleId, setConvertToSaleId] = useState<string | null>(null);
-    const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer' | 'credit'>('cash');
-    const [conversionError, setConversionError] = useState<string | null>(null);
 
     // Print Modal State
     const [printModalOpen, setPrintModalOpen] = useState(false);
@@ -212,38 +211,15 @@ export const Orders: React.FC = () => {
         }
     };
 
-    // --- Conversion Logic ---
-    const handleConvertClick = (orderId: string) => {
-        setConvertToSaleId(orderId);
-        setPaymentMethod('cash');
-        setConversionError(null);
-    };
-
-    const confirmConversion = () => {
-        if (!convertToSaleId) return;
-
-        const order = orders.find(o => o.id === convertToSaleId);
-        if (!order) return;
-
-        if (paymentMethod === 'credit') {
-            const customer = customers.find(c => c.id === order.customerId);
-            
-            if (!customer) {
-                setConversionError("No se puede vender a crédito a Cliente General. Selecciona un cliente registrado.");
-                return;
-            }
-
-            if (!customer.hasUnlimitedCredit) {
-                const availableCredit = customer.creditLimit - customer.currentDebt;
-                if (order.total > availableCredit) {
-                    setConversionError(`Crédito insuficiente. Disponible: $${availableCredit.toFixed(2)}. Total Pedido: $${order.total.toFixed(2)}`);
-                    return;
-                }
+    // --- Deliver to POS Logic ---
+    const handleDeliverToPOS = (orderId: string) => {
+        const order = orders.find(o => o.id === orderId);
+        if (order) {
+            sendOrderToPOS(order);
+            if (setView) {
+                setView(AppView.POS);
             }
         }
-
-        convertOrderToSale(convertToSaleId, paymentMethod);
-        setConvertToSaleId(null);
     };
 
     // --- Printing Logic ---
@@ -388,7 +364,7 @@ export const Orders: React.FC = () => {
                             onPrint={() => handlePrintOrder(order)}
                             onCancel={() => setOrderToDelete(order.id)}
                             isReady={status === 'READY'}
-                            onConvert={() => handleConvertClick(order.id)}
+                            onConvert={() => handleDeliverToPOS(order.id)}
                             onDragStart={handleDragStart}
                             onTouchStart={handleTouchStart}
                         />
@@ -725,44 +701,6 @@ export const Orders: React.FC = () => {
                     </div>
                 )}
             </div>
-
-            {/* ... (Convert and Delete Modals remain unchanged) ... */}
-            {/* Convert to Sale Modal */}
-            {convertToSaleId && (
-                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800">
-                        <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2">Finalizar y Cobrar</h3>
-                        <p className="text-sm text-slate-500 mb-4">El pedido se marcará como entregado y se generará una venta.</p>
-                        
-                        <div className="mb-4">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Método de Pago</label>
-                            <div className="grid grid-cols-2 gap-2">
-                                {['cash', 'card', 'transfer', 'credit'].map((m: any) => (
-                                    <button 
-                                        key={m} 
-                                        onClick={() => setPaymentMethod(m)} 
-                                        className={`px-3 py-2 rounded-lg text-xs font-bold uppercase transition-all border ${paymentMethod === m ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-300' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700'}`}
-                                    >
-                                        {m === 'credit' ? 'Crédito' : m === 'transfer' ? 'Transf.' : m === 'card' ? 'Tarjeta' : 'Efectivo'}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {conversionError && (
-                            <div className="mb-4 p-3 bg-red-50 text-red-600 text-xs rounded-lg border border-red-100 flex items-start gap-2">
-                                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                                {conversionError}
-                            </div>
-                        )}
-
-                        <div className="flex gap-3">
-                            <button onClick={() => setConvertToSaleId(null)} className="flex-1 py-2.5 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">Cancelar</button>
-                            <button onClick={confirmConversion} className="flex-[2] py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-lg hover:bg-emerald-700 transition-colors">Confirmar</button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Delete Confirmation Modal */}
             {orderToDelete && (

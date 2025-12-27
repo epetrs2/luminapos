@@ -24,6 +24,11 @@ interface StoreContextType {
   isSyncing: boolean;
   hasPendingChanges: boolean;
   
+  // Order to POS handoff
+  incomingOrder: Order | null;
+  sendOrderToPOS: (order: Order) => void;
+  clearIncomingOrder: () => void;
+
   // Bluetooth State
   btDevice: BluetoothDevice | null;
   btCharacteristic: BluetoothRemoteGATTCharacteristic | null;
@@ -178,6 +183,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [isSyncing, setIsSyncing] = useState(false);
     const [hasPendingChanges, setHasPendingChanges] = useState(false);
     
+    // --- ORDER TO POS HANDOFF STATE ---
+    const [incomingOrder, setIncomingOrder] = useState<Order | null>(null);
+
     // --- BLUETOOTH STATE ---
     const [btDevice, setBtDevice] = useState<BluetoothDevice | null>(null);
     const [btCharacteristic, setBtCharacteristic] = useState<BluetoothRemoteGATTCharacteristic | null>(null);
@@ -687,55 +695,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         logActivity('ORDER', `Nuevo pedido #${newId}`);
     };
     
-    // --- UPDATED CONVERT ORDER LOGIC ---
+    // --- SEND ORDER TO POS LOGIC ---
+    const sendOrderToPOS = (order: Order) => {
+        setIncomingOrder(order);
+        // Remove from orders immediately
+        setOrders(prev => prev.filter(o => o.id !== order.id));
+        logActivity('ORDER', `Pedido #${order.id} enviado a Caja`);
+    };
+
+    const clearIncomingOrder = () => setIncomingOrder(null);
+
+    // Keep convertOrderToSale for backward compatibility if needed, but not used in new flow
     const convertOrderToSale = (id: string, paymentMethod: string) => {
-        const order = orders.find(o => o.id === id);
-        if (!order) return;
-
-        // Calculate sequence ID for Transaction
-        const currentMaxId = transactions.reduce((max, curr) => {
-            const idNum = parseInt(curr.id);
-            return !isNaN(idNum) && idNum > max ? idNum : max;
-        }, settings.sequences.ticketStart - 1);
-        const nextId = (currentMaxId + 1).toString();
-
-        // Determine Payment Status
-        let payStatus: Transaction['paymentStatus'] = 'paid';
-        let amountPaid = order.total;
-
-        if (paymentMethod === 'credit') {
-            payStatus = 'pending';
-            amountPaid = 0;
-        }
-
-        const newTx: Transaction = {
-            id: nextId,
-            date: new Date().toISOString(),
-            subtotal: order.total,
-            taxAmount: 0,
-            discount: 0,
-            shipping: 0,
-            total: order.total,
-            items: order.items,
-            paymentMethod: paymentMethod as any,
-            paymentStatus: payStatus,
-            amountPaid: amountPaid,
-            customerId: order.customerId,
-            customerName: order.customerName,
-            status: 'completed'
-        };
-
-        // 1. Create Transaction (Handles Cash Movement & Debt internally)
-        addTransaction(newTx);
-        
-        // 2. Deduct Stock
-        updateStockAfterSale(order.items);
-        
-        // 3. Complete Order (Removes from active view)
-        setOrders(prev => prev.map(o => o.id === id ? { ...o, status: 'COMPLETED' } : o));
-        
-        notify('Orden Entregada', `Venta #${nextId} generada exitosamente`, 'success');
-        markLocalChange();
+        // Logic moved to POS page via sendOrderToPOS
     };
 
     const updateCustomer = (c: Customer) => { setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust)); markLocalChange(); };
@@ -778,7 +750,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addCashMovement, deleteCashMovement,
             addOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData: (d)=>{}, login, logout, addUser, updateUser, deleteUser, recoverAccount: async (u,m,p,np)=>'SUCCESS', verifyRecoveryAttempt: async (u,m,p)=>true, getUserPublicInfo: (u)=>null,
             notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset,
-            playSound
+            playSound,
+            incomingOrder, sendOrderToPOS, clearIncomingOrder // New exports
         }}>
             {children}
         </StoreContext.Provider>
