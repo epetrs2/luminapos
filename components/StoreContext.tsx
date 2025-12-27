@@ -46,6 +46,7 @@ interface StoreContextType {
   addCategory: (name: string) => void;
   removeCategory: (name: string) => void;
   addTransaction: (t: Transaction) => void;
+  updateTransaction: (oldId: string, updates: Partial<Transaction>) => void; // UPDATE FUNCTION
   deleteTransaction: (id: string, items: any[]) => void;
   registerTransactionPayment: (id: string, amount: number, method: string) => void;
   updateStockAfterSale: (items: any[]) => void;
@@ -60,14 +61,14 @@ interface StoreContextType {
   addCashMovement: (m: CashMovement) => void;
   deleteCashMovement: (id: string) => void;
   addOrder: (o: Order) => void;
-  updateOrder: (o: Order) => void; // NEW
+  updateOrder: (o: Order) => void; 
   updateOrderStatus: (id: string, status: string) => void;
   convertOrderToSale: (id: string, paymentMethod: string) => void;
   deleteOrder: (id: string) => void;
   updateSettings: (s: BusinessSettings) => void;
   importData: (data: any) => void;
   login: (u: string, p: string, code?: string) => Promise<string>;
-  logout: () => Promise<void>; // Changed to Promise for animation delay
+  logout: () => Promise<void>; 
   addUser: (u: User) => void;
   updateUser: (u: User) => void;
   deleteUser: (id: string) => void;
@@ -610,6 +611,35 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         markLocalChange();
     };
 
+    // --- NEW: Update Transaction Logic ---
+    const updateTransaction = (oldId: string, updates: Partial<Transaction>) => {
+        // If ID is changing, verify uniqueness first
+        if (updates.id && updates.id !== oldId) {
+            if (transactions.some(t => t.id === updates.id)) {
+                throw new Error(`El folio #${updates.id} ya existe.`);
+            }
+        }
+
+        setTransactions(prev => prev.map(t => t.id === oldId ? { ...t, ...updates } : t));
+
+        // IMPORTANT: If ID changed, we must update the linked Cash Movement to maintain history
+        if (updates.id && updates.id !== oldId) {
+            setCashMovements(prev => prev.map(m => {
+                if (m.id === `mv_${oldId}`) {
+                    return { 
+                        ...m, 
+                        id: `mv_${updates.id}`, 
+                        description: m.description.replace(`#${oldId}`, `#${updates.id}`) 
+                    };
+                }
+                return m;
+            }));
+        }
+
+        markLocalChange();
+        logActivity('SALE', `Editó Venta #${oldId} -> ${updates.id || oldId}`);
+    };
+
     const updateStockAfterSale = (items: any[]) => {
         items.forEach(i => adjustStock(i.id, i.quantity, 'OUT', i.variantId));
     };
@@ -743,7 +773,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, 
             isLoggingOut, // New animation state
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), 
-            addTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
+            addTransaction, updateTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
             addSupplier, updateSupplier, deleteSupplier, addPurchase,
             addCashMovement, deleteCashMovement,

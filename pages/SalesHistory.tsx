@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown, Edit2, Save } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
 import { printInvoice, printThermalTicket } from '../utils/printService';
@@ -505,12 +505,52 @@ const TransactionDetailModal: React.FC<{
   onPay: () => void;
   onConfirmTransfer: () => void;
   onReturn: (items: CartItem[]) => void;
+  onUpdate: (transaction: Transaction) => void; // New Callback
   getCustomerName: (id?: string) => string;
   getCustomer: (id?: string) => any;
-}> = ({ transaction, onClose, onDelete, onPay, onConfirmTransfer, onReturn, getCustomerName, getCustomer }) => {
-  const { settings, sendBtData, btDevice } = useStore();
+}> = ({ transaction, onClose, onDelete, onPay, onConfirmTransfer, onReturn, onUpdate, getCustomerName, getCustomer }) => {
+  const { settings, sendBtData, btDevice, updateTransaction, notify } = useStore();
   const [deleteStep, setDeleteStep] = useState<'initial' | 'confirm' | 'processing' | 'success'>('initial');
   const [showReturnModal, setShowReturnModal] = useState(false);
+  
+  // Editing State
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempId, setTempId] = useState(transaction.id);
+  const [tempMethod, setTempMethod] = useState(transaction.paymentMethod);
+
+  // Sync temp state when transaction prop changes
+  useEffect(() => {
+      setTempId(transaction.id);
+      setTempMethod(transaction.paymentMethod);
+  }, [transaction]);
+
+  const handleSaveChanges = () => {
+      try {
+          // Perform Update in Context
+          updateTransaction(transaction.id, { id: tempId, paymentMethod: tempMethod });
+          
+          // Construct updated object for immediate UI refresh
+          const updatedTx: Transaction = { 
+              ...transaction, 
+              id: tempId, 
+              paymentMethod: tempMethod 
+          };
+          
+          // Force parent to update selectedTransaction state
+          onUpdate(updatedTx);
+          
+          setIsEditing(false);
+          notify("Actualizado", "La venta se ha modificado correctamente.", "success");
+      } catch (e: any) {
+          alert(e.message || "Error al actualizar");
+      }
+  };
+
+  const handleCancelEdit = () => {
+      setTempId(transaction.id);
+      setTempMethod(transaction.paymentMethod);
+      setIsEditing(false);
+  };
   
   const handleDeleteClick = () => {
     if (deleteStep === 'initial') {
@@ -596,16 +636,44 @@ const TransactionDetailModal: React.FC<{
                 )}
             </div>
             <div className="flex flex-col mt-1">
-              <span className="text-xs font-mono text-slate-400">ID: {transaction.id}</span>
+              {isEditing ? (
+                  <div className="flex items-center gap-2 mt-2">
+                      <span className="text-xs font-bold text-slate-500">Folio:</span>
+                      <input 
+                        type="text" 
+                        value={tempId}
+                        onChange={(e) => setTempId(e.target.value)}
+                        className="px-2 py-1 rounded border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 text-sm font-mono w-32 outline-none focus:ring-2 focus:ring-indigo-500"
+                        autoFocus
+                      />
+                  </div>
+              ) : (
+                  <span className="text-xs font-mono text-slate-400 flex items-center gap-2 group">
+                      ID: {transaction.id}
+                      {!isReturnTx && (
+                          <button onClick={() => setIsEditing(true)} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-indigo-500" title="Editar Folio/Pago">
+                              <Edit2 className="w-3 h-3" />
+                          </button>
+                      )}
+                  </span>
+              )}
               <span className="text-sm text-slate-500 dark:text-slate-400">{new Date(transaction.date).toLocaleString()}</span>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-500 dark:text-slate-400 transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          
+          {isEditing ? (
+              <div className="flex gap-2">
+                  <button onClick={handleSaveChanges} className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200"><Save className="w-5 h-5"/></button>
+                  <button onClick={handleCancelEdit} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"><X className="w-5 h-5"/></button>
+              </div>
+          ) : (
+              <button 
+                onClick={onClose}
+                className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-500 dark:text-slate-400 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+          )}
         </div>
 
         <div className="p-6 overflow-y-auto">
@@ -644,14 +712,29 @@ const TransactionDetailModal: React.FC<{
               )}
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-800">
+            <div className={`p-5 rounded-xl border border-slate-100 dark:border-slate-800 ${isEditing ? 'bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800' : 'bg-slate-50 dark:bg-slate-800/50'}`}>
               <h4 className="text-xs font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <PaymentIcon method={transaction.paymentMethod} />
+                <PaymentIcon method={isEditing ? tempMethod : transaction.paymentMethod} />
                 Estado Financiero
               </h4>
-              <p className="font-bold text-slate-800 dark:text-white capitalize text-lg mb-2">
-                {getPaymentLabel(transaction.paymentMethod)}
-              </p>
+              
+              {isEditing ? (
+                  <select 
+                    value={tempMethod}
+                    onChange={(e) => setTempMethod(e.target.value as any)}
+                    className="w-full mb-2 px-3 py-2 rounded-lg border border-indigo-300 bg-white dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                      <option value="cash">Efectivo</option>
+                      <option value="card">Tarjeta</option>
+                      <option value="transfer">Transferencia</option>
+                      <option value="credit">Crédito</option>
+                      <option value="split">Dividido</option>
+                  </select>
+              ) : (
+                  <p className="font-bold text-slate-800 dark:text-white capitalize text-lg mb-2">
+                    {getPaymentLabel(transaction.paymentMethod)}
+                  </p>
+              )}
               
               <div className="space-y-1 text-sm border-t border-slate-200 dark:border-slate-700 pt-2">
                   <div className="flex justify-between">
@@ -772,6 +855,11 @@ export const SalesHistory: React.FC = () => {
 
   const handleOpenDetail = (transaction: Transaction) => {
       setSelectedTransaction(transaction);
+  };
+
+  // Callback to update local state immediately after edit
+  const handleTransactionUpdate = (newTx: Transaction) => {
+      setSelectedTransaction(newTx);
   };
 
   const handleDeleteTransaction = (id: string, items: any[]) => {
@@ -1118,6 +1206,7 @@ export const SalesHistory: React.FC = () => {
           onPay={() => handleOpenPayment(selectedTransaction)}
           onConfirmTransfer={handleOpenConfirmTransfer}
           onReturn={handleReturnItems}
+          onUpdate={handleTransactionUpdate} // NEW PROP
           getCustomerName={getCustomerName}
           getCustomer={getCustomer}
         />
