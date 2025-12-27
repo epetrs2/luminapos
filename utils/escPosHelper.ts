@@ -9,24 +9,20 @@ const COMMANDS = {
     INIT: [ESC, 0x40], // Initialize printer
     CODE_PAGE: [ESC, 0x74, 0], // Select character code table (0 = PC437 standard)
     CHAR_SET: [ESC, 0x52, 0], // Select international character set (0 = USA)
-    TEXT_FORMAT: [ESC, 0x21], // Select print mode
     ALIGN_LEFT: [ESC, 0x61, 0],
     ALIGN_CENTER: [ESC, 0x61, 1],
     ALIGN_RIGHT: [ESC, 0x61, 2],
     BOLD_ON: [ESC, 0x45, 1],
     BOLD_OFF: [ESC, 0x45, 0],
-    CUT: [GS, 0x56, 66, 0], // Feed and cut
     FEED_LINES: (n: number) => [ESC, 0x64, n], // Feed n lines
 };
 
 // Helper to sanitize text 
-// We aggressively strip accents and convert to ASCII to ensure compatibility with basic firmware
-// that doesn't support UTF-8 multibyte characters.
 const normalize = (str: string) => {
     return str
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "") // Remove accents
-        .replace(/[^\x20-\x7E\n]/g, "?"); // Replace non-printable/non-ASCII with ?
+        .replace(/[^\x20-\x7E\n]/g, "?"); // Replace non-printable
 };
 
 const encode = (str: string) => {
@@ -34,7 +30,85 @@ const encode = (str: string) => {
     return encoder.encode(normalize(str));
 };
 
-export const generateEscPosTicket = (transaction: Transaction, customerName: string, settings: BusinessSettings): Uint8Array => {
+// --- IMAGE PROCESSING LOGIC ---
+
+// Load image from URL
+const loadImage = (url: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous"; // Important for external URLs
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Failed to load image"));
+        img.src = url;
+    });
+};
+
+// Convert Image to Raster Bit Format (GS v 0)
+const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): number[] => {
+    // 1. Setup Canvas
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return [];
+
+    // 2. Resize maintaining aspect ratio
+    let width = img.width;
+    let height = img.height;
+    
+    if (width > maxWidth) {
+        height = Math.floor(height * (maxWidth / width));
+        width = maxWidth;
+    }
+
+    // Ensure width is divisible by 8 for byte packing
+    const roundedWidth = Math.floor(width / 8) * 8;
+    
+    canvas.width = roundedWidth;
+    canvas.height = height;
+
+    // 3. Draw image (Flatten transparency to white)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, roundedWidth, height);
+    ctx.drawImage(img, 0, 0, roundedWidth, height);
+
+    const imgData = ctx.getImageData(0, 0, roundedWidth, height);
+    const pixels = imgData.data;
+    
+    // 4. Convert to Monochrome Raster Data
+    const rasterData: number[] = [];
+    
+    // Raster Header: GS v 0 m xL xH yL yH
+    // m=0 (Normal)
+    const xL = (roundedWidth / 8) % 256;
+    const xH = Math.floor((roundedWidth / 8) / 256);
+    const yL = height % 256;
+    const yH = Math.floor(height / 256);
+
+    rasterData.push(GS, 0x76, 0x30, 0, xL, xH, yL, yH);
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < roundedWidth; x += 8) {
+            let byte = 0;
+            for (let b = 0; b < 8; b++) {
+                const pixelIndex = ((y * roundedWidth) + (x + b)) * 4;
+                // Simple luminance formula: 0.299R + 0.587G + 0.114B
+                const avg = (pixels[pixelIndex] * 0.299 + pixels[pixelIndex + 1] * 0.587 + pixels[pixelIndex + 2] * 0.114);
+                
+                // Threshold logic (Darker than 128 = Black/Print)
+                // In thermal printing, 1 = Print (Black), 0 = White
+                if (avg < 128) {
+                    byte |= (1 << (7 - b));
+                }
+            }
+            rasterData.push(byte);
+        }
+    }
+
+    return rasterData;
+};
+
+// --- MAIN GENERATOR (Now Async) ---
+
+export const generateEscPosTicket = async (transaction: Transaction, customerName: string, settings: BusinessSettings): Promise<Uint8Array> => {
     const buffer: number[] = [];
 
     const add = (data: number[] | Uint8Array) => {
@@ -45,32 +119,38 @@ export const generateEscPosTicket = (transaction: Transaction, customerName: str
         }
     };
 
-    const addText = (text: string) => {
-        add(encode(text));
-    };
-
-    const addLine = (text: string) => {
-        addText(text + '\n');
-    };
-
+    const addText = (text: string) => add(encode(text));
+    const addLine = (text: string) => addText(text + '\n');
     const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
 
     // --- 1. INITIALIZE ---
     add(COMMANDS.INIT);
-    add(COMMANDS.CODE_PAGE); // Force PC437
-    add(COMMANDS.CHAR_SET);
-    
-    // --- 2. HEADER ---
+    add(COMMANDS.CODE_PAGE); 
     add(COMMANDS.ALIGN_CENTER);
+
+    // --- 2. LOGO (If available) ---
+    if (settings.receiptLogo) {
+        try {
+            const img = await loadImage(settings.receiptLogo);
+            // 384 dots for 58mm, 576 dots for 80mm
+            const maxDots = settings.ticketPaperWidth === '58mm' ? 384 : 576; 
+            const rasterData = convertImageToRaster(img, maxDots);
+            
+            add(rasterData);
+            add(COMMANDS.FEED_LINES(1)); // Spacer after logo
+        } catch (e) {
+            console.warn("Could not load logo for printing", e);
+        }
+    }
+
+    // --- 3. HEADER TEXT ---
     add(COMMANDS.BOLD_ON);
-    
-    // Header Info
     addLine(settings.name);
     add(COMMANDS.BOLD_OFF);
     
     if (settings.address) addLine(settings.address);
     if (settings.phone) addLine(`Tel: ${settings.phone}`);
-    addLine('\n'); // Spacer
+    addLine('\n');
     
     if (settings.receiptHeader) {
         addLine(settings.receiptHeader);
@@ -79,37 +159,30 @@ export const generateEscPosTicket = (transaction: Transaction, customerName: str
     
     addLine(separator);
 
-    // --- 3. TRANSACTION INFO ---
+    // --- 4. TRANSACTION INFO ---
     add(COMMANDS.ALIGN_LEFT);
     addLine(`Folio: #${transaction.id}`);
     addLine(`Fecha: ${new Date(transaction.date).toLocaleString('es-MX')}`);
     addLine(`Cliente: ${customerName}`);
     addLine(separator);
 
-    // --- 4. ITEMS ---
-    // Header for items
+    // --- 5. ITEMS ---
     if (settings.ticketPaperWidth === '58mm') {
-        // Simple layout for 58mm
         addLine("Cant  Descrip.       Total");
     } else {
         addLine("Cant   Descrip.           P.Unit   Total");
     }
     
     transaction.items.forEach(item => {
-        const name = item.name.substring(0, 16); // Truncate name
+        const name = item.name.substring(0, 16);
         const total = (item.price * item.quantity).toFixed(2);
         
         if (settings.ticketPaperWidth === '58mm') {
-            // 58mm approx 32 chars
-            // Qty (3) + Space (1) + Name (18) + Space (1) + Total (9)
             const qtyStr = item.quantity.toString().padEnd(3);
             const nameStr = name.padEnd(18);
             const totalStr = total.padStart(9);
             addLine(`${qtyStr} ${nameStr} ${totalStr}`);
-            // If name was truncated or long, maybe print full on next line? 
-            // For simplicity/cleanliness, we truncated.
         } else {
-            // 80mm layout
             addLine(`${item.quantity} x ${item.name}`);
             add(COMMANDS.ALIGN_RIGHT);
             addLine(`$${total}`);
@@ -119,7 +192,7 @@ export const generateEscPosTicket = (transaction: Transaction, customerName: str
 
     addLine(separator);
 
-    // --- 5. TOTALS ---
+    // --- 6. TOTALS ---
     add(COMMANDS.ALIGN_RIGHT);
     
     if (transaction.discount > 0) {
@@ -128,8 +201,7 @@ export const generateEscPosTicket = (transaction: Transaction, customerName: str
     }
     
     add(COMMANDS.BOLD_ON);
-    // Double size for Total
-    add([GS, 0x21, 0x11]); // Double width & height
+    add([GS, 0x21, 0x11]); // Double size
     addLine(`TOTAL: $${transaction.total.toFixed(2)}`);
     add([GS, 0x21, 0x00]); // Reset size
     add(COMMANDS.BOLD_OFF);
@@ -143,32 +215,30 @@ export const generateEscPosTicket = (transaction: Transaction, customerName: str
         addLine(`Pago: ${transaction.paymentMethod.toUpperCase()}`);
     }
 
-    // --- 6. FOOTER ---
+    // --- 7. FOOTER ---
     add(COMMANDS.ALIGN_CENTER);
     addLine(separator);
     if (settings.receiptFooter) addLine(settings.receiptFooter);
     addLine("Gracias por su compra");
     
-    // --- 7. FEED & CUT ---
-    // Feed 5 lines to clear the cutter/tear bar
+    // --- 8. FEED & CUT ---
     add(COMMANDS.FEED_LINES(5)); 
     
     return new Uint8Array(buffer);
 };
 
 export const generateTestTicket = (): Uint8Array => {
+    // Keep sync for simple test
     const buffer: number[] = [];
     const add = (data: number[]) => buffer.push(...data);
     const enc = new TextEncoder();
     const addText = (str: string) => {
-        // Simple normalization for test
         const safeStr = str.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); 
         buffer.push(...Array.from(enc.encode(safeStr)));
     };
 
     add(COMMANDS.INIT);
-    add(COMMANDS.CODE_PAGE); // PC437
-    
+    add(COMMANDS.CODE_PAGE); 
     add(COMMANDS.ALIGN_CENTER);
     add(COMMANDS.BOLD_ON);
     addText("LUMINA POS\n");
@@ -181,7 +251,7 @@ export const generateTestTicket = (): Uint8Array => {
     addText("Caracteres: ABC 123 USD\n");
     add(COMMANDS.ALIGN_CENTER);
     addText("--------------------------------\n");
-    addText("\n\n\n\n\n"); // Feed lines manually to ensure it scrolls out
+    add(COMMANDS.FEED_LINES(5));
     
     return new Uint8Array(buffer);
 };

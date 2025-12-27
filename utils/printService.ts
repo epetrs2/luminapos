@@ -565,7 +565,8 @@ export const printThermalTicket = async (
     // If a Bluetooth send function is provided, generate raw bytes and send them.
     if (btSendFn) {
         try {
-            const data = generateEscPosTicket(transaction, customerName, settings);
+            // Await the generation of the ticket data (which might involve async image loading)
+            const data = await generateEscPosTicket(transaction, customerName, settings);
             await btSendFn(data);
             return; // Success, don't open window
         } catch (e) {
@@ -767,42 +768,6 @@ export const printProductionSummary = (orders: Order[], settings: BusinessSettin
     openPrintWindow(html);
 };
 
-// ... (Existing printZCutTicket function remains same) ...
-export const printZCutTicket = (movement: CashMovement, settings: BusinessSettings) => {
-    if (!movement.zReportData) return;
-    const data = movement.zReportData;
-    const TICKET_CSS = `body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 5px; width: ${settings.ticketPaperWidth}; } .header { text-align: center; margin-bottom: 10px; } .row { display: flex; justify-content: space-between; } .line { border-bottom: 1px dashed #000; margin: 5px 0; }`;
-    
-    const html = `
-        <html>
-        <head><style>${TICKET_CSS}</style></head>
-        <body>
-            <div class="header">
-                <div>${settings.name}</div>
-                <div style="font-weight:bold">CORTE Z</div>
-                <div>${new Date(movement.date).toLocaleString()}</div>
-            </div>
-            <div class="line"></div>
-            <div class="row"><span>Fondo Inicial:</span><span>$${data.openingFund.toFixed(2)}</span></div>
-            <div class="row"><span>Ventas Totales:</span><span>$${data.grossSales.toFixed(2)}</span></div>
-            <div class="line"></div>
-            <div class="row"><span>Efectivo:</span><span>$${data.cashSales.toFixed(2)}</span></div>
-            <div class="row"><span>Tarjeta:</span><span>$${data.cardSales.toFixed(2)}</span></div>
-            <div class="row"><span>Transferencia:</span><span>$${data.transferSales.toFixed(2)}</span></div>
-            <div class="line"></div>
-            <div class="row"><span>Gastos:</span><span>-$${data.expenses.toFixed(2)}</span></div>
-            <div class="row"><span>Retiros:</span><span>-$${data.withdrawals.toFixed(2)}</span></div>
-            <div class="line"></div>
-            <div class="row" style="font-weight:bold"><span>Esperado en Caja:</span><span>$${data.expectedCash.toFixed(2)}</span></div>
-            <div class="row"><span>Declarado:</span><span>$${data.declaredCash.toFixed(2)}</span></div>
-            <div class="row"><span>Diferencia:</span><span>$${data.difference.toFixed(2)}</span></div>
-            <br/><br/><div style="text-align:center">_______________________<br/>Firma</div>
-        </body>
-        </html>
-    `;
-    openPrintWindow(html);
-};
-
 export const printFinancialReport = (
     startDate: Date, 
     endDate: Date, 
@@ -884,6 +849,57 @@ export const printFinancialReport = (
             <div class="footer">
                 Generado el ${new Date().toLocaleString()} por LuminaPOS
             </div>
+        </body>
+        </html>
+    `;
+    openPrintWindow(html);
+};
+
+export const printZCutTicket = (movement: CashMovement, settings: BusinessSettings) => {
+    if (!movement.zReportData) return;
+    const z = movement.zReportData;
+
+    const TICKET_CSS = `
+        body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 5px; width: ${settings.ticketPaperWidth}; }
+        .header { text-align: center; margin-bottom: 10px; }
+        .title { font-size: 14px; font-weight: bold; }
+        .line { border-bottom: 1px dashed #000; margin: 5px 0; }
+        .row { display: flex; justify-content: space-between; }
+        .bold { font-weight: bold; }
+        .footer { text-align: center; margin-top: 10px; font-size: 10px; }
+    `;
+
+    const html = `
+        <html>
+        <head><style>${TICKET_CSS}</style></head>
+        <body>
+            <div class="header">
+                ${settings.receiptLogo ? `<img src="${settings.receiptLogo}" style="max-width:50%; margin-bottom:5px;">` : ''}
+                <div class="title">CORTE DE CAJA (Z)</div>
+                <div>${settings.name}</div>
+                <div>${new Date(movement.date).toLocaleString()}</div>
+            </div>
+            <div class="line"></div>
+            
+            <div class="row"><span>Fondo Inicial:</span><span>$${z.openingFund.toFixed(2)}</span></div>
+            <div class="row"><span>+ Ventas Totales:</span><span>$${z.grossSales.toFixed(2)}</span></div>
+            <div class="row"><span>- Gastos (Efe):</span><span>$${z.expenses.toFixed(2)}</span></div>
+            <div class="row"><span>- Retiros (Efe):</span><span>$${z.withdrawals.toFixed(2)}</span></div>
+            <div class="line"></div>
+            
+            <div class="row bold"><span>Esperado en Caja:</span><span>$${z.expectedCash.toFixed(2)}</span></div>
+            <div class="row bold"><span>Declarado:</span><span>$${z.declaredCash.toFixed(2)}</span></div>
+            <div class="row bold"><span>Diferencia:</span><span>$${z.difference.toFixed(2)}</span></div>
+            
+            <div class="line"></div>
+            <div style="text-align:center; font-weight:bold; margin-bottom:5px;">DESGLOSE DE VENTAS</div>
+            <div class="row"><span>Efectivo:</span><span>$${z.cashSales.toFixed(2)}</span></div>
+            <div class="row"><span>Tarjeta:</span><span>$${z.cardSales.toFixed(2)}</span></div>
+            <div class="row"><span>Transferencia:</span><span>$${z.transferSales.toFixed(2)}</span></div>
+            <div class="row"><span>Crédito:</span><span>$${z.creditSales.toFixed(2)}</span></div>
+            
+            <div class="line"></div>
+            <div class="footer">--- FIN DEL REPORTE ---</div>
         </body>
         </html>
     `;
