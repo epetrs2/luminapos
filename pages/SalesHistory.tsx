@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban } from 'lucide-react';
+import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
 import { printInvoice, printThermalTicket } from '../utils/printService';
@@ -757,7 +757,8 @@ export const SalesHistory: React.FC = () => {
 
   // New Filters
   const [filterType, setFilterType] = useState<'ALL' | 'PAID' | 'PENDING' | 'CANCELLED'>('ALL');
-  const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT'>('DATE');
+  const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT' | 'ID'>('ID'); // Default sort by Folio (ID)
+  const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('DESC'); // Default Descending (Newest first)
 
   // Helper functions
   const getCustomerName = (id?: string) => {
@@ -881,15 +882,37 @@ export const SalesHistory: React.FC = () => {
 
         // Apply Sorting
         result.sort((a, b) => {
-            if (sortBy === 'AMOUNT') {
-                return b.total - a.total;
+            let comparison = 0;
+            
+            if (sortBy === 'ID') {
+                // Try numeric sort for Folios (e.g. 100 > 2)
+                const numA = parseInt(a.id);
+                const numB = parseInt(b.id);
+                if (!isNaN(numA) && !isNaN(numB)) {
+                    comparison = numA - numB;
+                } else {
+                    // Fallback to string sort
+                    comparison = a.id.localeCompare(b.id);
+                }
+            } else if (sortBy === 'AMOUNT') {
+                comparison = a.total - b.total;
+            } else {
+                // Default DATE
+                comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
             }
-            // Default DATE (Newest first)
-            return new Date(b.date).getTime() - new Date(a.date).getTime();
+
+            return sortDirection === 'DESC' ? -comparison : comparison;
         });
 
         return result;
-  }, [transactions, searchTerm, filterType, sortBy]);
+  }, [transactions, searchTerm, filterType, sortBy, sortDirection]);
+
+  // Handle cycling through sort options
+  const toggleSortBy = () => {
+      if (sortBy === 'ID') setSortBy('DATE');
+      else if (sortBy === 'DATE') setSortBy('AMOUNT');
+      else setSortBy('ID');
+  };
 
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
@@ -927,7 +950,7 @@ export const SalesHistory: React.FC = () => {
                 </button>
             </div>
 
-            <div className="flex gap-3 w-full lg:w-auto">
+            <div className="flex gap-2 w-full lg:w-auto">
                 <div className="relative flex-1 lg:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                     <input 
@@ -938,13 +961,24 @@ export const SalesHistory: React.FC = () => {
                         onChange={e => setSearchTerm(e.target.value)}
                     />
                 </div>
+                
+                {/* SORTING CONTROLS */}
                 <button 
-                    onClick={() => setSortBy(prev => prev === 'DATE' ? 'AMOUNT' : 'DATE')}
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap"
-                    title={sortBy === 'DATE' ? 'Ordenar por Monto' : 'Ordenar por Fecha'}
+                    onClick={toggleSortBy}
+                    className="flex items-center justify-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap min-w-[120px]"
+                    title="Cambiar criterio de orden"
                 >
-                    {sortBy === 'DATE' ? <ArrowDownWideNarrow className="w-4 h-4"/> : <ArrowUpNarrowWide className="w-4 h-4 text-emerald-500"/>}
-                    <span className="hidden md:inline">{sortBy === 'DATE' ? 'Más Recientes' : 'Mayor Monto'}</span>
+                    {sortBy === 'ID' && <><Hash className="w-4 h-4 text-indigo-500"/> Folio</>}
+                    {sortBy === 'DATE' && <><Calendar className="w-4 h-4 text-indigo-500"/> Fecha</>}
+                    {sortBy === 'AMOUNT' && <><DollarSign className="w-4 h-4 text-emerald-500"/> Monto</>}
+                </button>
+
+                <button 
+                    onClick={() => setSortDirection(prev => prev === 'ASC' ? 'DESC' : 'ASC')}
+                    className="flex items-center justify-center p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                    title={sortDirection === 'ASC' ? 'Orden Ascendente (A-Z, 1-9)' : 'Orden Descendente (Z-A, 9-1)'}
+                >
+                    {sortDirection === 'ASC' ? <ArrowUp className="w-4 h-4"/> : <ArrowDown className="w-4 h-4"/>}
                 </button>
             </div>
           </div>
@@ -996,11 +1030,17 @@ export const SalesHistory: React.FC = () => {
             <table className="w-full">
               <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm uppercase font-semibold">
                 <tr>
-                  <th className="px-6 py-4 text-left">Folio</th>
-                  <th className="px-6 py-4 text-left">Fecha</th>
+                  <th className="px-6 py-4 text-left cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => { setSortBy('ID'); setSortDirection(prev => prev === 'ASC' ? 'DESC' : 'ASC'); }}>
+                      <div className="flex items-center gap-1">Folio {sortBy === 'ID' && (sortDirection === 'ASC' ? <ArrowUp className="w-3 h-3"/> : <ArrowDown className="w-3 h-3"/>)}</div>
+                  </th>
+                  <th className="px-6 py-4 text-left cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => { setSortBy('DATE'); setSortDirection(prev => prev === 'ASC' ? 'DESC' : 'ASC'); }}>
+                      <div className="flex items-center gap-1">Fecha {sortBy === 'DATE' && (sortDirection === 'ASC' ? <ArrowUp className="w-3 h-3"/> : <ArrowDown className="w-3 h-3"/>)}</div>
+                  </th>
                   <th className="px-6 py-4 text-left">Cliente</th>
                   <th className="px-6 py-4 text-center">Estado</th>
-                  <th className="px-6 py-4 text-right">Total</th>
+                  <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => { setSortBy('AMOUNT'); setSortDirection(prev => prev === 'ASC' ? 'DESC' : 'ASC'); }}>
+                      <div className="flex items-center justify-end gap-1">Total {sortBy === 'AMOUNT' && (sortDirection === 'ASC' ? <ArrowUp className="w-3 h-3"/> : <ArrowDown className="w-3 h-3"/>)}</div>
+                  </th>
                   <th className="px-6 py-4 text-right">Acciones</th>
                 </tr>
               </thead>
