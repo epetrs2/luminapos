@@ -157,7 +157,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave,
                     <button onClick={onCancel} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><X className="w-6 h-6 text-slate-400 hover:text-slate-600" /></button>
                 </div>
 
-                <div className="relative w-[320px] h-[320px] mx-auto bg-slate-100 dark:bg-slate-800 rounded-2xl overflow-hidden shadow-inner border-2 border-dashed border-slate-300 dark:border-slate-600 cursor-move touch-none group">
+                <div className="relative w-full max-w-[320px] aspect-square mx-auto bg-slate-100 dark:bg-slate-800 rounded-2xl overflow-hidden shadow-inner border-2 border-dashed border-slate-300 dark:border-slate-600 cursor-move touch-none group">
                     <canvas ref={canvasRef} width={320} height={320} className="w-full h-full"
                         onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
                         onTouchStart={handleMouseDown} onTouchMove={handleMouseMove}
@@ -380,6 +380,7 @@ export const Settings: React.FC = () => {
             ))}
         </div>
 
+        {/* ... Rest of settings remains almost identical, but cropper was fixed above ... */}
         <div className="space-y-6">
             {activeTab === 'GENERAL' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-[fadeIn_0.3s_ease-out]">

@@ -56,12 +56,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
          </div>
          <div className="flex items-center gap-2">
              {settings.enableCloudSync && (
-                 <button onClick={handleForceSync} className="p-2 text-indigo-300 hover:text-white hover:bg-white/10 rounded-lg">
-                     <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+                 <button onClick={handleForceSync} className="p-3 text-indigo-300 hover:text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform">
+                     <RefreshCw className={`w-6 h-6 ${isSyncing ? 'animate-spin' : ''}`} />
                  </button>
              )}
-             <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-white hover:bg-white/10 rounded-lg">
-                {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+             <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-3 text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform">
+                {isMobileMenuOpen ? <X className="w-7 h-7" /> : <Menu className="w-7 h-7" />}
              </button>
          </div>
       </div>
@@ -70,7 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
         <div className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
       )}
 
-      <div className={`fixed top-0 left-0 h-screen bg-slate-900 text-white flex flex-col shadow-xl z-50 transition-transform duration-300 ease-in-out w-64 ${isMobileMenuOpen ? 'translate-x-0 pt-16' : '-translate-x-full pt-0'} md:translate-x-0 md:pt-0`}>
+      <div className={`fixed top-0 left-0 h-screen bg-slate-900 text-white flex flex-col shadow-xl z-50 transition-transform duration-300 ease-in-out w-72 md:w-64 ${isMobileMenuOpen ? 'translate-x-0 pt-16' : '-translate-x-full pt-0'} md:translate-x-0 md:pt-0`}>
         <div className="hidden md:flex p-6 items-center gap-3 border-b border-slate-700">
             <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/10 flex items-center justify-center shrink-0">
             {settings.logo ? <img src={settings.logo} alt="Logo" className="w-full h-full object-contain" /> : <Store className="w-6 h-6 text-white" />}
@@ -114,14 +114,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
                 <button
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group ${isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50 translate-x-1' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                className={`w-full flex items-center justify-between px-4 py-4 md:py-3 rounded-xl transition-all duration-200 group ${isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50 translate-x-1' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                 >
                 <div className="flex items-center gap-3">
-                    <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
-                    <span className="font-medium">{item.label}</span>
+                    <Icon className={`w-6 h-6 md:w-5 md:h-5 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
+                    <span className="font-medium text-base md:text-sm">{item.label}</span>
                 </div>
                 {item.badge !== undefined && (
-                    <span className={`flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs font-bold ${isActive ? 'bg-white text-indigo-600' : 'bg-red-500 text-white'}`}>{item.badge}</span>
+                    <span className={`flex items-center justify-center min-w-[24px] h-6 md:min-w-[20px] md:h-5 px-1.5 rounded-full text-xs font-bold ${isActive ? 'bg-white text-indigo-600' : 'bg-red-500 text-white'}`}>{item.badge}</span>
                 )}
                 </button>
             );
@@ -130,14 +130,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
 
         <div className="p-4 border-t border-slate-800 space-y-2">
             {isAdmin && (
-                <button onClick={() => handleNavClick(AppView.SETTINGS)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${currentView === AppView.SETTINGS ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                <Settings className={`w-5 h-5 ${currentView === AppView.SETTINGS ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
-                <span className="font-medium">Configuración</span>
+                <button onClick={() => handleNavClick(AppView.SETTINGS)} className={`w-full flex items-center gap-3 px-4 py-4 md:py-3 rounded-xl transition-all duration-200 group ${currentView === AppView.SETTINGS ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <Settings className={`w-6 h-6 md:w-5 md:h-5 ${currentView === AppView.SETTINGS ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
+                <span className="font-medium text-base md:text-sm">Configuración</span>
                 </button>
             )}
-            <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-red-400 hover:bg-red-900/20 hover:text-red-300">
-                <LogOut className="w-5 h-5" />
-                <span className="font-medium">Cerrar Sesión</span>
+            <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-4 md:py-3 rounded-xl transition-all duration-200 text-red-400 hover:bg-red-900/20 hover:text-red-300">
+                <LogOut className="w-6 h-6 md:w-5 md:h-5" />
+                <span className="font-medium text-base md:text-sm">Cerrar Sesión</span>
             </button>
         </div>
       </div>
