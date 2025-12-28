@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Edit2, Trash2, Search, Package, AlertTriangle, ArrowLeftRight, Sparkles, X, BrainCircuit, Loader2, Filter, Check, Layers, Tag, Percent, DollarSign, Archive, Box, Eye, EyeOff, Scale, Info, Hash, Handshake } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
-import { Product, ProductVariant, MeasurementUnit } from '../types';
+import { Product, ProductVariant, MeasurementUnit, ProductType } from '../types';
 import { generateStockRecommendations, StockRecommendation } from '../services/geminiService';
 
 const UNITS: { label: string, value: MeasurementUnit }[] = [
@@ -26,7 +26,7 @@ export const Inventory: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'VARIANTS'>('GENERAL');
   
   // Inventory View Type (Product vs Supply)
-  const [inventoryType, setInventoryType] = useState<'PRODUCT' | 'SUPPLY'>('PRODUCT');
+  const [inventoryType, setInventoryType] = useState<ProductType>('PRODUCT');
 
   // Variant State inside Modal
   const [tempVariants, setTempVariants] = useState<ProductVariant[]>([]);
