@@ -7,12 +7,12 @@ const GS = 0x1D;
 
 const COMMANDS = {
     INIT: [ESC, 0x40],
-    CODE_PAGE: [ESC, 0x74, 0], // PC437
-    ALIGN_LEFT: [ESC, 0x61, 0],
-    ALIGN_CENTER: [ESC, 0x61, 1],
-    ALIGN_RIGHT: [ESC, 0x61, 2],
-    BOLD_ON: [ESC, 0x45, 1],
-    BOLD_OFF: [ESC, 0x45, 0],
+    CODE_PAGE: [ESC, 0x74, 0x00], // PC437
+    ALIGN_LEFT: [ESC, 0x61, 0x00],
+    ALIGN_CENTER: [ESC, 0x61, 0x01],
+    ALIGN_RIGHT: [ESC, 0x61, 0x02],
+    BOLD_ON: [ESC, 0x45, 0x01],
+    BOLD_OFF: [ESC, 0x45, 0x00],
     FEED_LINES: (n: number) => [ESC, 0x64, n],
 };
 
@@ -108,7 +108,7 @@ const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): nu
     const yL = height % 256;
     const yH = Math.floor(height / 256);
 
-    rasterData.push(GS, 0x76, 0x30, 0, xL, xH, yL, yH);
+    rasterData.push(GS, 0x76, 0x30, 0x00, xL, xH, yL, yH);
 
     for (let i = 0; i < grayData.length; i += 8) {
         let byte = 0;

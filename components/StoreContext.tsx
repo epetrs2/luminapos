@@ -722,7 +722,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         markLocalChange();
     };
     
-    // UPDATED: addTransaction with explicit cash option
+    // UPDATED: addTransaction with explicit cash option AND strictly cash method check
     const addTransaction = (t: Transaction, opts?: { shouldAffectCash?: boolean }) => {
         let newId = t.id;
         if (!newId) {
@@ -749,11 +749,20 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             shouldAddCash = t.paymentStatus === 'paid' && !t.isReturn && isToday;
         }
 
-        if (shouldAddCash && final.paymentStatus === 'paid' && !final.isReturn) {
+        // Calculate actual cash amount
+        let cashAmount = 0;
+        if (final.paymentMethod === 'cash') {
+            cashAmount = final.amountPaid;
+        } else if (final.paymentMethod === 'split') {
+            cashAmount = final.splitDetails?.cash || 0;
+        }
+
+        // Only add movement if it's supposed to affect cash AND there is actual cash involved
+        if (shouldAddCash && final.paymentStatus === 'paid' && !final.isReturn && cashAmount > 0) {
              addCashMovement({ 
                  id: `mv_${final.id}`, 
                  type: 'DEPOSIT', 
-                 amount: final.amountPaid, 
+                 amount: cashAmount, // Use strictly the cash amount
                  description: `Venta #${final.id}`, 
                  date: final.date, // Use transaction date, not NOW, for correct history logging
                  category: 'SALES' 
@@ -848,7 +857,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             setCustomers(custUpdater);
             storeRef.current.customers = custUpdater(storeRef.current.customers);
         }
-        if (method !== 'credit') {
+        // Only add cash movement if actual cash is involved
+        if (method === 'cash') {
             addCashMovement({
                 id: `pay_${id}_${Date.now()}`,
                 type: 'DEPOSIT',
