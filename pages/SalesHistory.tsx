@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown, Edit2, Save } from 'lucide-react';
+import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown, Edit2, Save, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
 import { printInvoice, printThermalTicket } from '../utils/printService';
@@ -28,7 +27,7 @@ const getPaymentLabel = (method: string) => {
 // --- Manual Entry Modal ---
 const ManualEntryModal: React.FC<{
     onClose: () => void;
-    onSave: (transaction: Transaction, deductStock: boolean) => void;
+    onSave: (transaction: Transaction, deductStock: boolean, affectCash: boolean) => void;
     customers: any[];
     products: Product[];
 }> = ({ onClose, onSave, customers, products }) => {
@@ -38,6 +37,7 @@ const ManualEntryModal: React.FC<{
     const [customTicketId, setCustomTicketId] = useState('');
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer' | 'credit'>('cash');
     const [deductStock, setDeductStock] = useState(false);
+    const [affectCash, setAffectCash] = useState(true); // NEW: Affect Cash Toggle
     
     // Debt / Status Logic
     const [paidAmount, setPaidAmount] = useState<string>('');
@@ -141,7 +141,7 @@ const ManualEntryModal: React.FC<{
             status: 'completed'
         };
 
-        onSave(transaction, deductStock);
+        onSave(transaction, deductStock, affectCash);
     };
 
     return (
@@ -308,12 +308,23 @@ const ManualEntryModal: React.FC<{
                         </div>
                     </div>
 
-                    <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setDeductStock(!deductStock)}>
-                            <div className={`w-5 h-5 rounded border flex items-center justify-center ${deductStock ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600'}`}>
-                                {deductStock && <Check className="w-3.5 h-3.5" />}
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                        <div className="flex gap-4">
+                            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setDeductStock(!deductStock)}>
+                                <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${deductStock ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600'}`}>
+                                    {deductStock && <Check className="w-3.5 h-3.5" />}
+                                </div>
+                                <span className="text-xs font-bold text-slate-600 dark:text-slate-300 select-none">Descontar Stock</span>
                             </div>
-                            <span className="text-sm text-slate-600 dark:text-slate-300 select-none">Descontar Stock</span>
+
+                            {paymentMethod !== 'credit' && (
+                                <div className="flex items-center gap-2 cursor-pointer" onClick={() => setAffectCash(!affectCash)}>
+                                    <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${affectCash ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600'}`}>
+                                        {affectCash && <Check className="w-3.5 h-3.5" />}
+                                    </div>
+                                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 select-none">Ingresar a Caja Chica</span>
+                                </div>
+                            )}
                         </div>
 
                         <div className="text-right flex items-center gap-4">
@@ -335,6 +346,8 @@ const ManualEntryModal: React.FC<{
     );
 };
 
+// ... (Rest of PaymentModal and other components remain the same) ...
+
 const PaymentModal: React.FC<{
     transaction: Transaction;
     onClose: () => void;
@@ -342,6 +355,7 @@ const PaymentModal: React.FC<{
     onConfirmTransfer: (id: string) => void;
     mode: 'PAYMENT' | 'CONFIRM_TRANSFER';
 }> = ({ transaction, onClose, onConfirm, onConfirmTransfer, mode }) => {
+    // ... (Keep existing implementation) ...
     const remaining = transaction.total - (transaction.amountPaid || 0);
     const [amount, setAmount] = useState(remaining.toString());
     const [method, setMethod] = useState<'cash' | 'transfer' | 'card'>('cash');
@@ -421,11 +435,14 @@ const PaymentModal: React.FC<{
     );
 };
 
+// ... (ReturnModal, TransactionDetailModal, SalesHistory main component - no changes except handleManualEntrySave) ...
+
 const ReturnModal: React.FC<{
     transaction: Transaction;
     onClose: () => void;
     onReturn: (items: CartItem[]) => void;
 }> = ({ transaction, onClose, onReturn }) => {
+    // ... same content ...
     const [returnSelection, setReturnSelection] = useState<{[key: string]: number}>({});
 
     const handleQtyChange = (itemId: string, maxQty: number, val: number) => {
@@ -505,20 +522,19 @@ const TransactionDetailModal: React.FC<{
   onPay: () => void;
   onConfirmTransfer: () => void;
   onReturn: (items: CartItem[]) => void;
-  onUpdate: (transaction: Transaction) => void; // New Callback
+  onUpdate: (transaction: Transaction) => void; 
   getCustomerName: (id?: string) => string;
   getCustomer: (id?: string) => any;
 }> = ({ transaction, onClose, onDelete, onPay, onConfirmTransfer, onReturn, onUpdate, getCustomerName, getCustomer }) => {
+  // ... same as before ...
   const { settings, sendBtData, btDevice, updateTransaction, notify } = useStore();
   const [deleteStep, setDeleteStep] = useState<'initial' | 'confirm' | 'processing' | 'success'>('initial');
   const [showReturnModal, setShowReturnModal] = useState(false);
   
-  // Editing State
   const [isEditing, setIsEditing] = useState(false);
   const [tempId, setTempId] = useState(transaction.id);
   const [tempMethod, setTempMethod] = useState(transaction.paymentMethod);
 
-  // Sync temp state when transaction prop changes
   useEffect(() => {
       setTempId(transaction.id);
       setTempMethod(transaction.paymentMethod);
@@ -526,19 +542,13 @@ const TransactionDetailModal: React.FC<{
 
   const handleSaveChanges = () => {
       try {
-          // Perform Update in Context
           updateTransaction(transaction.id, { id: tempId, paymentMethod: tempMethod });
-          
-          // Construct updated object for immediate UI refresh
           const updatedTx: Transaction = { 
               ...transaction, 
               id: tempId, 
               paymentMethod: tempMethod 
           };
-          
-          // Force parent to update selectedTransaction state
           onUpdate(updatedTx);
-          
           setIsEditing(false);
           notify("Actualizado", "La venta se ha modificado correctamente.", "success");
       } catch (e: any) {
@@ -604,7 +614,7 @@ const TransactionDetailModal: React.FC<{
             onReturn={(items) => {
                 onReturn(items);
                 setShowReturnModal(false);
-                onClose(); // Close detail modal after return
+                onClose(); 
             }}
           />
       )}
@@ -851,7 +861,7 @@ export const SalesHistory: React.FC = () => {
   const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT' | 'ID'>('ID'); // Default sort by Folio (ID)
   const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('DESC'); // Default Descending (Newest first)
 
-  // Helper functions
+  // ... (rest of helper functions) ...
   const getCustomerName = (id?: string) => {
       if (!id) return 'Cliente General';
       return customers.find(c => c.id === id)?.name || 'Desconocido';
@@ -865,7 +875,6 @@ export const SalesHistory: React.FC = () => {
       setSelectedTransaction(transaction);
   };
 
-  // Callback to update local state immediately after edit
   const handleTransactionUpdate = (newTx: Transaction) => {
       setSelectedTransaction(newTx);
   };
@@ -942,8 +951,11 @@ export const SalesHistory: React.FC = () => {
       setSelectedTransaction(null);
   };
 
-  const handleManualEntrySave = (transaction: Transaction, deductStock: boolean) => {
-      addTransaction(transaction);
+  // UPDATED HANDLER
+  const handleManualEntrySave = (transaction: Transaction, deductStock: boolean, affectCash: boolean) => {
+      // Pass affectCash as the second argument option
+      addTransaction(transaction, { shouldAffectCash: affectCash });
+      
       if(deductStock) {
           updateStockAfterSale(transaction.items);
       }
@@ -951,7 +963,7 @@ export const SalesHistory: React.FC = () => {
       notify("Registro Exitoso", "Venta manual agregada al historial.", "success");
   };
 
-  // --- MEMOIZED DATA PROCESSING ---
+  // ... (Memoized counts and filteredTransactions) ...
   const counts = useMemo(() => {
         return {
             all: transactions.length,
@@ -967,7 +979,6 @@ export const SalesHistory: React.FC = () => {
             getCustomerName(t.customerId).toLowerCase().includes(searchTerm.toLowerCase())
         );
 
-        // Apply Tab Filter
         if (filterType === 'PAID') {
             result = result.filter(t => t.status === 'completed' && t.paymentStatus === 'paid');
         } else if (filterType === 'PENDING') {
@@ -976,24 +987,20 @@ export const SalesHistory: React.FC = () => {
             result = result.filter(t => t.status === 'cancelled' || t.status === 'returned');
         }
 
-        // Apply Sorting
         result.sort((a, b) => {
             let comparison = 0;
             
             if (sortBy === 'ID') {
-                // Try numeric sort for Folios (e.g. 100 > 2)
                 const numA = parseInt(a.id);
                 const numB = parseInt(b.id);
                 if (!isNaN(numA) && !isNaN(numB)) {
                     comparison = numA - numB;
                 } else {
-                    // Fallback to string sort
                     comparison = a.id.localeCompare(b.id);
                 }
             } else if (sortBy === 'AMOUNT') {
                 comparison = a.total - b.total;
             } else {
-                // Default DATE
                 comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
             }
 
@@ -1003,7 +1010,6 @@ export const SalesHistory: React.FC = () => {
         return result;
   }, [transactions, searchTerm, filterType, sortBy, sortDirection]);
 
-  // Handle cycling through sort options
   const toggleSortBy = () => {
       if (sortBy === 'ID') setSortBy('DATE');
       else if (sortBy === 'DATE') setSortBy('AMOUNT');
@@ -1026,11 +1032,9 @@ export const SalesHistory: React.FC = () => {
           </button>
         </div>
 
+        {/* ... (Rest of UI remains identical) ... */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col">
-          
-          {/* Controls Bar */}
           <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row gap-4 justify-between items-center bg-slate-50/50 dark:bg-slate-800/20">
-            {/* Filter Tabs */}
             <div className="flex p-1 bg-slate-200 dark:bg-slate-800 rounded-xl overflow-x-auto w-full lg:w-auto custom-scrollbar">
                 <button onClick={() => setFilterType('ALL')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterType === 'ALL' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
                     Todas <span className="bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded-md text-[10px]">{counts.all}</span>
@@ -1058,7 +1062,6 @@ export const SalesHistory: React.FC = () => {
                     />
                 </div>
                 
-                {/* SORTING CONTROLS */}
                 <button 
                     onClick={toggleSortBy}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap min-w-[120px]"
@@ -1079,7 +1082,6 @@ export const SalesHistory: React.FC = () => {
             </div>
           </div>
 
-          {/* Mobile Card List */}
           <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
               {filteredTransactions.map(t => (
                   <div key={t.id} onClick={() => handleOpenDetail(t)} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 active:bg-slate-100 transition-colors cursor-pointer">
@@ -1106,7 +1108,6 @@ export const SalesHistory: React.FC = () => {
                           )}
                       </div>
                       
-                      {/* Quick Action for Pending */}
                       {(t.paymentStatus === 'pending' || t.paymentStatus === 'partial') && t.status === 'completed' && (
                           <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end" onClick={e => e.stopPropagation()}>
                               <button 
@@ -1121,7 +1122,6 @@ export const SalesHistory: React.FC = () => {
               ))}
           </div>
 
-          {/* Desktop Table */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
               <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm uppercase font-semibold">
@@ -1214,7 +1214,7 @@ export const SalesHistory: React.FC = () => {
           onPay={() => handleOpenPayment(selectedTransaction)}
           onConfirmTransfer={handleOpenConfirmTransfer}
           onReturn={handleReturnItems}
-          onUpdate={handleTransactionUpdate} // NEW PROP
+          onUpdate={handleTransactionUpdate} 
           getCustomerName={getCustomerName}
           getCustomer={getCustomer}
         />

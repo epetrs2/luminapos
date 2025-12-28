@@ -44,8 +44,8 @@ interface StoreContextType {
   adjustStock: (id: string, qty: number, type: 'IN' | 'OUT', variantId?: string) => void;
   addCategory: (name: string) => void;
   removeCategory: (name: string) => void;
-  addTransaction: (t: Transaction) => void;
-  updateTransaction: (oldId: string, updates: Partial<Transaction>) => void; // UPDATE FUNCTION
+  addTransaction: (t: Transaction, opts?: { shouldAffectCash?: boolean }) => void; // UPDATED SIGNATURE
+  updateTransaction: (oldId: string, updates: Partial<Transaction>) => void; 
   deleteTransaction: (id: string, items: any[]) => void;
   registerTransactionPayment: (id: string, amount: number, method: string) => void;
   updateStockAfterSale: (items: any[]) => void;
@@ -91,43 +91,56 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 const STORAGE_PREFIX = "LUMINA_SEC::"; 
 
-// ... (Rest of constants remain same)
 const DEFAULT_SETTINGS: BusinessSettings = {
     name: 'LuminaPOS',
-    address: 'Calle Principal #123',
-    phone: '555-0000',
-    email: 'contacto@negocio.com',
+    address: '',
+    phone: '',
+    email: '',
     website: '',
     taxId: '',
-    currency: '$',
-    taxRate: 16,
-    enableTax: true,
+    currency: 'MXN',
+    taxRate: 0,
+    enableTax: false,
     logo: null,
     receiptLogo: null,
-    receiptHeader: '*** GRACIAS POR SU COMPRA ***',
-    receiptFooter: 'Síguenos en redes sociales',
+    receiptHeader: '',
+    receiptFooter: 'Gracias por su compra',
     ticketPaperWidth: '80mm',
-    invoicePadding: 10, 
-    bluetoothPrinterName: null, 
+    invoicePadding: 10,
     theme: 'light',
-    budgetConfig: { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20 },
+    budgetConfig: {
+        expensesPercentage: 50,
+        investmentPercentage: 30,
+        profitPercentage: 20
+    },
     notificationsEnabled: true,
-    soundConfig: { 
+    soundConfig: {
         enabled: true,
         volume: 0.5,
         saleSound: 'SUCCESS',
         errorSound: 'ERROR',
         clickSound: 'POP',
-        notificationSound: 'GLASS'
+        notificationSound: 'NOTE'
     },
-    sequences: { customerStart: 1001, ticketStart: 10001, orderStart: 5001, productStart: 100 },
-    productionDoc: { title: 'ORDEN DE TRABAJO', showPrices: true, showCustomerContact: true, showDates: true, customFooter: '' },
-    enableCloudSync: true,
+    sequences: {
+        customerStart: 1,
+        ticketStart: 1,
+        orderStart: 1,
+        productStart: 1000
+    },
+    productionDoc: {
+        title: 'ORDEN DE PRODUCCIÓN',
+        showPrices: false,
+        showCustomerContact: true,
+        showDates: true,
+        customFooter: ''
+    },
+    bluetoothPrinterName: null,
     googleWebAppUrl: '',
-    cloudSecret: '' 
+    enableCloudSync: false,
+    cloudSecret: ''
 };
 
-// ... (Helper functions remain same)
 const encodeData = (data: any): string => {
     try {
         const json = JSON.stringify(data);
@@ -369,12 +382,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // --- SYNC & LOGIC ---
     const pushToCloud = useCallback(async (overrides?: any) => {
-        // ALWAYS use the latest ref to prevent race conditions
         const currentData = storeRef.current;
         const config = overrides?.settings || currentData.settings;
         if (!config.enableCloudSync || !config.googleWebAppUrl) return false;
         
-        // --- SAFETY GUARD: EMPTY DEVICE PROTECTION ---
         const isLocalEmpty = currentData.products.length === 0 && currentData.customers.length === 0;
         const hasActivity = currentData.activityLogs.length > 0;
         const isForced = overrides?.forcePush === true || overrides?.manual === true || hasActivity;
@@ -383,7 +394,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             console.warn("🛡️ DATA SAFETY: Sincronización bloqueada. Base de datos vacía.");
             return false;
         }
-        // ---------------------------------------------
 
         setIsSyncing(true);
         try {
@@ -412,7 +422,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const secret = overrideSecret !== undefined ? overrideSecret : storeRef.current.settings.cloudSecret;
         if (!url) return false;
         
-        // CRITICAL: If we have pending changes, we MUST push them first to avoid overwriting them with old cloud data.
         if (!force && hasPendingChangesRef.current) {
             return await pushToCloud({ manual: !silent });
         }
@@ -440,7 +449,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         try {
             if (!data) return false;
             
-            // Clean/Sanitize input first
             const safeData = sanitizeDataStructure(data);
 
             if (Array.isArray(safeData.products)) setProducts(safeData.products);
@@ -464,7 +472,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(safeData.settings.soundConfig || {}) },
                         sequences: { ...DEFAULT_SETTINGS.sequences, ...(safeData.settings.sequences || {}) },
                         productionDoc: { ...DEFAULT_SETTINGS.productionDoc, ...(safeData.settings.productionDoc || {}) },
-                        // Keep current sync config unless specifically overwritten by backup
                         googleWebAppUrl: safeData.settings.googleWebAppUrl || currentSettings.googleWebAppUrl,
                         cloudSecret: safeData.settings.cloudSecret || currentSettings.cloudSecret
                     };
@@ -472,7 +479,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 });
             }
             
-            // Force update ref immediately to prevent stale state issues
             storeRef.current = {
                 ...storeRef.current,
                 ...safeData,
@@ -500,7 +506,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         await pullFromCloud(undefined, undefined, false, true);
     };
 
-    // --- AUTO-SYNC LOGIC ---
     useEffect(() => {
         const interval = setInterval(() => {
             if (settings.enableCloudSync && settings.googleWebAppUrl) {
@@ -511,7 +516,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return () => clearInterval(interval);
     }, [hasPendingChanges, settings.enableCloudSync, settings.googleWebAppUrl]);
 
-    // Reactive Auto-Sync (Debounce)
     useEffect(() => {
         if (hasPendingChanges && settings.enableCloudSync && settings.googleWebAppUrl) {
             const debounceTimer = setTimeout(() => {
@@ -522,7 +526,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
     }, [hasPendingChanges, settings.enableCloudSync, settings.googleWebAppUrl, pushToCloud]);
 
-    // ... (Keep existing auth logic: verifyRecoveryAttempt, recoverAccount, login, logout, logActivity)
+    // ... (Auth Logic) ...
     const getUserPublicInfo = (username: string) => {
         const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
         if (!user) return null;
@@ -538,7 +542,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (!user) return false;
 
         if (method === 'SECURITY_QUESTION' && user.securityAnswerHash) {
-            // Check hash against stored salt
             return await verifyPassword(payload.trim().toLowerCase(), user.salt, user.securityAnswerHash);
         } else if (method === 'CODE') {
              return user.recoveryCode === payload.trim();
@@ -561,7 +564,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         if (!isValid) return 'INVALID';
 
-        // Keep the OLD salt so we don't invalidate the securityAnswerHash (which was hashed with the old salt)
         const newHash = await hashPassword(newPass, user.salt);
 
         const updatedUser = {
@@ -667,10 +669,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const newId = (currentMaxId + 1).toString();
         const newProduct = { ...p, id: newId };
 
-        // 1. Update State (UI)
         setProducts(prev => [...prev, newProduct]); 
-        
-        // 2. Update Ref IMMEDIATELY (Sync) - Fixes "Disappearing Product" race condition
         storeRef.current.products = [...storeRef.current.products, newProduct];
 
         markLocalChange(); 
@@ -723,7 +722,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         markLocalChange();
     };
     
-    const addTransaction = (t: Transaction) => {
+    // UPDATED: addTransaction with explicit cash option
+    const addTransaction = (t: Transaction, opts?: { shouldAffectCash?: boolean }) => {
         let newId = t.id;
         if (!newId) {
             const currentList = storeRef.current.transactions;
@@ -738,17 +738,28 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setTransactions(prev => [final, ...prev]);
         storeRef.current.transactions = [final, ...storeRef.current.transactions];
 
-        const isToday = new Date(final.date).toDateString() === new Date().toDateString();
-        if (t.paymentStatus === 'paid' && !t.isReturn && isToday) {
+        // Logic for Cash Movement
+        let shouldAddCash = false;
+        if (opts?.shouldAffectCash !== undefined) {
+            // Manual override
+            shouldAddCash = opts.shouldAffectCash;
+        } else {
+            // Automatic behavior
+            const isToday = new Date(final.date).toDateString() === new Date().toDateString();
+            shouldAddCash = t.paymentStatus === 'paid' && !t.isReturn && isToday;
+        }
+
+        if (shouldAddCash && final.paymentStatus === 'paid' && !final.isReturn) {
              addCashMovement({ 
                  id: `mv_${final.id}`, 
                  type: 'DEPOSIT', 
-                 amount: t.amountPaid, 
+                 amount: final.amountPaid, 
                  description: `Venta #${final.id}`, 
-                 date: new Date().toISOString(), 
+                 date: final.date, // Use transaction date, not NOW, for correct history logging
                  category: 'SALES' 
              });
         }
+
         const debt = final.total - (final.amountPaid || 0);
         if (debt > 0.01 && final.customerId && final.status !== 'cancelled' && final.status !== 'returned') {
             const custUpdater = (prev: Customer[]) => prev.map(c => {
@@ -763,7 +774,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         markLocalChange();
     };
 
-    // ... (Keep existing updateTransaction, deleteTransaction, registerTransactionPayment logic but ensure storeRef updates)
     const updateTransaction = (oldId: string, updates: Partial<Transaction>) => {
         if (updates.id && updates.id !== oldId) {
             if (storeRef.current.transactions.some(t => t.id === updates.id)) {
@@ -793,7 +803,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const deleteTransaction = (id: string, items: any[]) => {
-        // ... (Logic simplified for brevity, assume similar storeRef updates) ...
         const tx = transactions.find(t => t.id === id);
         const txUpdater = (prev: Transaction[]) => prev.map(t => t.id === id ? { ...t, status: 'cancelled' as const, amountPaid: 0 } : t);
         setTransactions(txUpdater);
@@ -819,7 +828,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const registerTransactionPayment = (id: string, amount: number, method: string) => {
-        // ... (Similar ref updates)
         const tx = transactions.find(t => t.id === id);
         if (!tx) return;
         const txUpdater = (prev: Transaction[]) => prev.map(t => {
@@ -916,7 +924,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         logActivity('ORDER', `Nuevo pedido #${newId}`);
     };
     
-    // NEW: Update full order
     const updateOrder = (o: Order) => {
         const updater = (prev: Order[]) => prev.map(ord => ord.id === o.id ? o : ord);
         setOrders(updater);
@@ -925,7 +932,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         logActivity('ORDER', `Editó pedido #${o.id}`);
     };
 
-    // --- SEND ORDER TO POS LOGIC ---
     const sendOrderToPOS = (order: Order) => {
         setIncomingOrder(order);
         const updater = (prev: Order[]) => prev.filter(o => o.id !== order.id);
@@ -936,9 +942,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     const clearIncomingOrder = () => setIncomingOrder(null);
 
-    const convertOrderToSale = (id: string, paymentMethod: string) => {
-        // Legacy: Logic moved to POS page via sendOrderToPOS
-    };
+    const convertOrderToSale = (id: string, paymentMethod: string) => { };
 
     const updateCustomer = (c: Customer) => { 
         const updater = (prev: Customer[]) => prev.map(cust => cust.id === c.id ? c : cust);
@@ -1041,7 +1045,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, 
             isLoggingOut, 
             addProduct, updateProduct, deleteProduct, adjustStock, 
-            addCategory, removeCategory, // Use the new function references
+            addCategory, removeCategory, 
             addTransaction, updateTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=> {
                 const updater = (p: Customer[]) => p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c);
