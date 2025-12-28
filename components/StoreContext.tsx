@@ -369,22 +369,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // --- SYNC & LOGIC ---
     const pushToCloud = useCallback(async (overrides?: any) => {
+        // ALWAYS use the latest ref to prevent race conditions
         const currentData = storeRef.current;
         const config = overrides?.settings || currentData.settings;
         if (!config.enableCloudSync || !config.googleWebAppUrl) return false;
         
         // --- SAFETY GUARD: EMPTY DEVICE PROTECTION ---
-        // Prevent wiping cloud data if device is empty, BUT allow if manual sync or user activity present
         const isLocalEmpty = currentData.products.length === 0 && currentData.customers.length === 0;
         const hasActivity = currentData.activityLogs.length > 0;
         const isForced = overrides?.forcePush === true || overrides?.manual === true || hasActivity;
 
         if (isLocalEmpty && !isForced) {
-            console.warn("🛡️ DATA SAFETY: Sincronización de subida bloqueada. Base de datos local vacía.");
-            // If this was a manual triggered sync that got blocked (rare case if logic above holds), notify user.
-            if (overrides?.manual) {
-                notify("Sincronización Bloqueada", "Base de datos vacía. Agrega productos o configuración primero.", "warning");
-            }
+            console.warn("🛡️ DATA SAFETY: Sincronización bloqueada. Base de datos vacía.");
             return false;
         }
         // ---------------------------------------------
@@ -398,7 +394,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             hasPendingChangesRef.current = false;
             setHasPendingChanges(false);
             
-            // Only notify if explicit manual sync
             if (overrides?.manual) {
                 notify("Sincronizado", "Cambios guardados correctamente.", "success");
             }
@@ -417,9 +412,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const secret = overrideSecret !== undefined ? overrideSecret : storeRef.current.settings.cloudSecret;
         if (!url) return false;
         
+        // CRITICAL: If we have pending changes, we MUST push them first to avoid overwriting them with old cloud data.
         if (!force && hasPendingChangesRef.current) {
-            // Await push so user sees the result of the "pending changes" save
-            // Treat this as manual to ensure feedback is given
             return await pushToCloud({ manual: !silent });
         }
 
@@ -478,11 +472,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 });
             }
             
-            // Force save to local storage immediately to ensure persistence even if app closes
+            // Force update ref immediately to prevent stale state issues
+            storeRef.current = {
+                ...storeRef.current,
+                ...safeData,
+                settings: { ...storeRef.current.settings, ...safeData.settings }
+            };
+
             setTimeout(() => {
                 safeSave('products', safeData.products || []);
                 safeSave('transactions', safeData.transactions || []);
-                // ... (localStorage persistence handled by useEffects, but triggering state updates above does it)
             }, 100);
 
             return true;
@@ -503,10 +502,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // --- AUTO-SYNC LOGIC ---
     useEffect(() => {
-        // Fallback interval (every 30s)
         const interval = setInterval(() => {
             if (settings.enableCloudSync && settings.googleWebAppUrl) {
-                // If we have pending changes, push. If not, pull to get updates from others.
                 if (hasPendingChanges) pushToCloud();
                 else pullFromCloud(undefined, undefined, true);
             }
@@ -514,19 +511,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return () => clearInterval(interval);
     }, [hasPendingChanges, settings.enableCloudSync, settings.googleWebAppUrl]);
 
-    // NEW: Reactive Auto-Sync (Debounce)
-    // Triggers save 5 seconds after a change is made, improving UX
+    // Reactive Auto-Sync (Debounce)
     useEffect(() => {
         if (hasPendingChanges && settings.enableCloudSync && settings.googleWebAppUrl) {
             const debounceTimer = setTimeout(() => {
                 console.log("Auto-saving pending changes...");
                 pushToCloud();
-            }, 5000); // 5 seconds debounce
+            }, 5000); 
             return () => clearTimeout(debounceTimer);
         }
     }, [hasPendingChanges, settings.enableCloudSync, settings.googleWebAppUrl, pushToCloud]);
 
-    // --- RECOVERY LOGIC (FIXED) ---
+    // ... (Keep existing auth logic: verifyRecoveryAttempt, recoverAccount, login, logout, logActivity)
     const getUserPublicInfo = (username: string) => {
         const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
         if (!user) return null;
@@ -582,7 +578,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return 'SUCCESS';
     };
 
-    // --- AUTH LOGIC ---
     const login = async (u: string, p: string, code?: string) => {
         const userIndex = users.findIndex(usr => usr.username.toLowerCase() === u.toLowerCase());
         if (userIndex === -1) return 'INVALID';
@@ -591,7 +586,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (!user.active) return 'INVALID';
         if (user.lockoutUntil && new Date() < new Date(user.lockoutUntil)) return 'LOCKED';
         
-        // Self-Healing Admin (If hashes outdated)
         if (u.toLowerCase() === 'admin' && p === 'Admin@123456') {
              const checkDefault = await verifyPassword(p, user.salt, user.passwordHash);
              if (!checkDefault) {
@@ -599,7 +593,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                  const newHash = await hashPassword(p, newSalt);
                  const fixedUser = { ...user, salt: newSalt, passwordHash: newHash };
                  setUsers(prev => prev.map(usr => usr.id === user.id ? fixedUser : usr));
-                 // Allow pass through for this session
              }
         }
 
@@ -619,10 +612,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return 'SUCCESS';
     };
 
-    // ANIMATED LOGOUT
     const logout = async () => { 
         setIsLoggingOut(true);
-        // Add artificial delay for fade out animation
         await new Promise(resolve => setTimeout(resolve, 300));
         setCurrentUser(null); 
         localStorage.removeItem('currentUser');
@@ -665,9 +656,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
     };
     
-    // --- ACTIONS ---
+    // --- UPDATED ACTIONS WITH MANUAL REF SYNC ---
     const addProduct = (p: Product) => {
-        // Use Ref for ID calculation to avoid stale state in closure
         const currentList = storeRef.current.products; 
         const currentMaxId = currentList.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
@@ -675,15 +665,36 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }, (settings.sequences.productStart || 100) - 1);
         
         const newId = (currentMaxId + 1).toString();
-        setProducts(prev => [...prev, { ...p, id: newId }]); 
+        const newProduct = { ...p, id: newId };
+
+        // 1. Update State (UI)
+        setProducts(prev => [...prev, newProduct]); 
+        
+        // 2. Update Ref IMMEDIATELY (Sync) - Fixes "Disappearing Product" race condition
+        storeRef.current.products = [...storeRef.current.products, newProduct];
+
         markLocalChange(); 
         logActivity('INVENTORY', `Agregó producto: ${p.name}`); 
     };
 
-    const updateProduct = (p: Product) => { setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); markLocalChange(); logActivity('INVENTORY', `Actualizó producto: ${p.name}`); };
-    const deleteProduct = async (id: string) => { const p = products.find(prod=>prod.id===id); setProducts(prev => prev.filter(p => p.id !== id)); markLocalChange(); logActivity('INVENTORY', `Eliminó producto: ${p?.name}`); return true; };
+    const updateProduct = (p: Product) => { 
+        setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod)); 
+        storeRef.current.products = storeRef.current.products.map(prod => prod.id === p.id ? p : prod);
+        markLocalChange(); 
+        logActivity('INVENTORY', `Actualizó producto: ${p.name}`); 
+    };
+
+    const deleteProduct = async (id: string) => { 
+        const p = products.find(prod=>prod.id===id); 
+        setProducts(prev => prev.filter(p => p.id !== id)); 
+        storeRef.current.products = storeRef.current.products.filter(p => p.id !== id);
+        markLocalChange(); 
+        logActivity('INVENTORY', `Eliminó producto: ${p?.name}`); 
+        return true; 
+    };
+
     const adjustStock = (id: string, qty: number, type: 'IN' | 'OUT', vId?: string) => {
-        setProducts(prev => prev.map(p => {
+        const updater = (p: Product) => {
             if (p.id === id) {
                 if (vId) {
                     const vs = p.variants?.map(v => v.id === vId ? { ...v, stock: type === 'IN' ? v.stock + qty : Math.max(0, v.stock - qty) } : v);
@@ -692,27 +703,29 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 return { ...p, stock: type === 'IN' ? p.stock + qty : Math.max(0, p.stock - qty) };
             }
             return p;
-        }));
+        };
+        setProducts(prev => prev.map(updater));
+        storeRef.current.products = storeRef.current.products.map(updater);
         markLocalChange();
     };
 
     const addCategory = (name: string) => {
-        setCategories(prev => {
-            if (prev.includes(name)) return prev;
-            return [...prev, name];
-        });
+        const updater = (prev: string[]) => prev.includes(name) ? prev : [...prev, name];
+        setCategories(updater);
+        storeRef.current.categories = updater(storeRef.current.categories);
         markLocalChange();
     };
 
     const removeCategory = (name: string) => {
-        setCategories(prev => prev.filter(c => c !== name));
+        const updater = (prev: string[]) => prev.filter(c => c !== name);
+        setCategories(updater);
+        storeRef.current.categories = updater(storeRef.current.categories);
         markLocalChange();
     };
     
     const addTransaction = (t: Transaction) => {
         let newId = t.id;
         if (!newId) {
-            // Use Ref for latest state
             const currentList = storeRef.current.transactions;
             const currentMaxId = currentList.reduce((max, curr) => {
                 const idNum = parseInt(curr.id);
@@ -721,7 +734,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             newId = (currentMaxId + 1).toString();
         }
         const final = { ...t, id: newId };
+        
         setTransactions(prev => [final, ...prev]);
+        storeRef.current.transactions = [final, ...storeRef.current.transactions];
+
         const isToday = new Date(final.date).toDateString() === new Date().toDateString();
         if (t.paymentStatus === 'paid' && !t.isReturn && isToday) {
              addCashMovement({ 
@@ -735,41 +751,39 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
         const debt = final.total - (final.amountPaid || 0);
         if (debt > 0.01 && final.customerId && final.status !== 'cancelled' && final.status !== 'returned') {
-            setCustomers(prev => prev.map(c => {
+            const custUpdater = (prev: Customer[]) => prev.map(c => {
                 if (c.id === final.customerId) return { ...c, currentDebt: c.currentDebt + debt };
                 return c;
-            }));
+            });
+            setCustomers(custUpdater);
+            storeRef.current.customers = custUpdater(storeRef.current.customers);
         }
         logActivity('SALE', `Venta #${final.id}`);
         playSound('SALE');
         markLocalChange();
     };
 
-    // --- NEW: Update Transaction Logic ---
+    // ... (Keep existing updateTransaction, deleteTransaction, registerTransactionPayment logic but ensure storeRef updates)
     const updateTransaction = (oldId: string, updates: Partial<Transaction>) => {
-        // If ID is changing, verify uniqueness first
         if (updates.id && updates.id !== oldId) {
-            if (transactions.some(t => t.id === updates.id)) {
+            if (storeRef.current.transactions.some(t => t.id === updates.id)) {
                 throw new Error(`El folio #${updates.id} ya existe.`);
             }
         }
+        const updater = (prev: Transaction[]) => prev.map(t => t.id === oldId ? { ...t, ...updates } : t);
+        setTransactions(updater);
+        storeRef.current.transactions = updater(storeRef.current.transactions);
 
-        setTransactions(prev => prev.map(t => t.id === oldId ? { ...t, ...updates } : t));
-
-        // IMPORTANT: If ID changed, we must update the linked Cash Movement to maintain history
         if (updates.id && updates.id !== oldId) {
-            setCashMovements(prev => prev.map(m => {
+            const mvUpdater = (prev: CashMovement[]) => prev.map(m => {
                 if (m.id === `mv_${oldId}`) {
-                    return { 
-                        ...m, 
-                        id: `mv_${updates.id}`, 
-                        description: m.description.replace(`#${oldId}`, `#${updates.id}`) 
-                    };
+                    return { ...m, id: `mv_${updates.id}`, description: m.description.replace(`#${oldId}`, `#${updates.id}`) };
                 }
                 return m;
-            }));
+            });
+            setCashMovements(mvUpdater);
+            storeRef.current.cashMovements = mvUpdater(storeRef.current.cashMovements);
         }
-
         markLocalChange();
         logActivity('SALE', `Editó Venta #${oldId} -> ${updates.id || oldId}`);
     };
@@ -779,14 +793,24 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const deleteTransaction = (id: string, items: any[]) => {
+        // ... (Logic simplified for brevity, assume similar storeRef updates) ...
         const tx = transactions.find(t => t.id === id);
-        setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled', amountPaid: 0 } : t));
-        setCashMovements(prev => prev.filter(m => m.id !== `mv_${id}`));
+        const txUpdater = (prev: Transaction[]) => prev.map(t => t.id === id ? { ...t, status: 'cancelled' as const, amountPaid: 0 } : t);
+        setTransactions(txUpdater);
+        storeRef.current.transactions = txUpdater(storeRef.current.transactions);
+
+        const mvUpdater = (prev: CashMovement[]) => prev.filter(m => m.id !== `mv_${id}`);
+        setCashMovements(mvUpdater);
+        storeRef.current.cashMovements = mvUpdater(storeRef.current.cashMovements);
+
         items.forEach(i => adjustStock(i.id, i.quantity, 'IN', i.variantId));
+        
         if (tx && tx.customerId) {
             const debt = tx.total - (tx.amountPaid || 0);
             if (debt > 0.01) {
-                 setCustomers(prev => prev.map(c => c.id === tx.customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - debt) } : c));
+                 const custUpdater = (prev: Customer[]) => prev.map(c => c.id === tx.customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - debt) } : c);
+                 setCustomers(custUpdater);
+                 storeRef.current.customers = custUpdater(storeRef.current.customers);
             }
         }
         logActivity('SALE', `Anuló Venta #${id}`);
@@ -795,9 +819,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const registerTransactionPayment = (id: string, amount: number, method: string) => {
+        // ... (Similar ref updates)
         const tx = transactions.find(t => t.id === id);
         if (!tx) return;
-        setTransactions(prev => prev.map(t => {
+        const txUpdater = (prev: Transaction[]) => prev.map(t => {
             if (t.id === id) {
                 const newPaid = (t.amountPaid || 0) + amount;
                 let newStatus: Transaction['paymentStatus'] = t.paymentStatus;
@@ -806,9 +831,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 return { ...t, amountPaid: newPaid, paymentStatus: newStatus };
             }
             return t;
-        }));
+        });
+        setTransactions(txUpdater);
+        storeRef.current.transactions = txUpdater(storeRef.current.transactions);
+
         if (tx.customerId) {
-            setCustomers(prev => prev.map(c => c.id === tx.customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c));
+            const custUpdater = (prev: Customer[]) => prev.map(c => c.id === tx.customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c);
+            setCustomers(custUpdater);
+            storeRef.current.customers = custUpdater(storeRef.current.customers);
         }
         if (method !== 'credit') {
             addCashMovement({
@@ -825,44 +855,72 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const addCustomer = (c: Customer) => {
-        // Use Ref for latest state
         const currentList = storeRef.current.customers;
         const currentMaxId = currentList.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;
         }, settings.sequences.customerStart - 1);
         const newId = (currentMaxId + 1).toString();
-        setCustomers(prev => [...prev, { ...c, id: newId }]);
+        const newC = { ...c, id: newId };
+        
+        setCustomers(prev => [...prev, newC]);
+        storeRef.current.customers = [...storeRef.current.customers, newC];
         markLocalChange();
         logActivity('CRM', `Nuevo cliente: ${c.name}`);
     };
 
-    const addSupplier = (s: Supplier) => { setSuppliers(prev => [...prev, s]); markLocalChange(); logActivity('CRM', `Nuevo proveedor: ${s.name}`); };
-    const updateSupplier = (s: Supplier) => { setSuppliers(prev => prev.map(sup => sup.id === s.id ? s : sup)); markLocalChange(); };
-    const deleteSupplier = async (id: string) => { const s = suppliers.find(sup => sup.id === id); setSuppliers(prev => prev.filter(sup => sup.id !== id)); markLocalChange(); return true; };
+    const addSupplier = (s: Supplier) => { 
+        setSuppliers(prev => [...prev, s]); 
+        storeRef.current.suppliers = [...storeRef.current.suppliers, s];
+        markLocalChange(); 
+        logActivity('CRM', `Nuevo proveedor: ${s.name}`); 
+    };
+    
+    const updateSupplier = (s: Supplier) => { 
+        const updater = (prev: Supplier[]) => prev.map(sup => sup.id === s.id ? s : sup);
+        setSuppliers(updater); 
+        storeRef.current.suppliers = updater(storeRef.current.suppliers);
+        markLocalChange(); 
+    };
+    
+    const deleteSupplier = async (id: string) => { 
+        const s = suppliers.find(sup => sup.id === id); 
+        const updater = (prev: Supplier[]) => prev.filter(sup => sup.id !== id);
+        setSuppliers(updater); 
+        storeRef.current.suppliers = updater(storeRef.current.suppliers);
+        markLocalChange(); 
+        return true; 
+    };
+    
     const addPurchase = (p: Purchase) => {
         setPurchases(prev => [...prev, p]);
+        storeRef.current.purchases = [...storeRef.current.purchases, p];
         p.items.forEach(item => adjustStock(item.productId, item.quantity, 'IN', item.variantId));
         addCashMovement({ id: `purch_${p.id}`, type: 'EXPENSE', amount: p.total, description: `Compra a ${p.supplierName}`, date: p.date, category: 'OPERATIONAL' });
         markLocalChange();
         logActivity('INVENTORY', `Compra a ${p.supplierName}`);
     };
+    
     const addOrder = (o: Order) => {
-        // Use Ref for latest state
         const currentList = storeRef.current.orders;
         const currentMaxId = currentList.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;
         }, settings.sequences.orderStart - 1);
         const newId = (currentMaxId + 1).toString();
-        setOrders(prev => [...prev, { ...o, id: newId }]);
+        const newO = { ...o, id: newId };
+        
+        setOrders(prev => [...prev, newO]);
+        storeRef.current.orders = [...storeRef.current.orders, newO];
         markLocalChange();
         logActivity('ORDER', `Nuevo pedido #${newId}`);
     };
     
     // NEW: Update full order
     const updateOrder = (o: Order) => {
-        setOrders(prev => prev.map(ord => ord.id === o.id ? o : ord));
+        const updater = (prev: Order[]) => prev.map(ord => ord.id === o.id ? o : ord);
+        setOrders(updater);
+        storeRef.current.orders = updater(storeRef.current.orders);
         markLocalChange();
         logActivity('ORDER', `Editó pedido #${o.id}`);
     };
@@ -870,7 +928,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // --- SEND ORDER TO POS LOGIC ---
     const sendOrderToPOS = (order: Order) => {
         setIncomingOrder(order);
-        setOrders(prev => prev.filter(o => o.id !== order.id));
+        const updater = (prev: Order[]) => prev.filter(o => o.id !== order.id);
+        setOrders(updater);
+        storeRef.current.orders = updater(storeRef.current.orders);
         logActivity('ORDER', `Pedido #${order.id} enviado a Caja`);
     };
 
@@ -880,29 +940,99 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // Legacy: Logic moved to POS page via sendOrderToPOS
     };
 
-    const updateCustomer = (c: Customer) => { setCustomers(prev => prev.map(cust => cust.id === c.id ? c : cust)); markLocalChange(); };
-    const deleteCustomer = async (id: string) => { const c = customers.find(cust=>cust.id===id); setCustomers(prev => prev.filter(c => c.id !== id)); markLocalChange(); return true; };
-    const addCashMovement = (m: CashMovement) => { setCashMovements(prev => [m, ...prev]); markLocalChange(); logActivity('CASH', `${m.type}: ${m.description}`); };
-    const deleteCashMovement = (id: string) => { const m = cashMovements.find(mv=>mv.id===id); setCashMovements(prev => prev.filter(m => m.id !== id)); markLocalChange(); };
-    const updateSettings = (s: BusinessSettings) => { setSettings(s); markLocalChange(); logActivity('SETTINGS', `Actualizó configuración`);};
-    const addUser = (u: User) => { setUsers(prev => [...prev, u]); markLocalChange(); logActivity('USER_MGMT', `Nuevo usuario: ${u.username}`); };
-    const updateUser = (u: User) => { setUsers(prev => prev.map(user => user.id === u.id ? u : user)); markLocalChange(); logActivity('USER_MGMT', `Editó usuario: ${u.username}`); };
-    const deleteUser = (id: string) => { setUsers(prev => prev.filter(u => u.id !== id)); markLocalChange(); logActivity('USER_MGMT', `Eliminó usuario`); };
+    const updateCustomer = (c: Customer) => { 
+        const updater = (prev: Customer[]) => prev.map(cust => cust.id === c.id ? c : cust);
+        setCustomers(updater); 
+        storeRef.current.customers = updater(storeRef.current.customers);
+        markLocalChange(); 
+    };
+    
+    const deleteCustomer = async (id: string) => { 
+        const c = customers.find(cust=>cust.id===id); 
+        const updater = (prev: Customer[]) => prev.filter(c => c.id !== id);
+        setCustomers(updater); 
+        storeRef.current.customers = updater(storeRef.current.customers);
+        markLocalChange(); 
+        return true; 
+    };
+    
+    const addCashMovement = (m: CashMovement) => { 
+        setCashMovements(prev => [m, ...prev]); 
+        storeRef.current.cashMovements = [m, ...storeRef.current.cashMovements];
+        markLocalChange(); 
+        logActivity('CASH', `${m.type}: ${m.description}`); 
+    };
+    
+    const deleteCashMovement = (id: string) => { 
+        const m = cashMovements.find(mv=>mv.id===id); 
+        const updater = (prev: CashMovement[]) => prev.filter(m => m.id !== id);
+        setCashMovements(updater); 
+        storeRef.current.cashMovements = updater(storeRef.current.cashMovements);
+        markLocalChange(); 
+    };
+    
+    const updateSettings = (s: BusinessSettings) => { 
+        setSettings(s); 
+        storeRef.current.settings = s;
+        markLocalChange(); 
+        logActivity('SETTINGS', `Actualizó configuración`);
+    };
+    
+    const addUser = (u: User) => { 
+        setUsers(prev => [...prev, u]); 
+        storeRef.current.users = [...storeRef.current.users, u];
+        markLocalChange(); 
+        logActivity('USER_MGMT', `Nuevo usuario: ${u.username}`); 
+    };
+    
+    const updateUser = (u: User) => { 
+        const updater = (prev: User[]) => prev.map(user => user.id === u.id ? u : user);
+        setUsers(updater); 
+        storeRef.current.users = updater(storeRef.current.users);
+        markLocalChange(); 
+        logActivity('USER_MGMT', `Editó usuario: ${u.username}`); 
+    };
+    
+    const deleteUser = (id: string) => { 
+        const updater = (prev: User[]) => prev.filter(u => u.id !== id);
+        setUsers(updater); 
+        storeRef.current.users = updater(storeRef.current.users);
+        markLocalChange(); 
+        logActivity('USER_MGMT', `Eliminó usuario`); 
+    };
+    
     const generateInvite = (role: UserRole) => {
         const code = Math.random().toString(36).substring(2, 7).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();
-        setUserInvites(prev => [...prev, { code, role, createdAt: new Date().toISOString(), createdBy: currentUser?.username || 'System' }]);
-        markLocalChange(); return code;
+        const newInvite = { code, role, createdAt: new Date().toISOString(), createdBy: currentUser?.username || 'System' };
+        setUserInvites(prev => [...prev, newInvite]);
+        storeRef.current.userInvites = [...storeRef.current.userInvites, newInvite];
+        markLocalChange(); 
+        return code;
     };
-    const deleteInvite = (code: string) => { setUserInvites(prev => prev.filter(i => i.code !== code)); markLocalChange(); };
+    
+    const deleteInvite = (code: string) => { 
+        const updater = (prev: UserInvite[]) => prev.filter(i => i.code !== code);
+        setUserInvites(updater); 
+        storeRef.current.userInvites = updater(storeRef.current.userInvites);
+        markLocalChange(); 
+    };
+    
     const registerWithInvite = async (code: string, data: any) => {
         const invite = userInvites.find(i => i.code === code);
         if (!invite) return 'INVALID_CODE';
         if (users.some(u => u.username.toLowerCase() === data.username.toLowerCase())) return 'USERNAME_EXISTS';
         const salt = generateSalt();
         const newUser: User = { id: crypto.randomUUID(), username: data.username, fullName: data.fullName, role: invite.role, active: true, passwordHash: await hashPassword(data.password, salt), salt, recoveryCode: generateSalt().substring(0,8), securityQuestion: data.securityQuestion, securityAnswerHash: await hashPassword(data.securityAnswer.toLowerCase(), salt) };
+        
         setUsers(prev => [...prev, newUser]);
-        setUserInvites(prev => prev.filter(i => i.code !== code));
-        markLocalChange(); return 'SUCCESS';
+        storeRef.current.users = [...storeRef.current.users, newUser];
+        
+        const inviteUpdater = (prev: UserInvite[]) => prev.filter(i => i.code !== code);
+        setUserInvites(inviteUpdater);
+        storeRef.current.userInvites = inviteUpdater(storeRef.current.userInvites);
+        
+        markLocalChange(); 
+        return 'SUCCESS';
     };
 
     return (
@@ -913,10 +1043,22 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addProduct, updateProduct, deleteProduct, adjustStock, 
             addCategory, removeCategory, // Use the new function references
             addTransaction, updateTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
-            addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
+            addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=> {
+                const updater = (p: Customer[]) => p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c);
+                setCustomers(updater);
+                storeRef.current.customers = updater(storeRef.current.customers);
+            }, 
             addSupplier, updateSupplier, deleteSupplier, addPurchase,
             addCashMovement, deleteCashMovement,
-            addOrder, updateOrder, updateOrderStatus: (id, st)=>setOrders(p=>p.map(o=>o.id===id?{...o, status: st as any}:o)), convertOrderToSale, deleteOrder: (id)=>setOrders(p=>p.filter(o=>o.id!==id)), updateSettings, importData, login, logout, addUser, updateUser, deleteUser, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
+            addOrder, updateOrder, updateOrderStatus: (id, st)=>{
+                const updater = (p: Order[]) => p.map(o=>o.id===id?{...o, status: st as any}:o);
+                setOrders(updater);
+                storeRef.current.orders = updater(storeRef.current.orders);
+            }, convertOrderToSale, deleteOrder: (id)=>{
+                const updater = (p: Order[]) => p.filter(o=>o.id!==id);
+                setOrders(updater);
+                storeRef.current.orders = updater(storeRef.current.orders);
+            }, updateSettings, importData, login, logout, addUser, updateUser, deleteUser, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
             notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset,
             playSound,
             incomingOrder, sendOrderToPOS, clearIncomingOrder
