@@ -667,10 +667,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     
     // --- ACTIONS ---
     const addProduct = (p: Product) => {
-        const currentMaxId = products.reduce((max, curr) => {
+        // Use Ref for ID calculation to avoid stale state in closure
+        const currentList = storeRef.current.products; 
+        const currentMaxId = currentList.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;
         }, (settings.sequences.productStart || 100) - 1);
+        
         const newId = (currentMaxId + 1).toString();
         setProducts(prev => [...prev, { ...p, id: newId }]); 
         markLocalChange(); 
@@ -709,7 +712,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const addTransaction = (t: Transaction) => {
         let newId = t.id;
         if (!newId) {
-            const currentMaxId = transactions.reduce((max, curr) => {
+            // Use Ref for latest state
+            const currentList = storeRef.current.transactions;
+            const currentMaxId = currentList.reduce((max, curr) => {
                 const idNum = parseInt(curr.id);
                 return !isNaN(idNum) && idNum > max ? idNum : max;
             }, settings.sequences.ticketStart - 1);
@@ -820,7 +825,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const addCustomer = (c: Customer) => {
-        const currentMaxId = customers.reduce((max, curr) => {
+        // Use Ref for latest state
+        const currentList = storeRef.current.customers;
+        const currentMaxId = currentList.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;
         }, settings.sequences.customerStart - 1);
@@ -841,7 +848,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         logActivity('INVENTORY', `Compra a ${p.supplierName}`);
     };
     const addOrder = (o: Order) => {
-        const currentMaxId = orders.reduce((max, curr) => {
+        // Use Ref for latest state
+        const currentList = storeRef.current.orders;
+        const currentMaxId = currentList.reduce((max, curr) => {
             const idNum = parseInt(curr.id);
             return !isNaN(idNum) && idNum > max ? idNum : max;
         }, settings.sequences.orderStart - 1);

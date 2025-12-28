@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Plus, Edit2, Trash2, Search, Package, AlertTriangle, ArrowLeftRight, Sparkles, X, BrainCircuit, Loader2, Filter, Check, Layers, Tag, Percent, DollarSign, Archive, Box, Eye, EyeOff, Scale, Info, Hash, Handshake } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
@@ -110,6 +109,13 @@ export const Inventory: React.FC = () => {
       updateProduct(finalProduct);
     } else {
       addProduct(finalProduct);
+      // UX Improvement: Reset filters so the new product is immediately visible
+      setCategoryFilter('ALL');
+      setSearchTerm('');
+      // If user added a supply while in product view (or vice versa), switch to correct view
+      if (finalProduct.type && finalProduct.type !== inventoryType) {
+          setInventoryType(finalProduct.type);
+      }
     }
     setIsModalOpen(false);
   };
