@@ -692,6 +692,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }));
         markLocalChange();
     };
+
+    const addCategory = (name: string) => {
+        setCategories(prev => {
+            if (prev.includes(name)) return prev;
+            return [...prev, name];
+        });
+        markLocalChange();
+    };
+
+    const removeCategory = (name: string) => {
+        setCategories(prev => prev.filter(c => c !== name));
+        markLocalChange();
+    };
     
     const addTransaction = (t: Transaction) => {
         let newId = t.id;
@@ -888,7 +901,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing, hasPendingChanges,
             btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, 
             isLoggingOut, 
-            addProduct, updateProduct, deleteProduct, adjustStock, addCategory: (n) => setCategories(p=>[...p, n]), removeCategory: (n)=>setCategories(p=>p.filter(c=>c!==n)), 
+            addProduct, updateProduct, deleteProduct, adjustStock, 
+            addCategory, removeCategory, // Use the new function references
             addTransaction, updateTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment: (id, am)=>setCustomers(p=>p.map(c=>c.id===id?{...c, currentDebt: Math.max(0, c.currentDebt-am)}:c)), 
             addSupplier, updateSupplier, deleteSupplier, addPurchase,
