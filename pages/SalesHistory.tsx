@@ -317,7 +317,7 @@ const ManualEntryModal: React.FC<{
                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300 select-none">Descontar Stock</span>
                             </div>
 
-                            {(paymentMethod === 'cash' || paymentMethod === 'split') && (
+                            {paymentMethod === 'cash' && (
                                 <div className="flex items-center gap-2 cursor-pointer" onClick={() => setAffectCash(!affectCash)}>
                                     <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${affectCash ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600'}`}>
                                         {affectCash && <Check className="w-3.5 h-3.5" />}
