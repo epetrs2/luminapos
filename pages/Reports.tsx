@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { generateBusinessInsight } from '../services/geminiService';
@@ -248,20 +247,27 @@ export const Reports: React.FC = () => {
 
   }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
-  // --- DISTRIBUTION METRICS MEMO ---
+  // --- DISTRIBUTION METRICS MEMO (FIXED DATE LOGIC) ---
   const distMetrics = useMemo(() => {
       const now = new Date();
+      // Set to start of day to ensure we include today's transactions regardless of time
       const start = new Date();
-      if (distPeriod === 'WEEK') start.setDate(now.getDate() - 7);
-      else start.setDate(now.getDate() - 30);
+      start.setHours(0, 0, 0, 0);
       
-      const relevantTx = transactions.filter(t => t.status !== 'cancelled' && new Date(t.date) >= start);
-      const relevantMovs = cashMovements.filter(m => new Date(m.date) >= start);
+      if (distPeriod === 'WEEK') {
+          start.setDate(now.getDate() - 6); // Last 7 days including today
+      } else {
+          start.setDate(now.getDate() - 29); // Last 30 days including today
+      }
+      
+      // Filter strictly by date range
+      const relevantTx = transactions.filter(t => t.status !== 'cancelled' && new Date(t.date).getTime() >= start.getTime());
+      const relevantMovs = cashMovements.filter(m => new Date(m.date).getTime() >= start.getTime());
 
       let income = 0;
       relevantTx.forEach(t => {
           t.items.forEach(i => {
-              if (!i.isConsignment) income += (i.price * i.quantity);
+              if (i.isConsignment !== true) income += (i.price * i.quantity);
           });
       });
       
@@ -278,7 +284,8 @@ export const Reports: React.FC = () => {
           income,
           actual: { opEx: actualOpEx, profit: actualProfitTaken, investment: actualInvestment },
           target: { opEx: targetOpEx, profit: targetProfit, investment: targetInvestment },
-          config // % values
+          config, // % values
+          periodStart: start // Return for UI display
       };
   }, [distPeriod, transactions, cashMovements, settings.budgetConfig]);
 
@@ -1039,7 +1046,9 @@ export const Reports: React.FC = () => {
                         <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
                             <Target className="w-6 h-6 text-indigo-500" /> Control de Presupuesto
                         </h3>
-                        <p className="text-sm text-slate-500">Compara tus ingresos reales vs tu plan financiero.</p>
+                        <p className="text-sm text-slate-500">
+                            Analizando: {distMetrics.periodStart.toLocaleDateString()} al presente.
+                        </p>
                     </div>
                     <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
                         <button onClick={() => setDistPeriod('WEEK')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${distPeriod === 'WEEK' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>Semana</button>
