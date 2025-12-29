@@ -1,5 +1,6 @@
 
-import { Transaction, BusinessSettings, CashMovement } from "../types";
+import { Transaction, BusinessSettings, CashMovement, Order, Product } from "../types";
+import QRCode from 'qrcode';
 
 // Standard ESC/POS Commands
 const ESC = 0x1B;
@@ -13,6 +14,8 @@ const COMMANDS = {
     ALIGN_RIGHT: [ESC, 0x61, 0x02],
     BOLD_ON: [ESC, 0x45, 0x01],
     BOLD_OFF: [ESC, 0x45, 0x00],
+    INVERT_ON: [GS, 0x42, 0x01], // Black background / White text
+    INVERT_OFF: [GS, 0x42, 0x00],
     FEED_LINES: (n: number) => [ESC, 0x64, n],
 };
 
@@ -47,10 +50,6 @@ const formatRow = (col1: string, col2: string, col3: string, widthType: '58mm' |
     const nCol3 = normalize(col3);
 
     // 2. Truncar y Rellenar
-    // PadEnd adds spaces to the right. PadStart adds spaces to the left.
-    // NOTE: -1 on substring for Qty and Desc to allow for visual spacing if needed, but strict grid usually better full.
-    // Let's use strict full width.
-    
     const c1 = nCol1.substring(0, wQty - 1).padEnd(wQty, ' '); // Left align
     const c2 = nCol2.substring(0, wDesc - 1).padEnd(wDesc, ' '); // Left align
     const c3 = nCol3.substring(0, wTotal).padStart(wTotal, ' '); // Right align
@@ -137,6 +136,229 @@ const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): nu
     return rasterData;
 };
 
+// --- QR GENERATOR ---
+const generateQRCodeBytes = async (text: string): Promise<number[]> => {
+    try {
+        const dataUrl = await QRCode.toDataURL(text, { margin: 0, width: 200, errorCorrectionLevel: 'M' });
+        const img = await loadImage(dataUrl);
+        return convertImageToRaster(img, 200);
+    } catch (e) {
+        console.error("QR Gen Error", e);
+        return [];
+    }
+};
+
+// --- PRODUCTION TICKET GENERATOR ---
+export const generateProductionTicket = async (
+    order: Order, 
+    settings: BusinessSettings, 
+    products: Product[]
+): Promise<Uint8Array> => {
+    const buffer: number[] = [];
+    const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
+    const addLine = (text: string) => add(encode(text + '\n'));
+    const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
+
+    add(COMMANDS.INIT);
+    add(COMMANDS.CODE_PAGE); 
+    add(COMMANDS.ALIGN_CENTER);
+
+    // Header Giant
+    add(COMMANDS.BOLD_ON);
+    add([GS, 0x21, 0x11]); // Double Height/Width
+    addLine("PRODUCCION");
+    add([GS, 0x21, 0x00]); // Reset
+    add(COMMANDS.BOLD_OFF);
+    addLine(separator);
+
+    // Order Info
+    add(COMMANDS.BOLD_ON);
+    addLine(`ORDEN #${order.id.slice(-6)}`);
+    add(COMMANDS.BOLD_OFF);
+    addLine(`Cliente: ${order.customerName.substring(0, 20)}`);
+    
+    if (order.deliveryDate) {
+        add(COMMANDS.BOLD_ON);
+        addLine(`ENTREGA: ${new Date(order.deliveryDate).toLocaleDateString()}`);
+        add(COMMANDS.BOLD_OFF);
+    }
+    
+    if (order.priority === 'HIGH') {
+        add([GS, 0x42, 0x01]); // Invert
+        addLine("  !!! URGENTE !!!  ");
+        add([GS, 0x42, 0x00]); // Normal
+        addLine('\n');
+    }
+
+    // QR Code for Tracking
+    const qrData = await generateQRCodeBytes(order.id); // Scan this ID to track
+    if (qrData.length > 0) {
+        add(qrData);
+        addLine("Escanear para actualizar estado");
+    }
+    addLine('\n');
+
+    // Split Logic: Produce vs Pick
+    const toProduce: any[] = [];
+    const toPick: any[] = [];
+
+    order.items.forEach(item => {
+        let currentStock = 0;
+        const product = products.find(p => p.id === item.id);
+        if (product) {
+            if (item.variantId && product.variants) {
+                const v = product.variants.find(v => v.id === item.variantId);
+                currentStock = v ? v.stock : 0;
+            } else {
+                currentStock = product.stock;
+            }
+        }
+
+        const pickQty = Math.min(item.quantity, Math.max(0, currentStock));
+        const makeQty = item.quantity - pickQty;
+
+        if (pickQty > 0) toPick.push({ ...item, quantity: pickQty });
+        if (makeQty > 0) toProduce.push({ ...item, quantity: makeQty });
+    });
+
+    // RENDER: TO PRODUCE (Priority)
+    if (toProduce.length > 0) {
+        add(COMMANDS.ALIGN_LEFT);
+        add([GS, 0x42, 0x01]); // Invert on
+        addLine(" [ A FABRICAR / PRODUCIR ] ");
+        add([GS, 0x42, 0x00]); // Invert off
+        addLine(separator);
+        
+        toProduce.forEach(item => {
+            add(COMMANDS.BOLD_ON);
+            add([GS, 0x21, 0x01]); // Double height text for qty
+            // Format: [ ] 5 x Coca Cola
+            const check = "[ ] ";
+            const qty = `${item.quantity} x `;
+            add(encode(check + qty));
+            
+            add([GS, 0x21, 0x00]); // Reset
+            addLine(normalize(item.name).substring(0, 20));
+            add(COMMANDS.BOLD_OFF);
+            
+            if (item.variantName) {
+                addLine(`    Var: ${normalize(item.variantName)}`);
+            }
+            addLine('\n');
+        });
+    }
+
+    // RENDER: TO PICK (Secondary)
+    if (toPick.length > 0) {
+        add(COMMANDS.ALIGN_LEFT);
+        addLine("\n");
+        addLine(" [ TOMAR DE BODEGA ] ");
+        addLine(separator);
+        
+        toPick.forEach(item => {
+            const check = "[ ] ";
+            const line = `${check}${item.quantity} x ${item.name}`;
+            addLine(normalize(line).substring(0, settings.ticketPaperWidth === '58mm' ? 32 : 48));
+            if (item.variantName) {
+                addLine(`    Var: ${normalize(item.variantName)}`);
+            }
+        });
+    }
+
+    // NOTES
+    if (order.notes) {
+        addLine('\n');
+        add(COMMANDS.ALIGN_CENTER);
+        addLine("--- NOTAS ---");
+        add(COMMANDS.ALIGN_LEFT);
+        addLine(normalize(order.notes));
+    }
+
+    add(COMMANDS.FEED_LINES(4));
+    return new Uint8Array(buffer);
+};
+
+// --- GLOBAL BATCH TICKET (CONSOLIDATED) ---
+export const generateConsolidatedProduction = async (
+    orders: Order[], 
+    settings: BusinessSettings,
+    products: Product[]
+): Promise<Uint8Array> => {
+    const buffer: number[] = [];
+    const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
+    const addLine = (text: string) => add(encode(text + '\n'));
+    const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
+
+    // Consolidate Logic
+    const summaryItems: Record<string, any> = {};
+    orders.forEach(o => o.items.forEach(i => {
+        const key = i.variantId ? `${i.id}-${i.variantId}` : i.id;
+        if (!summaryItems[key]) summaryItems[key] = { ...i, quantity: 0, orders: [] };
+        summaryItems[key].quantity += i.quantity;
+    }));
+    
+    // Split Logic
+    const toProduce: any[] = [];
+    const toPick: any[] = [];
+
+    Object.values(summaryItems).forEach((item: any) => {
+        let currentStock = 0;
+        const product = products.find(p => p.id === item.id);
+        if (product) {
+            if (item.variantId && product.variants) {
+                const v = product.variants.find(v => v.id === item.variantId);
+                currentStock = v ? v.stock : 0;
+            } else {
+                currentStock = product.stock;
+            }
+        }
+        const pickQty = Math.min(item.quantity, Math.max(0, currentStock));
+        const makeQty = item.quantity - pickQty;
+        if (pickQty > 0) toPick.push({ ...item, quantity: pickQty });
+        if (makeQty > 0) toProduce.push({ ...item, quantity: makeQty });
+    });
+
+    add(COMMANDS.INIT);
+    add(COMMANDS.CODE_PAGE); 
+    add(COMMANDS.ALIGN_CENTER);
+    
+    add(COMMANDS.BOLD_ON);
+    add([GS, 0x21, 0x11]);
+    addLine("LISTA MAESTRA");
+    add([GS, 0x21, 0x00]);
+    add(COMMANDS.BOLD_OFF);
+    addLine(new Date().toLocaleString());
+    addLine(`Total Pedidos: ${orders.length}`);
+    addLine(separator);
+
+    if (toProduce.length > 0) {
+        add(COMMANDS.ALIGN_LEFT);
+        add([GS, 0x42, 0x01]);
+        addLine(" TOTAL A PRODUCIR ");
+        add([GS, 0x42, 0x00]);
+        toProduce.forEach(item => {
+            add(COMMANDS.BOLD_ON);
+            addLine(`[ ] ${item.quantity} x ${normalize(item.name)}`);
+            add(COMMANDS.BOLD_OFF);
+            if(item.variantName) addLine(`    (${normalize(item.variantName)})`);
+        });
+        addLine('\n');
+    }
+
+    if (toPick.length > 0) {
+        add(COMMANDS.ALIGN_LEFT);
+        addLine(" TOTAL BODEGA ");
+        toPick.forEach(item => {
+            addLine(`[ ] ${item.quantity} x ${normalize(item.name)}`);
+            if(item.variantName) addLine(`    (${normalize(item.variantName)})`);
+        });
+    }
+
+    add(COMMANDS.FEED_LINES(4));
+    return new Uint8Array(buffer);
+};
+
+// ... (Rest of existing Ticket generators remain unchanged)
 // --- TICKET GENERATOR ---
 export const generateEscPosTicket = async (transaction: Transaction, customerName: string, settings: BusinessSettings, copyLabel?: string): Promise<Uint8Array> => {
     const buffer: number[] = [];

@@ -1,6 +1,6 @@
 
 import { Transaction, BusinessSettings, CashMovement, Order, CartItem, Product } from '../types';
-import { generateEscPosTicket, generateEscPosZReport } from './escPosHelper';
+import { generateEscPosTicket, generateEscPosZReport, generateProductionTicket, generateConsolidatedProduction } from './escPosHelper';
 
 // Estilos CSS base compartidos
 const BASE_CSS = `
@@ -490,6 +490,32 @@ export const printOrderInvoice = (order: Order, customer: any, settings: Busines
         </html>
     `;
     openPrintWindow(html);
+};
+
+export const printProductionTicket = async (
+    orders: Order[],
+    settings: BusinessSettings,
+    products: Product[],
+    btSendFn?: (data: Uint8Array) => Promise<void>
+) => {
+    if (!btSendFn) {
+        alert("La impresión térmica de producción requiere una impresora Bluetooth configurada.");
+        return;
+    }
+
+    try {
+        if (orders.length > 1) {
+            // Global Summary (Batch)
+            const data = await generateConsolidatedProduction(orders, settings, products);
+            await btSendFn(data);
+        } else {
+            // Individual Ticket with QR
+            const data = await generateProductionTicket(orders[0], settings, products);
+            await btSendFn(data);
+        }
+    } catch (e) {
+        console.error("Print Error", e);
+    }
 };
 
 export const printThermalTicket = async (

@@ -1,9 +1,9 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus } from 'lucide-react';
+import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus, Scan, QrCode } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Order, CartItem, Product, AppView } from '../types';
-import { printOrderInvoice, printProductionSummary } from '../utils/printService';
+import { printOrderInvoice, printProductionSummary, printProductionTicket } from '../utils/printService';
 
 // --- MEMOIZED ORDER CARD ---
 const OrderCard = React.memo(({ 
@@ -105,12 +105,59 @@ const OrderCard = React.memo(({
     );
 });
 
+// --- QR SCANNER MODAL COMPONENT ---
+const QrScannerModal = ({ onClose, onScanSuccess }: { onClose: () => void, onScanSuccess: (id: string) => void }) => {
+    const scannerRef = useRef<any>(null);
+
+    useEffect(() => {
+        // Initialize HTML5-QRCode
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        const onScan = (decodedText: string, decodedResult: any) => {
+            // Stop scanning and callback
+            if (scannerRef.current) {
+                scannerRef.current.clear().then(() => {
+                    onScanSuccess(decodedText);
+                }).catch((err: any) => console.error("Failed to clear scanner", err));
+            }
+        };
+
+        const html5QrcodeScanner = new (window as any).Html5QrcodeScanner(
+            "reader", config, /* verbose= */ false);
+        
+        scannerRef.current = html5QrcodeScanner;
+        html5QrcodeScanner.render(onScan, (err: any) => {/* ignore errors */});
+
+        return () => {
+            if (scannerRef.current) {
+                try {
+                    scannerRef.current.clear(); 
+                } catch(e) {}
+            }
+        };
+    }, []);
+
+    return (
+        <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl relative">
+                <button onClick={onClose} className="absolute top-4 right-4 z-10 bg-black/50 text-white p-2 rounded-full">
+                    <X className="w-6 h-6" />
+                </button>
+                <div className="p-6 text-center">
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Escanear Ticket</h3>
+                    <p className="text-sm text-slate-500 mb-4">Apunta la cámara al código QR del pedido.</p>
+                    <div id="reader" className="w-full rounded-xl overflow-hidden"></div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 interface OrdersProps {
     setView?: (view: AppView) => void;
 }
 
 export const Orders: React.FC<OrdersProps> = ({ setView }) => {
-    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS } = useStore();
+    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS, btDevice, sendBtData, notify } = useStore();
     const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
     const [mobileCreateStep, setMobileCreateStep] = useState<'CATALOG' | 'DETAILS'>('CATALOG');
     
@@ -140,6 +187,9 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
 
     // Delete Confirmation State
     const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
+
+    // Scanner State
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
 
     // Desktop DnD State
     const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -369,14 +419,63 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         setSelectedOrdersForPrint(new Set(filtered.map(o => o.id)));
     };
 
-    const confirmPrintProduction = () => {
+    const confirmPrintProduction = (type: 'SHEET' | 'THERMAL') => {
         const ordersToPrint = activeOrders.filter(o => selectedOrdersForPrint.has(o.id));
         if (ordersToPrint.length === 0) {
             alert("Selecciona al menos un pedido.");
             return;
         }
-        printProductionSummary(ordersToPrint, settings, products);
+        
+        if (type === 'SHEET') {
+            printProductionSummary(ordersToPrint, settings, products);
+        } else {
+            // Thermal Print Logic
+            if (!btDevice) {
+                notify("Error", "Conecta la impresora Bluetooth en Configuración.", "error");
+                return;
+            }
+            printProductionTicket(ordersToPrint, settings, products, sendBtData);
+        }
         setPrintModalOpen(false);
+    };
+
+    // --- SCANNER LOGIC ---
+    const handleScanSuccess = (decodedId: string) => {
+        setIsScannerOpen(false);
+        const order = orders.find(o => o.id === decodedId);
+        
+        if (!order) {
+            alert("Pedido no encontrado. Verifica el código QR.");
+            return;
+        }
+
+        if (order.status === 'COMPLETED') {
+            alert("Este pedido ya fue completado y entregado.");
+            return;
+        }
+
+        let nextStatus: any = order.status;
+        let action = "";
+
+        if (order.status === 'PENDING') {
+            nextStatus = 'IN_PROGRESS';
+            action = "Iniciar Producción";
+        } else if (order.status === 'IN_PROGRESS') {
+            nextStatus = 'READY';
+            action = "Marcar como LISTO";
+        } else if (order.status === 'READY') {
+            // Deliver
+            if (confirm(`¿Entregar pedido de ${order.customerName}? Se enviará a caja para cobro.`)) {
+                handleDeliverToPOS(order.id);
+                return;
+            }
+            return;
+        }
+
+        if (confirm(`Pedido #${order.id} de ${order.customerName}.\n¿${action}?`)) {
+            updateOrderStatus(order.id, nextStatus);
+            notify("Actualizado", "Estado del pedido actualizado correctamente.", "success");
+        }
     };
 
     // --- DESKTOP DRAG HANDLERS ---
@@ -546,6 +645,11 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 </p>
             </div>
 
+            {/* SCANNER MODAL */}
+            {isScannerOpen && (
+                <QrScannerModal onClose={() => setIsScannerOpen(false)} onScanSuccess={handleScanSuccess} />
+            )}
+
             <div className="max-w-7xl mx-auto h-full flex flex-col">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                     <div>
@@ -557,12 +661,20 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                     </div>
                     <div className="flex flex-col md:flex-row w-full md:w-auto gap-2">
                         {activeTab === 'LIST' && (
-                            <button
-                                onClick={handleOpenPrintModal}
-                                className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors"
-                            >
-                                <ListChecks className="w-4 h-4" /> Hoja de Producción
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => setIsScannerOpen(true)}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-colors"
+                                >
+                                    <Scan className="w-4 h-4" /> Escanear
+                                </button>
+                                <button
+                                    onClick={handleOpenPrintModal}
+                                    className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors"
+                                >
+                                    <ListChecks className="w-4 h-4" /> Generar Orden
+                                </button>
+                            </>
                         )}
                         <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-auto">
                             <button onClick={() => setActiveTab('LIST')} className={`flex-1 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 whitespace-nowrap ${activeTab === 'LIST' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>Tablero</button>
@@ -691,13 +803,20 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                 )}
                             </div>
 
-                            <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                            <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex gap-3">
                                 <button 
-                                    onClick={confirmPrintProduction}
+                                    onClick={() => confirmPrintProduction('SHEET')}
                                     disabled={selectedOrdersForPrint.size === 0}
-                                    className="w-full py-3 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity shadow-lg"
+                                    className="flex-1 py-3 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-100 disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
-                                    Generar Hoja Inteligente ({selectedOrdersForPrint.size})
+                                    <FileText className="w-4 h-4"/> Hoja Carta
+                                </button>
+                                <button 
+                                    onClick={() => confirmPrintProduction('THERMAL')}
+                                    disabled={selectedOrdersForPrint.size === 0}
+                                    className="flex-1 py-3 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity shadow-lg flex items-center justify-center gap-2"
+                                >
+                                    <Receipt className="w-4 h-4"/> Ticket Térmico
                                 </button>
                             </div>
                         </div>
