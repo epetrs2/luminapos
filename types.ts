@@ -209,6 +209,11 @@ export interface SoundConfig {
     notificationSound: SoundType;
 }
 
+export interface SecurityConfig {
+    autoLockMinutes: number; // 0 to disable
+    blurAppOnBackground: boolean; // Blur screen if user switches tabs
+}
+
 export interface BusinessSettings {
   name: string;
   address: string;
@@ -229,7 +234,8 @@ export interface BusinessSettings {
   theme: 'light' | 'dark';
   budgetConfig: BudgetConfig; 
   notificationsEnabled: boolean; 
-  soundConfig: SoundConfig; // NEW: Detailed sound settings
+  soundConfig: SoundConfig; 
+  securityConfig: SecurityConfig; // NEW: Security settings
   sequences: SequenceConfig;
   productionDoc: ProductionDocConfig;
   googleWebAppUrl?: string; 

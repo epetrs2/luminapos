@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, Purchase, UserInvite, UserRole, SoundType } from '../types';
 import { hashPassword, verifyPassword, sanitizeDataStructure, generateSalt } from '../utils/security';
@@ -23,8 +24,11 @@ interface StoreContextType {
   isSyncing: boolean;
   hasPendingChanges: boolean;
   
-  // Animation State
+  // App State
   isLoggingOut: boolean;
+  isAppLocked: boolean;
+  unlockApp: (password: string) => Promise<boolean>;
+  manualLockApp: () => void;
 
   // Order to POS handoff
   incomingOrder: Order | null;
@@ -44,7 +48,7 @@ interface StoreContextType {
   adjustStock: (id: string, qty: number, type: 'IN' | 'OUT', variantId?: string) => void;
   addCategory: (name: string) => void;
   removeCategory: (name: string) => void;
-  addTransaction: (t: Transaction, opts?: { shouldAffectCash?: boolean }) => void; // UPDATED SIGNATURE
+  addTransaction: (t: Transaction, opts?: { shouldAffectCash?: boolean }) => void; 
   updateTransaction: (oldId: string, updates: Partial<Transaction>) => void; 
   deleteTransaction: (id: string, items: any[]) => void;
   registerTransactionPayment: (id: string, amount: number, method: string) => void;
@@ -122,6 +126,10 @@ const DEFAULT_SETTINGS: BusinessSettings = {
         clickSound: 'POP',
         notificationSound: 'NOTE'
     },
+    securityConfig: {
+        autoLockMinutes: 5, // Default 5 min auto-lock
+        blurAppOnBackground: true
+    },
     sequences: {
         customerStart: 1,
         ticketStart: 1,
@@ -191,7 +199,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return { 
             ...DEFAULT_SETTINGS, 
             ...loaded,
-            soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(loaded.soundConfig || {}) }
+            soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(loaded.soundConfig || {}) },
+            securityConfig: { ...DEFAULT_SETTINGS.securityConfig, ...(loaded.securityConfig || {}) }
         };
     });
     
@@ -201,8 +210,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [isSyncing, setIsSyncing] = useState(false);
     const [hasPendingChanges, setHasPendingChanges] = useState(false);
     
-    // --- ANIMATION STATE ---
+    // --- APP SECURITY STATE ---
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [isAppLocked, setIsAppLocked] = useState(false);
+    
+    const inactivityTimerRef = useRef<any>(null);
+    const lastActivityRef = useRef<number>(Date.now());
 
     // --- ORDER TO POS HANDOFF STATE ---
     const [incomingOrder, setIncomingOrder] = useState<Order | null>(null);
@@ -239,6 +252,68 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             root.classList.remove('dark');
         }
     }, [settings.theme]);
+
+    // --- SECURITY: AUTO-LOCK & INACTIVITY ---
+    const resetInactivityTimer = useCallback(() => {
+        lastActivityRef.current = Date.now();
+    }, []);
+
+    useEffect(() => {
+        // Only run inactivity logic if logged in and not already locked
+        if (!currentUser || isAppLocked) return;
+
+        const checkInactivity = () => {
+            const minutes = settings.securityConfig?.autoLockMinutes || 0;
+            if (minutes === 0) return; // Feature disabled
+
+            const elapsed = Date.now() - lastActivityRef.current;
+            if (elapsed > minutes * 60 * 1000) {
+                setIsAppLocked(true);
+            }
+        };
+
+        const interval = setInterval(checkInactivity, 5000); // Check every 5s
+        
+        // Listeners for activity
+        const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
+        const handler = () => resetInactivityTimer();
+        
+        events.forEach(e => window.addEventListener(e, handler));
+
+        return () => {
+            clearInterval(interval);
+            events.forEach(e => window.removeEventListener(e, handler));
+        };
+    }, [currentUser, isAppLocked, settings.securityConfig?.autoLockMinutes, resetInactivityTimer]);
+
+    // Background Blur Effect
+    useEffect(() => {
+        if (!settings.securityConfig?.blurAppOnBackground) return;
+
+        const handleVisibilityChange = () => {
+            if (document.hidden && currentUser) {
+                // Optional: Instant lock on tab switch? Maybe too aggressive.
+                // For now, let's just rely on the CSS blur which can be handled in App.tsx
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [settings.securityConfig?.blurAppOnBackground, currentUser]);
+
+    const unlockApp = async (password: string) => {
+        if (!currentUser) return false;
+        const isValid = await verifyPassword(password, currentUser.salt, currentUser.passwordHash);
+        if (isValid) {
+            setIsAppLocked(false);
+            resetInactivityTimer();
+            return true;
+        }
+        return false;
+    };
+
+    const manualLockApp = () => {
+        setIsAppLocked(true);
+    };
 
     // AUTO-SEED ADMIN
     useEffect(() => {
@@ -470,6 +545,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         ...safeData.settings,
                         budgetConfig: { ...DEFAULT_SETTINGS.budgetConfig, ...(safeData.settings.budgetConfig || {}) },
                         soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(safeData.settings.soundConfig || {}) },
+                        securityConfig: { ...DEFAULT_SETTINGS.securityConfig, ...(safeData.settings.securityConfig || {}) }, // Merge Security
                         sequences: { ...DEFAULT_SETTINGS.sequences, ...(safeData.settings.sequences || {}) },
                         productionDoc: { ...DEFAULT_SETTINGS.productionDoc, ...(safeData.settings.productionDoc || {}) },
                         googleWebAppUrl: safeData.settings.googleWebAppUrl || currentSettings.googleWebAppUrl,
@@ -608,6 +684,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const updatedUser = { ...user, lastLogin: now, lastActive: now };
         setUsers(prev => prev.map(usr => usr.id === user.id ? updatedUser : usr));
         setCurrentUser(updatedUser);
+        setIsAppLocked(false); 
         logActivity('LOGIN', `Entró: ${u}`);
         pullFromCloud(undefined, undefined, true);
         markLocalChange(); 
@@ -618,6 +695,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setIsLoggingOut(true);
         await new Promise(resolve => setTimeout(resolve, 300));
         setCurrentUser(null); 
+        setIsAppLocked(false);
         localStorage.removeItem('currentUser');
         setIsLoggingOut(false);
     };
@@ -647,6 +725,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         else playSound('NOTIFICATION');
     };
 
+    // ... (rest of context code same as before: playSound, addProduct, etc)
     const playSound = (event: 'SALE' | 'ERROR' | 'CLICK' | 'NOTIFICATION') => {
         if (!settings.soundConfig?.enabled) return;
         const vol = settings.soundConfig.volume;
@@ -1054,6 +1133,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, settings, currentUser, activityLogs, categories, toasts, isSyncing, hasPendingChanges,
             btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, 
             isLoggingOut, 
+            // --- NEW SECURITY EXPORTS ---
+            isAppLocked, unlockApp, manualLockApp,
+            
             addProduct, updateProduct, deleteProduct, adjustStock, 
             addCategory, removeCategory, 
             addTransaction, updateTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,

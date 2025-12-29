@@ -1,12 +1,14 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList, Database, Download, UploadCloud } from 'lucide-react';
+import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList, Database, Download, UploadCloud, Lock, Shield } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 import { generateTestTicket } from '../utils/escPosHelper';
 import { optimizeForThermal } from '../utils/imageHelper';
 import { SoundType } from '../types';
 import { playSystemSound } from '../utils/sound';
 
+// ... (Keep existing ImageCropper component and InputField component) ...
 // --- IMAGE CROPPER COMPONENT ---
 interface ImageCropperProps {
     imageSrc: string;
@@ -223,7 +225,7 @@ const InputField = ({ label, value, onChange, type = "text", placeholder = "", i
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, hardReset, pushToCloud, pullFromCloud, notify, btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, importData } = useStore();
-  const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA' | 'BLUETOOTH' | 'NOTIFICATIONS' | 'BACKUP'>('GENERAL');
+  const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA' | 'BLUETOOTH' | 'NOTIFICATIONS' | 'SECURITY' | 'BACKUP'>('GENERAL');
   const [formData, setFormData] = useState(settings);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [cropTarget, setCropTarget] = useState<'MAIN' | 'RECEIPT'>('MAIN');
@@ -271,6 +273,7 @@ export const Settings: React.FC = () => {
     notify("Configuración Guardada", "Los cambios se han guardado y sincronizado.", "success");
   };
 
+  // ... (Keep existing handlers for logo upload, cropping, BT, etc.) ...
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>, target: 'MAIN' | 'RECEIPT') => {
       const file = e.target.files?.[0];
       if (file) {
@@ -419,8 +422,9 @@ export const Settings: React.FC = () => {
                 { id: 'GENERAL', label: 'Identidad', icon: Store },
                 { id: 'OPERATIONS', label: 'Operación', icon: PieChart },
                 { id: 'TICKETS', label: 'Impresión', icon: Receipt },
-                { id: 'BLUETOOTH', label: 'Impresora Bluetooth', icon: Bluetooth },
-                { id: 'NOTIFICATIONS', label: 'Notificaciones', icon: Bell },
+                { id: 'SECURITY', label: 'Seguridad', icon: Shield },
+                { id: 'BLUETOOTH', label: 'Bluetooth', icon: Bluetooth },
+                { id: 'NOTIFICATIONS', label: 'Alertas', icon: Bell },
                 { id: 'DATA', label: 'Nube', icon: Cloud },
                 { id: 'BACKUP', label: 'Respaldo', icon: Database }
             ].map((tab) => (
@@ -437,6 +441,56 @@ export const Settings: React.FC = () => {
         </div>
 
         <div className="space-y-6">
+            {/* ... (Existing tabs content) ... */}
+            
+            {activeTab === 'SECURITY' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 max-w-2xl">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600"><Lock className="w-5 h-5"/></div>
+                            Protección Activa de Sesión
+                        </h3>
+                        
+                        <div className="space-y-8">
+                            <div className="flex flex-col gap-2">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Bloqueo Automático (Inactividad)</label>
+                                    <span className="text-sm font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 dark:text-indigo-400 px-3 py-1 rounded-lg">
+                                        {formData.securityConfig?.autoLockMinutes === 0 ? 'Desactivado' : `${formData.securityConfig?.autoLockMinutes} min`}
+                                    </span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="60" 
+                                    step="1" 
+                                    value={formData.securityConfig?.autoLockMinutes || 0} 
+                                    onChange={(e) => setFormData({ ...formData, securityConfig: { ...formData.securityConfig, autoLockMinutes: parseInt(e.target.value) } })}
+                                    className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                                />
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Si no se detecta actividad (mouse/teclado) por este tiempo, la pantalla se bloqueará pidiendo contraseña para continuar. 
+                                    <br/><strong>0 = Nunca bloquear.</strong>
+                                </p>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                                <div>
+                                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">Ocultar contenido en 2do plano</h4>
+                                    <p className="text-xs text-slate-500 mt-1">Desenfoca la app si cambias de pestaña o minimizas.</p>
+                                </div>
+                                <button 
+                                    onClick={() => setFormData({ ...formData, securityConfig: { ...formData.securityConfig, blurAppOnBackground: !formData.securityConfig?.blurAppOnBackground } })}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${formData.securityConfig?.blurAppOnBackground ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.securityConfig?.blurAppOnBackground ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {activeTab === 'GENERAL' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     <div className="lg:col-span-2 space-y-6">
@@ -474,6 +528,7 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
+            {/* ... (Rest of existing tabs: BACKUP, NOTIFICATIONS, OPERATIONS, TICKETS, BLUETOOTH, DATA) ... */}
             {activeTab === 'BACKUP' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
@@ -516,133 +571,7 @@ export const Settings: React.FC = () => {
                     </div>
                 </div>
             )}
-
-            {/* ... (Keep existing NOTIFICATIONS, OPERATIONS, TICKETS, BLUETOOTH content identical) ... */}
             
-            {activeTab === 'NOTIFICATIONS' && (
-                <div className="animate-[fadeIn_0.3s_ease-out]">
-                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
-                            <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg text-pink-600"><Bell className="w-5 h-5"/></div>
-                            Preferencias de Alertas y Sonido
-                        </h3>
-                        
-                        <div className="space-y-8 max-w-2xl">
-                            <div className="flex items-center justify-between p-3 md:p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 gap-3 md:gap-4">
-                                <div className="flex-1 min-w-0">
-                                    <h4 className="font-bold text-slate-800 dark:text-white mb-0.5 md:mb-1 text-sm md:text-base">Activar Efectos de Sonido</h4>
-                                    <p className="text-[10px] md:text-xs text-slate-500 leading-snug">Reproducir sonidos al completar ventas, errores o advertencias.</p>
-                                </div>
-                                <button 
-                                    onClick={() => setFormData({...formData, soundConfig: {...formData.soundConfig, enabled: !formData.soundConfig.enabled}})}
-                                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${formData.soundConfig?.enabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
-                                >
-                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.soundConfig?.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                                </button>
-                            </div>
-
-                            <div className={`transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                <div className="flex items-center gap-4 mb-2">
-                                    <Volume2 className="w-5 h-5 text-slate-400" />
-                                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Volumen General</span>
-                                </div>
-                                <input 
-                                    type="range" 
-                                    min="0" 
-                                    max="1" 
-                                    step="0.1" 
-                                    value={formData.soundConfig?.volume || 0.5} 
-                                    onChange={(e) => {
-                                        const vol = parseFloat(e.target.value);
-                                        setFormData({...formData, soundConfig: {...formData.soundConfig, volume: vol}});
-                                    }}
-                                    className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                                />
-                            </div>
-
-                            <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                <div className="space-y-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase">Venta Exitosa</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={formData.soundConfig?.saleSound}
-                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, saleSound: e.target.value as SoundType}})}
-                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
-                                        >
-                                            <option value="SUCCESS">Éxito (Cash)</option>
-                                            <option value="GLASS">Cristal (Apple)</option>
-                                            <option value="GAMING">Gaming (Arcade)</option>
-                                            <option value="CHORD">Acorde Suave</option>
-                                            <option value="NONE">Silencio</option>
-                                        </select>
-                                        <button onClick={() => playSystemSound(formData.soundConfig.saleSound, formData.soundConfig.volume)} className="p-2.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
-                                            <Play className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase">Error / Alerta</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={formData.soundConfig?.errorSound}
-                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, errorSound: e.target.value as SoundType}})}
-                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
-                                        >
-                                            <option value="ERROR">Error (Bonk)</option>
-                                            <option value="ALERT">Alerta (Doble)</option>
-                                            <option value="RETRO">Retro (8-bit)</option>
-                                            <option value="NONE">Silencio</option>
-                                        </select>
-                                        <button onClick={() => playSystemSound(formData.soundConfig.errorSound, formData.soundConfig.volume)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-100 transition-colors">
-                                            <Play className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase">Interacción / Clics</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={formData.soundConfig?.clickSound}
-                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, clickSound: e.target.value as SoundType}})}
-                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
-                                        >
-                                            <option value="POP">Pop Suave</option>
-                                            <option value="NOTE">Nota Simple</option>
-                                            <option value="BEEP">Beep Digital</option>
-                                            <option value="NONE">Silencio</option>
-                                        </select>
-                                        <button onClick={() => playSystemSound(formData.soundConfig.clickSound, formData.soundConfig.volume)} className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors">
-                                            <Play className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase">Notificación General</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={formData.soundConfig?.notificationSound}
-                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, notificationSound: e.target.value as SoundType}})}
-                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
-                                        >
-                                            <option value="GLASS">Cristal (Apple)</option>
-                                            <option value="BELL">Campana Suave</option>
-                                            <option value="CHORD">Acorde</option>
-                                            <option value="NONE">Silencio</option>
-                                        </select>
-                                        <button onClick={() => playSystemSound(formData.soundConfig.notificationSound, formData.soundConfig.volume)} className="p-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors">
-                                            <Play className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {activeTab === 'OPERATIONS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     <div className={`bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border transition-colors ${budgetTotal > 100 ? 'border-red-300 dark:border-red-900' : 'border-slate-100 dark:border-slate-800'}`}>
@@ -677,7 +606,6 @@ export const Settings: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Total Indicator */}
                         <div className={`mt-8 p-4 rounded-2xl border flex justify-between items-center transition-colors ${budgetTotal > 100 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}>
                             <div className="flex flex-col">
                                 <span className="font-bold text-sm uppercase tracking-wide">Total Distribución</span>
@@ -730,6 +658,7 @@ export const Settings: React.FC = () => {
 
             {activeTab === 'TICKETS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-[fadeIn_0.3s_ease-out]">
+                    {/* ... (Content for Tickets unchanged) ... */}
                     <div className="space-y-6">
                         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
                             <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
@@ -769,7 +698,6 @@ export const Settings: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* --- NEW PRODUCTION SHEET CONFIG --- */}
                         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
                             <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
                                 <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg text-purple-600"><ClipboardList className="w-5 h-5"/></div>
@@ -1038,6 +966,129 @@ export const Settings: React.FC = () => {
                                 </div>
                                 <span>Restablecer y Bajar de Nube</span>
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {activeTab === 'NOTIFICATIONS' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    {/* ... (Existing notification settings) ... */}
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg text-pink-600"><Bell className="w-5 h-5"/></div>
+                            Preferencias de Alertas y Sonido
+                        </h3>
+                        
+                        <div className="space-y-8 max-w-2xl">
+                            <div className="flex items-center justify-between p-3 md:p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 gap-3 md:gap-4">
+                                <div className="flex-1 min-w-0">
+                                    <h4 className="font-bold text-slate-800 dark:text-white mb-0.5 md:mb-1 text-sm md:text-base">Activar Efectos de Sonido</h4>
+                                    <p className="text-[10px] md:text-xs text-slate-500 leading-snug">Reproducir sonidos al completar ventas, errores o advertencias.</p>
+                                </div>
+                                <button 
+                                    onClick={() => setFormData({...formData, soundConfig: {...formData.soundConfig, enabled: !formData.soundConfig.enabled}})}
+                                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${formData.soundConfig?.enabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.soundConfig?.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </div>
+
+                            <div className={`transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <div className="flex items-center gap-4 mb-2">
+                                    <Volume2 className="w-5 h-5 text-slate-400" />
+                                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Volumen General</span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="1" 
+                                    step="0.1" 
+                                    value={formData.soundConfig?.volume || 0.5} 
+                                    onChange={(e) => {
+                                        const vol = parseFloat(e.target.value);
+                                        setFormData({...formData, soundConfig: {...formData.soundConfig, volume: vol}});
+                                    }}
+                                    className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                                />
+                            </div>
+
+                            <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                {/* Sound Selects... */}
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Venta Exitosa</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.saleSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, saleSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="SUCCESS">Éxito (Cash)</option>
+                                            <option value="GLASS">Cristal (Apple)</option>
+                                            <option value="GAMING">Gaming (Arcade)</option>
+                                            <option value="CHORD">Acorde Suave</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.saleSound, formData.soundConfig.volume)} className="p-2.5 bg-indigo-5 dark:bg-indigo-900/30 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Error / Alerta</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.errorSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, errorSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="ERROR">Error (Bonk)</option>
+                                            <option value="ALERT">Alerta (Doble)</option>
+                                            <option value="RETRO">Retro (8-bit)</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.errorSound, formData.soundConfig.volume)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-100 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Interacción / Clics</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.clickSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, clickSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="POP">Pop Suave</option>
+                                            <option value="NOTE">Nota Simple</option>
+                                            <option value="BEEP">Beep Digital</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.clickSound, formData.soundConfig.volume)} className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Notificación General</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.notificationSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, notificationSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="GLASS">Cristal (Apple)</option>
+                                            <option value="BELL">Campana Suave</option>
+                                            <option value="CHORD">Acorde</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.notificationSound, formData.soundConfig.volume)} className="p-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
