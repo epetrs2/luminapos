@@ -32,17 +32,22 @@ const encode = (str: string) => {
 const formatRow = (col1: string, col2: string, col3: string, widthType: '58mm' | '80mm') => {
     const totalWidth = widthType === '58mm' ? 32 : 48;
     
-    // Config: 58mm [Qty 4][Space 1][Name 17][Space 1][Total 9]
-    // Config: 80mm [Qty 5][Space 1][Name 30][Space 1][Total 11]
+    // Config: 58mm [Qty 3][Space 1][Name 19][Space 1][Total 8] = 32
+    // Config: 80mm [Qty 4][Space 1][Name 32][Space 1][Total 10] = 48
     
-    const w1 = widthType === '58mm' ? 4 : 5;
-    const w3 = widthType === '58mm' ? 9 : 11;
+    const w1 = widthType === '58mm' ? 3 : 4;
+    const w3 = widthType === '58mm' ? 8 : 10;
     const w2 = totalWidth - w1 - w3 - 2; 
 
+    // Normalize FIRST to avoid length mismatch issues with accents
+    const nCol1 = normalize(col1);
+    const nCol2 = normalize(col2);
+    const nCol3 = normalize(col3);
+
     // Truncate and Pad
-    const c1 = col1.substring(0, w1).padEnd(w1);
-    const c2 = col2.substring(0, w2).padEnd(w2);
-    const c3 = col3.substring(0, w3).padStart(w3); // Align right
+    const c1 = nCol1.substring(0, w1).padEnd(w1);
+    const c2 = nCol2.substring(0, w2).padEnd(w2);
+    const c3 = nCol3.substring(0, w3).padStart(w3); // Align right
 
     return `${c1} ${c2} ${c3}`;
 };
@@ -52,8 +57,11 @@ const formatTwoCols = (left: string, right: string, widthType: '58mm' | '80mm') 
     const wRight = Math.floor(totalWidth * 0.4); 
     const wLeft = totalWidth - wRight - 1;
     
-    const l = left.substring(0, wLeft).padEnd(wLeft);
-    const r = right.substring(0, wRight).padStart(wRight);
+    const nLeft = normalize(left);
+    const nRight = normalize(right);
+
+    const l = nLeft.substring(0, wLeft).padEnd(wLeft);
+    const r = nRight.substring(0, wRight).padStart(wRight);
     return `${l} ${r}`;
 };
 
@@ -124,7 +132,7 @@ const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): nu
 };
 
 // --- TICKET GENERATOR ---
-export const generateEscPosTicket = async (transaction: Transaction, customerName: string, settings: BusinessSettings): Promise<Uint8Array> => {
+export const generateEscPosTicket = async (transaction: Transaction, customerName: string, settings: BusinessSettings, copyLabel?: string): Promise<Uint8Array> => {
     const buffer: number[] = [];
     const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
     const addLine = (text: string) => add(encode(text + '\n'));
@@ -142,6 +150,14 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
             add(rasterData);
             add(COMMANDS.FEED_LINES(1));
         } catch (e) { console.warn("Logo failed", e); }
+    }
+
+    // --- COPY LABEL ---
+    if (copyLabel) {
+        add(COMMANDS.BOLD_ON);
+        addLine(`*** ${copyLabel} ***`);
+        add(COMMANDS.BOLD_OFF);
+        addLine('\n');
     }
 
     add(COMMANDS.BOLD_ON);
@@ -164,7 +180,7 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
     addLine(separator);
 
     add(COMMANDS.BOLD_ON);
-    addLine(formatRow("Cnt", "Descrip.", "Total", settings.ticketPaperWidth));
+    addLine(formatRow("Can", "Descripcion", "Total", settings.ticketPaperWidth));
     add(COMMANDS.BOLD_OFF);
     addLine(separator);
     

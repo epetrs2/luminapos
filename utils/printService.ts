@@ -624,12 +624,23 @@ export const printThermalTicket = async (
     transaction: Transaction, 
     customerName: string, 
     settings: BusinessSettings,
-    btSendFn?: (data: Uint8Array) => Promise<void>
+    btSendFn?: (data: Uint8Array) => Promise<void>,
+    printCopy: boolean = false
 ) => {
     if (btSendFn) {
         try {
-            const data = await generateEscPosTicket(transaction, customerName, settings);
+            // Print Original
+            const data = await generateEscPosTicket(transaction, customerName, settings, "ORIGINAL");
             await btSendFn(data);
+            
+            // Print Copy with delay if requested
+            if (printCopy) {
+                // 10 second delay for user to tear off original
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                
+                const dataCopy = await generateEscPosTicket(transaction, customerName, settings, "COPIA CLIENTE");
+                await btSendFn(dataCopy);
+            }
             return; 
         } catch (e) {
             console.error("Bluetooth print failed, falling back to window", e);
@@ -645,42 +656,50 @@ export const printThermalTicket = async (
         .item-row { margin-bottom: 2px; }
         .total { font-weight: bold; font-size: 14px; text-align: right; margin-top: 5px; }
         .footer { text-align: center; margin-top: 10px; font-size: 10px; }
+        .page-break { page-break-after: always; height: 20px; border-bottom: 1px dotted #ccc; margin-bottom: 20px; }
     `;
     
-    // For thermal ticket HTML fallback, also use Receipt Logo
+    // Helper to generate the ticket HTML body
+    const generateTicketBody = (label?: string) => `
+        <div class="header">
+            ${label ? `<div style="font-weight:bold; font-size:14px; margin-bottom:5px;">*** ${label} ***</div>` : ''}
+            ${settings.receiptLogo ? `<img src="${settings.receiptLogo}" style="max-width:50%; margin-bottom:5px;">` : ''}
+            ${settings.receiptHeader ? `<div style="font-size:10px; margin-bottom:5px;">${settings.receiptHeader}</div>` : ''}
+            <div class="title">${settings.name}</div>
+            <div>${settings.address}</div>
+            <div>${settings.phone}</div>
+            <div class="line"></div>
+            <div>Ticket #${transaction.id}</div>
+            <div>${new Date(transaction.date).toLocaleString()}</div>
+            <div>Cliente: ${customerName}</div>
+        </div>
+        <div class="line"></div>
+        <div class="row" style="font-weight:bold; border-bottom:1px solid #000;"><span>Can</span><span>Descripcion</span><span>Total</span></div>
+        ${transaction.items.map(item => `
+            <div class="item-row">
+                <div style="display:flex; justify-content:space-between;">
+                    <span style="width:15%">${item.quantity}</span>
+                    <span style="width:55%">${item.name}</span>
+                    <span style="width:30%; text-align:right;">$${(item.price * item.quantity).toFixed(2)}</span>
+                </div>
+            </div>
+        `).join('')}
+        <div class="line"></div>
+        <div class="row"><span>Subtotal:</span><span>$${transaction.subtotal.toFixed(2)}</span></div>
+        ${transaction.taxAmount > 0 ? `<div class="row"><span>Impuestos:</span><span>$${transaction.taxAmount.toFixed(2)}</span></div>` : ''}
+        ${transaction.discount > 0 ? `<div class="row"><span>Descuento:</span><span>-$${transaction.discount.toFixed(2)}</span></div>` : ''}
+        <div class="total">Total: $${transaction.total.toFixed(2)}</div>
+        <div class="line"></div>
+        <div class="footer">${settings.receiptFooter}</div>
+    `;
+
+    // For HTML print, we just put both on the same page (scroll) if copy is requested
     const html = `
         <html>
         <head><style>${TICKET_CSS}</style></head>
         <body>
-            <div class="header">
-                ${settings.receiptLogo ? `<img src="${settings.receiptLogo}" style="max-width:50%; margin-bottom:5px;">` : ''}
-                ${settings.receiptHeader ? `<div style="font-size:10px; margin-bottom:5px;">${settings.receiptHeader}</div>` : ''}
-                <div class="title">${settings.name}</div>
-                <div>${settings.address}</div>
-                <div>${settings.phone}</div>
-                <div class="line"></div>
-                <div>Ticket #${transaction.id}</div>
-                <div>${new Date(transaction.date).toLocaleString()}</div>
-                <div>Cliente: ${customerName}</div>
-            </div>
-            <div class="line"></div>
-            <div class="row" style="font-weight:bold; border-bottom:1px solid #000;"><span>Cant</span><span>Desc.</span><span>Total</span></div>
-            ${transaction.items.map(item => `
-                <div class="item-row">
-                    <div style="display:flex; justify-content:space-between;">
-                        <span style="width:10%">${item.quantity}</span>
-                        <span style="width:60%">${item.name}</span>
-                        <span style="width:30%; text-align:right;">$${(item.price * item.quantity).toFixed(2)}</span>
-                    </div>
-                </div>
-            `).join('')}
-            <div class="line"></div>
-            <div class="row"><span>Subtotal:</span><span>$${transaction.subtotal.toFixed(2)}</span></div>
-            ${transaction.taxAmount > 0 ? `<div class="row"><span>Impuestos:</span><span>$${transaction.taxAmount.toFixed(2)}</span></div>` : ''}
-            ${transaction.discount > 0 ? `<div class="row"><span>Descuento:</span><span>-$${transaction.discount.toFixed(2)}</span></div>` : ''}
-            <div class="total">Total: $${transaction.total.toFixed(2)}</div>
-            <div class="line"></div>
-            <div class="footer">${settings.receiptFooter}</div>
+            ${generateTicketBody(printCopy ? "ORIGINAL" : undefined)}
+            ${printCopy ? `<div class="page-break"></div>${generateTicketBody("COPIA CLIENTE")}` : ''}
         </body>
         </html>
     `;
@@ -688,6 +707,7 @@ export const printThermalTicket = async (
 };
 
 export const printProductionSummary = (orders: Order[], settings: BusinessSettings, inventory?: Product[]) => {
+    // ... (Keep existing production summary code)
     // 1. Consolidate items
     const summaryItems: Record<string, {
         id: string,
@@ -907,6 +927,7 @@ export const printFinancialReport = (
     summary: {totalSales: number, totalExpenses: number, netProfit: number, thirdParty: number}, 
     settings: BusinessSettings
 ) => {
+    // ... (Keep existing financial report code)
     const startStr = startDate.toLocaleDateString();
     const endStr = endDate.toLocaleDateString();
     
@@ -1027,6 +1048,7 @@ export const printZCutTicket = async (
     settings: BusinessSettings,
     btSendFn?: (data: Uint8Array) => Promise<void>
 ) => {
+    // ... (Keep existing Z Cut code)
     if (!movement.zReportData) return;
 
     if (btSendFn) {

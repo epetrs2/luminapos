@@ -693,7 +693,8 @@ export const POS: React.FC = () => {
                                 )}
 
                                 <div className="grid grid-cols-2 gap-4 w-full mb-6">
-                                    <button onClick={() => { if(lastTransaction) printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, btDevice ? sendBtData : undefined) }} className="flex flex-col items-center justify-center p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-colors font-bold text-sm gap-2">
+                                    {/* Updated: Added printCopy: true to arguments */}
+                                    <button onClick={() => { if(lastTransaction) printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, btDevice ? sendBtData : undefined, true) }} className="flex flex-col items-center justify-center p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-colors font-bold text-sm gap-2">
                                         <Printer className="w-6 h-6"/> Ticket (58mm)
                                     </button>
                                     <button onClick={() => { if(lastTransaction) printInvoice(lastTransaction, customers.find(c => c.id === selectedCustomerId), settings) }} className="flex flex-col items-center justify-center p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-xl hover:bg-blue-100 transition-colors font-bold text-sm gap-2">
