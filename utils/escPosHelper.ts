@@ -152,7 +152,8 @@ const generateQRCodeBytes = async (text: string): Promise<number[]> => {
 export const generateProductionTicket = async (
     order: Order, 
     settings: BusinessSettings, 
-    products: Product[]
+    products: Product[],
+    stockTracker?: Map<string, number>
 ): Promise<Uint8Array> => {
     const buffer: number[] = [];
     const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
@@ -204,15 +205,26 @@ export const generateProductionTicket = async (
 
     order.items.forEach(item => {
         let currentStock = 0;
-        const product = products.find(p => p.id === item.id);
-        if (product) {
-            if (item.variantId && product.variants) {
-                const v = product.variants.find(v => v.id === item.variantId);
-                currentStock = v ? v.stock : 0;
-            } else {
-                currentStock = product.stock;
+        
+        // --- NEW LOGIC: USE TRACKER IF AVAILABLE ---
+        // If stockTracker is provided (during batch print), use it.
+        // Otherwise fall back to global product state.
+        const trackKey = item.variantId ? `${item.id}-${item.variantId}` : item.id;
+        
+        if (stockTracker && stockTracker.has(trackKey)) {
+            currentStock = stockTracker.get(trackKey) || 0;
+        } else {
+            const product = products.find(p => p.id === item.id);
+            if (product) {
+                if (item.variantId && product.variants) {
+                    const v = product.variants.find(v => v.id === item.variantId);
+                    currentStock = v ? v.stock : 0;
+                } else {
+                    currentStock = product.stock;
+                }
             }
         }
+
         const pickQty = Math.min(item.quantity, Math.max(0, currentStock));
         const makeQty = item.quantity - pickQty;
 

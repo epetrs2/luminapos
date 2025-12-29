@@ -442,11 +442,34 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 notify("Error", "Conecta la impresora Bluetooth en Configuración.", "error");
                 return;
             }
+
+            // --- VIRTUAL STOCK TRACKER LOGIC ---
+            // Create a temporary map of current stock to decrement as we print each ticket.
+            // This prevents multiple orders from "claiming" the same stock items in the warehouse.
+            const stockTracker = new Map<string, number>();
+            products.forEach(p => {
+                stockTracker.set(p.id, p.stock);
+                if (p.variants) {
+                    p.variants.forEach(v => stockTracker.set(`${p.id}-${v.id}`, v.stock));
+                }
+            });
             
             // 1. Print Individual Tickets (QR) with 10s Delay
             for (let i = 0; i < ordersToPrint.length; i++) {
                 const order = ordersToPrint[i];
-                await printProductionTicket(order, settings, products, sendBtData);
+                
+                // Pass the tracker so the generator knows what's actually available *now*
+                await printProductionTicket(order, settings, products, sendBtData, stockTracker);
+                
+                // Update tracker: Deduct what was theoretically used by this order
+                order.items.forEach(item => {
+                    const trackKey = item.variantId ? `${item.id}-${item.variantId}` : item.id;
+                    const currentStock = stockTracker.get(trackKey) || 0;
+                    // We consume only what was available (the generator used Min(qty, stock))
+                    // So we must replicate that logic to decrement correctly
+                    const consumed = Math.min(item.quantity, Math.max(0, currentStock));
+                    stockTracker.set(trackKey, currentStock - consumed);
+                });
                 
                 // Add delay between tickets (except optionally after the very last one, but safer to keep it)
                 if (i < ordersToPrint.length - 1) {

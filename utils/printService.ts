@@ -497,14 +497,15 @@ export const printProductionTicket = async (
     order: Order,
     settings: BusinessSettings,
     products: Product[],
-    btSendFn?: (data: Uint8Array) => Promise<void>
+    btSendFn?: (data: Uint8Array) => Promise<void>,
+    stockTracker?: Map<string, number>
 ) => {
     if (!btSendFn) {
         console.error("Bluetooth printer not connected");
         return;
     }
     try {
-        const data = await generateProductionTicket(order, settings, products);
+        const data = await generateProductionTicket(order, settings, products, stockTracker);
         await btSendFn(data);
     } catch (e) {
         console.error("Print Error", e);
