@@ -497,19 +497,23 @@ export const printThermalTicket = async (
     customerName: string, 
     settings: BusinessSettings,
     btSendFn?: (data: Uint8Array) => Promise<void>,
-    printCopy: boolean = false
+    printMode: 'ORIGINAL' | 'COPY' | 'BOTH' = 'ORIGINAL'
 ) => {
     if (btSendFn) {
         try {
-            // Print Original
-            const data = await generateEscPosTicket(transaction, customerName, settings, "ORIGINAL");
-            await btSendFn(data);
+            // Print Original Logic
+            if (printMode === 'ORIGINAL' || printMode === 'BOTH') {
+                const data = await generateEscPosTicket(transaction, customerName, settings, "ORIGINAL");
+                await btSendFn(data);
+            }
             
-            // Print Copy with delay if requested
-            if (printCopy) {
-                // 10 second delay for user to tear off original
-                await new Promise(resolve => setTimeout(resolve, 10000));
-                
+            // Wait for cut/tear if printing both
+            if (printMode === 'BOTH') {
+                await new Promise(resolve => setTimeout(resolve, 8000));
+            }
+
+            // Print Copy Logic
+            if (printMode === 'COPY' || printMode === 'BOTH') {
                 const dataCopy = await generateEscPosTicket(transaction, customerName, settings, "COPIA CLIENTE");
                 await btSendFn(dataCopy);
             }
@@ -628,8 +632,9 @@ export const printThermalTicket = async (
         <html>
         <head><style>${TICKET_CSS}</style></head>
         <body>
-            ${generateTicketBody(printCopy ? "ORIGINAL" : undefined)}
-            ${printCopy ? `<div class="page-break"></div>${generateTicketBody("COPIA CLIENTE")}` : ''}
+            ${(printMode === 'ORIGINAL' || printMode === 'BOTH') ? generateTicketBody(printMode === 'BOTH' ? "ORIGINAL" : undefined) : ''}
+            ${printMode === 'BOTH' ? '<div class="page-break"></div>' : ''}
+            ${(printMode === 'COPY' || printMode === 'BOTH') ? generateTicketBody("COPIA CLIENTE") : ''}
         </body>
         </html>
     `;
