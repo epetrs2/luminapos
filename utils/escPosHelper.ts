@@ -139,9 +139,9 @@ const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): nu
 // --- QR GENERATOR ---
 const generateQRCodeBytes = async (text: string): Promise<number[]> => {
     try {
-        const dataUrl = await QRCode.toDataURL(text, { margin: 0, width: 200, errorCorrectionLevel: 'M' });
+        const dataUrl = await QRCode.toDataURL(text, { margin: 1, width: 250, errorCorrectionLevel: 'M' });
         const img = await loadImage(dataUrl);
-        return convertImageToRaster(img, 200);
+        return convertImageToRaster(img, 250);
     } catch (e) {
         console.error("QR Gen Error", e);
         return [];
@@ -158,24 +158,30 @@ export const generateProductionTicket = async (
     const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
     const addLine = (text: string) => add(encode(text + '\n'));
     const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
+    const thickSep = '='.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
 
     add(COMMANDS.INIT);
     add(COMMANDS.CODE_PAGE); 
     add(COMMANDS.ALIGN_CENTER);
 
-    // Header Giant
+    // --- HEADER ---
+    add(COMMANDS.BOLD_ON);
+    addLine(settings.name.toUpperCase());
+    add(COMMANDS.BOLD_OFF);
+    addLine(separator);
+    
+    // Order ID (Huge)
     add(COMMANDS.BOLD_ON);
     add([GS, 0x21, 0x11]); // Double Height/Width
-    addLine("PRODUCCION");
+    addLine(`ORDEN #${order.id.slice(-4)}`);
     add([GS, 0x21, 0x00]); // Reset
     add(COMMANDS.BOLD_OFF);
     addLine(separator);
 
-    // Order Info
-    add(COMMANDS.BOLD_ON);
-    addLine(`ORDEN #${order.id.slice(-6)}`);
-    add(COMMANDS.BOLD_OFF);
-    addLine(`Cliente: ${order.customerName.substring(0, 20)}`);
+    // Customer & Dates
+    add(COMMANDS.ALIGN_LEFT);
+    addLine(`Cliente: ${normalize(order.customerName).substring(0, 25)}`);
+    addLine(`Creado:  ${new Date(order.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`);
     
     if (order.deliveryDate) {
         add(COMMANDS.BOLD_ON);
@@ -184,21 +190,16 @@ export const generateProductionTicket = async (
     }
     
     if (order.priority === 'HIGH') {
-        add([GS, 0x42, 0x01]); // Invert
-        addLine("  !!! URGENTE !!!  ");
-        add([GS, 0x42, 0x00]); // Normal
         addLine('\n');
-    }
-
-    // QR Code for Tracking
-    const qrData = await generateQRCodeBytes(order.id); // Scan this ID to track
-    if (qrData.length > 0) {
-        add(qrData);
-        addLine("Escanear para actualizar estado");
+        add(COMMANDS.ALIGN_CENTER);
+        add([GS, 0x42, 0x01]); // Invert
+        addLine(" !!! URGENTE !!! ");
+        add([GS, 0x42, 0x00]); // Normal
+        add(COMMANDS.ALIGN_LEFT);
     }
     addLine('\n');
 
-    // Split Logic: Produce vs Pick
+    // Split Logic
     const toProduce: any[] = [];
     const toPick: any[] = [];
 
@@ -213,7 +214,6 @@ export const generateProductionTicket = async (
                 currentStock = product.stock;
             }
         }
-
         const pickQty = Math.min(item.quantity, Math.max(0, currentStock));
         const makeQty = item.quantity - pickQty;
 
@@ -221,59 +221,71 @@ export const generateProductionTicket = async (
         if (makeQty > 0) toProduce.push({ ...item, quantity: makeQty });
     });
 
-    // RENDER: TO PRODUCE (Priority)
+    // --- SECTION: PRODUCE (Bold, Big) ---
     if (toProduce.length > 0) {
+        add(COMMANDS.ALIGN_CENTER);
+        add([GS, 0x42, 0x01]); // Invert ON
+        addLine("   A  PRODUCIR   ");
+        add([GS, 0x42, 0x00]); // Invert OFF
         add(COMMANDS.ALIGN_LEFT);
-        add([GS, 0x42, 0x01]); // Invert on
-        addLine(" [ A FABRICAR / PRODUCIR ] ");
-        add([GS, 0x42, 0x00]); // Invert off
-        addLine(separator);
+        addLine('\n');
         
         toProduce.forEach(item => {
+            // Checkbox and Qty
             add(COMMANDS.BOLD_ON);
-            add([GS, 0x21, 0x01]); // Double height text for qty
-            // Format: [ ] 5 x Coca Cola
-            const check = "[ ] ";
-            const qty = `${item.quantity} x `;
-            add(encode(check + qty));
-            
+            add([GS, 0x21, 0x11]); // Double Size
+            add(encode(`[ ] ${item.quantity}`));
             add([GS, 0x21, 0x00]); // Reset
-            addLine(normalize(item.name).substring(0, 20));
+            add(COMMANDS.BOLD_OFF);
+            
+            // Item Name
+            add(COMMANDS.BOLD_ON);
+            addLine(` x ${normalize(item.name)}`);
             add(COMMANDS.BOLD_OFF);
             
             if (item.variantName) {
-                addLine(`    Var: ${normalize(item.variantName)}`);
+                addLine(`     >> ${normalize(item.variantName)}`);
             }
-            addLine('\n');
+            addLine(separator); // Line between production items
         });
+        addLine('\n');
     }
 
-    // RENDER: TO PICK (Secondary)
+    // --- SECTION: WAREHOUSE (Simple list) ---
     if (toPick.length > 0) {
+        add(COMMANDS.ALIGN_CENTER);
+        addLine("--- TOMAR DE BODEGA ---");
         add(COMMANDS.ALIGN_LEFT);
-        addLine("\n");
-        addLine(" [ TOMAR DE BODEGA ] ");
-        addLine(separator);
         
         toPick.forEach(item => {
-            const check = "[ ] ";
-            const line = `${check}${item.quantity} x ${item.name}`;
-            addLine(normalize(line).substring(0, settings.ticketPaperWidth === '58mm' ? 32 : 48));
+            addLine(`[ ] ${item.quantity} x ${normalize(item.name)}`);
             if (item.variantName) {
-                addLine(`    Var: ${normalize(item.variantName)}`);
+                addLine(`    (${normalize(item.variantName)})`);
             }
         });
+        addLine('\n');
     }
 
-    // NOTES
+    // --- NOTES ---
     if (order.notes) {
-        addLine('\n');
         add(COMMANDS.ALIGN_CENTER);
-        addLine("--- NOTAS ---");
+        add([GS, 0x42, 0x01]); // Invert
+        addLine(" NOTAS ");
+        add([GS, 0x42, 0x00]); // Normal
         add(COMMANDS.ALIGN_LEFT);
         addLine(normalize(order.notes));
+        addLine('\n');
     }
 
+    // --- QR CODE ---
+    add(COMMANDS.ALIGN_CENTER);
+    addLine(separator);
+    const qrData = await generateQRCodeBytes(order.id);
+    if (qrData.length > 0) {
+        add(qrData);
+        addLine("SCAN TRACKING");
+    }
+    
     add(COMMANDS.FEED_LINES(4));
     return new Uint8Array(buffer);
 };
@@ -322,38 +334,55 @@ export const generateConsolidatedProduction = async (
     add(COMMANDS.CODE_PAGE); 
     add(COMMANDS.ALIGN_CENTER);
     
+    // Header
     add(COMMANDS.BOLD_ON);
     add([GS, 0x21, 0x11]);
     addLine("LISTA MAESTRA");
     add([GS, 0x21, 0x00]);
     add(COMMANDS.BOLD_OFF);
-    addLine(new Date().toLocaleString());
-    addLine(`Total Pedidos: ${orders.length}`);
+    addLine("RESUMEN GLOBAL");
+    addLine(separator);
+    
+    addLine(`Fecha: ${new Date().toLocaleString()}`);
+    addLine(`Pedidos: ${orders.length} órdenes`);
     addLine(separator);
 
     if (toProduce.length > 0) {
-        add(COMMANDS.ALIGN_LEFT);
-        add([GS, 0x42, 0x01]);
+        add(COMMANDS.ALIGN_CENTER);
+        add([GS, 0x42, 0x01]); // Invert
         addLine(" TOTAL A PRODUCIR ");
         add([GS, 0x42, 0x00]);
+        add(COMMANDS.ALIGN_LEFT);
+        addLine('\n');
+
         toProduce.forEach(item => {
+            // Big Qty
             add(COMMANDS.BOLD_ON);
-            addLine(`[ ] ${item.quantity} x ${normalize(item.name)}`);
+            add([GS, 0x21, 0x01]); 
+            add(encode(`[ ] ${item.quantity}`));
+            add([GS, 0x21, 0x00]); 
             add(COMMANDS.BOLD_OFF);
-            if(item.variantName) addLine(`    (${normalize(item.variantName)})`);
+            
+            addLine(` x ${normalize(item.name)}`);
+            if(item.variantName) addLine(`     (${normalize(item.variantName)})`);
+            addLine(separator);
         });
         addLine('\n');
     }
 
     if (toPick.length > 0) {
+        add(COMMANDS.ALIGN_CENTER);
+        addLine("--- TOTAL BODEGA ---");
         add(COMMANDS.ALIGN_LEFT);
-        addLine(" TOTAL BODEGA ");
         toPick.forEach(item => {
             addLine(`[ ] ${item.quantity} x ${normalize(item.name)}`);
             if(item.variantName) addLine(`    (${normalize(item.variantName)})`);
         });
     }
 
+    add(COMMANDS.ALIGN_CENTER);
+    addLine('\n');
+    addLine("--- FIN DE LISTA ---");
     add(COMMANDS.FEED_LINES(4));
     return new Uint8Array(buffer);
 };
