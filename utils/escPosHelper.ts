@@ -148,7 +148,7 @@ const generateQRCodeBytes = async (text: string): Promise<number[]> => {
     }
 };
 
-// --- PRODUCTION TICKET GENERATOR ---
+// --- PRODUCTION TICKET GENERATOR (INDIVIDUAL) ---
 export const generateProductionTicket = async (
     order: Order, 
     settings: BusinessSettings, 
@@ -158,7 +158,6 @@ export const generateProductionTicket = async (
     const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
     const addLine = (text: string) => add(encode(text + '\n'));
     const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
-    const thickSep = '='.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
 
     add(COMMANDS.INIT);
     add(COMMANDS.CODE_PAGE); 
@@ -166,22 +165,22 @@ export const generateProductionTicket = async (
 
     // --- HEADER ---
     add(COMMANDS.BOLD_ON);
-    addLine(settings.name.toUpperCase());
+    // Double Height Title
+    add([GS, 0x21, 0x10]); 
+    addLine("PRODUCCION");
+    add([GS, 0x21, 0x00]); 
     add(COMMANDS.BOLD_OFF);
     addLine(separator);
     
     // Order ID (Huge)
     add(COMMANDS.BOLD_ON);
     add([GS, 0x21, 0x11]); // Double Height/Width
-    addLine(`ORDEN #${order.id.slice(-4)}`);
+    addLine(`#${order.id.slice(-4)}`);
     add([GS, 0x21, 0x00]); // Reset
     add(COMMANDS.BOLD_OFF);
-    addLine(separator);
-
-    // Customer & Dates
+    
     add(COMMANDS.ALIGN_LEFT);
-    addLine(`Cliente: ${normalize(order.customerName).substring(0, 25)}`);
-    addLine(`Creado:  ${new Date(order.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`);
+    addLine(`Cliente: ${normalize(order.customerName).substring(0, 20)}`);
     
     if (order.deliveryDate) {
         add(COMMANDS.BOLD_ON);
@@ -223,17 +222,16 @@ export const generateProductionTicket = async (
 
     // --- SECTION: PRODUCE (Bold, Big) ---
     if (toProduce.length > 0) {
-        add(COMMANDS.ALIGN_CENTER);
-        add([GS, 0x42, 0x01]); // Invert ON
-        addLine("   A  PRODUCIR   ");
-        add([GS, 0x42, 0x00]); // Invert OFF
         add(COMMANDS.ALIGN_LEFT);
-        addLine('\n');
+        add(COMMANDS.BOLD_ON);
+        addLine(">> A FABRICAR:");
+        add(COMMANDS.BOLD_OFF);
+        addLine(separator);
         
         toProduce.forEach(item => {
             // Checkbox and Qty
             add(COMMANDS.BOLD_ON);
-            add([GS, 0x21, 0x11]); // Double Size
+            add([GS, 0x21, 0x01]); // Double Height only
             add(encode(`[ ] ${item.quantity}`));
             add([GS, 0x21, 0x00]); // Reset
             add(COMMANDS.BOLD_OFF);
@@ -244,18 +242,18 @@ export const generateProductionTicket = async (
             add(COMMANDS.BOLD_OFF);
             
             if (item.variantName) {
-                addLine(`     >> ${normalize(item.variantName)}`);
+                addLine(`     ${normalize(item.variantName)}`);
             }
-            addLine(separator); // Line between production items
+            addLine('\n'); // Spacing between items
         });
-        addLine('\n');
     }
 
     // --- SECTION: WAREHOUSE (Simple list) ---
     if (toPick.length > 0) {
-        add(COMMANDS.ALIGN_CENTER);
-        addLine("--- TOMAR DE BODEGA ---");
         add(COMMANDS.ALIGN_LEFT);
+        addLine("\n");
+        addLine(">> TOMAR DE BODEGA:");
+        addLine(separator);
         
         toPick.forEach(item => {
             addLine(`[ ] ${item.quantity} x ${normalize(item.name)}`);
@@ -283,7 +281,7 @@ export const generateProductionTicket = async (
     const qrData = await generateQRCodeBytes(order.id);
     if (qrData.length > 0) {
         add(qrData);
-        addLine("SCAN TRACKING");
+        addLine("TRACKING ID");
     }
     
     add(COMMANDS.FEED_LINES(4));
@@ -336,35 +334,32 @@ export const generateConsolidatedProduction = async (
     
     // Header
     add(COMMANDS.BOLD_ON);
-    add([GS, 0x21, 0x11]);
-    addLine("LISTA MAESTRA");
-    add([GS, 0x21, 0x00]);
+    add([GS, 0x42, 0x01]); // Invert
+    addLine("  LISTA MAESTRA  ");
+    add([GS, 0x42, 0x00]);
     add(COMMANDS.BOLD_OFF);
-    addLine("RESUMEN GLOBAL");
-    addLine(separator);
-    
-    addLine(`Fecha: ${new Date().toLocaleString()}`);
-    addLine(`Pedidos: ${orders.length} órdenes`);
+    addLine(new Date().toLocaleTimeString());
+    addLine(`TOTAL: ${orders.length} PEDIDOS`);
     addLine(separator);
 
     if (toProduce.length > 0) {
         add(COMMANDS.ALIGN_CENTER);
-        add([GS, 0x42, 0x01]); // Invert
-        addLine(" TOTAL A PRODUCIR ");
-        add([GS, 0x42, 0x00]);
+        add(COMMANDS.BOLD_ON);
+        addLine("--- TOTAL A PRODUCIR ---");
+        add(COMMANDS.BOLD_OFF);
         add(COMMANDS.ALIGN_LEFT);
         addLine('\n');
 
         toProduce.forEach(item => {
             // Big Qty
             add(COMMANDS.BOLD_ON);
-            add([GS, 0x21, 0x01]); 
+            add([GS, 0x21, 0x11]); // Double Size
             add(encode(`[ ] ${item.quantity}`));
             add([GS, 0x21, 0x00]); 
             add(COMMANDS.BOLD_OFF);
             
             addLine(` x ${normalize(item.name)}`);
-            if(item.variantName) addLine(`     (${normalize(item.variantName)})`);
+            if(item.variantName) addLine(`     VAR: ${normalize(item.variantName)}`);
             addLine(separator);
         });
         addLine('\n');
@@ -382,7 +377,7 @@ export const generateConsolidatedProduction = async (
 
     add(COMMANDS.ALIGN_CENTER);
     addLine('\n');
-    addLine("--- FIN DE LISTA ---");
+    addLine("FIN DE LISTA MAESTRA");
     add(COMMANDS.FEED_LINES(4));
     return new Uint8Array(buffer);
 };

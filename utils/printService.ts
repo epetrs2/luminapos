@@ -492,27 +492,39 @@ export const printOrderInvoice = (order: Order, customer: any, settings: Busines
     openPrintWindow(html);
 };
 
+// --- SINGLE OR MULTIPLE TICKET PRINTING ---
 export const printProductionTicket = async (
+    order: Order,
+    settings: BusinessSettings,
+    products: Product[],
+    btSendFn?: (data: Uint8Array) => Promise<void>
+) => {
+    if (!btSendFn) {
+        console.error("Bluetooth printer not connected");
+        return;
+    }
+    try {
+        const data = await generateProductionTicket(order, settings, products);
+        await btSendFn(data);
+    } catch (e) {
+        console.error("Print Error", e);
+    }
+};
+
+// --- MASTER LIST PRINTING ---
+export const printProductionMasterList = async (
     orders: Order[],
     settings: BusinessSettings,
     products: Product[],
     btSendFn?: (data: Uint8Array) => Promise<void>
 ) => {
     if (!btSendFn) {
-        alert("La impresión térmica de producción requiere una impresora Bluetooth configurada.");
+        console.error("Bluetooth printer not connected");
         return;
     }
-
     try {
-        if (orders.length > 1) {
-            // Global Summary (Batch)
-            const data = await generateConsolidatedProduction(orders, settings, products);
-            await btSendFn(data);
-        } else {
-            // Individual Ticket with QR
-            const data = await generateProductionTicket(orders[0], settings, products);
-            await btSendFn(data);
-        }
+        const data = await generateConsolidatedProduction(orders, settings, products);
+        await btSendFn(data);
     } catch (e) {
         console.error("Print Error", e);
     }
