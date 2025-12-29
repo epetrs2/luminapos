@@ -648,52 +648,100 @@ export const printThermalTicket = async (
     }
 
     const TICKET_CSS = `
-        body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 5px; width: ${settings.ticketPaperWidth}; }
-        .header { text-align: center; margin-bottom: 10px; }
-        .title { font-size: 14px; font-weight: bold; }
-        .line { border-bottom: 1px dashed #000; margin: 5px 0; }
-        .row { display: flex; justify-content: space-between; }
-        .item-row { margin-bottom: 2px; }
-        .total { font-weight: bold; font-size: 14px; text-align: right; margin-top: 5px; }
-        .footer { text-align: center; margin-top: 10px; font-size: 10px; }
-        .page-break { page-break-after: always; height: 20px; border-bottom: 1px dotted #ccc; margin-bottom: 20px; }
+        @page { margin: 0; size: auto; }
+        body { 
+            font-family: 'Courier New', monospace; 
+            font-size: 10px; 
+            margin: 5px; 
+            padding: 0; 
+            width: 100%;
+            max-width: ${settings.ticketPaperWidth === '58mm' ? '58mm' : '72mm'};
+        }
+        .header { text-align: center; margin-bottom: 8px; }
+        .title { font-size: 14px; font-weight: bold; text-transform: uppercase; margin: 4px 0; }
+        .separator { border-bottom: 1px dashed #000; margin: 6px 0; }
+        
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th { 
+            text-align: left; 
+            border-bottom: 1px dashed #000; 
+            padding: 2px 0;
+            white-space: nowrap;
+            font-size: 10px;
+        }
+        td { 
+            vertical-align: top; 
+            padding: 2px 0; 
+            font-size: 10px;
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis;
+        }
+        
+        /* FIXED WIDTHS FOR PERFECT ALIGNMENT ON 58MM */
+        .col-qty { width: 25px; text-align: center; font-weight: bold; }
+        .col-total { width: 55px; text-align: right; }
+        .col-desc { width: auto; padding-right: 4px; overflow: hidden; text-overflow: ellipsis; }
+        
+        .totals-section { margin-top: 5px; text-align: right; }
+        .row { display: flex; justify-content: space-between; font-size: 10px; }
+        .final-total { font-size: 14px; font-weight: bold; margin-top: 5px; border-top: 1px dashed #000; padding-top: 5px; }
+        
+        .footer { text-align: center; margin-top: 15px; font-size: 10px; }
+        .page-break { page-break-after: always; height: 10px; border-bottom: 1px dotted #ccc; margin-bottom: 10px; }
     `;
     
     // Helper to generate the ticket HTML body
     const generateTicketBody = (label?: string) => `
         <div class="header">
-            ${label ? `<div style="font-weight:bold; font-size:14px; margin-bottom:5px;">*** ${label} ***</div>` : ''}
-            ${settings.receiptLogo ? `<img src="${settings.receiptLogo}" style="max-width:50%; margin-bottom:5px;">` : ''}
+            ${label ? `<div style="font-weight:bold; font-size:12px; margin-bottom:5px;">*** ${label} ***</div>` : ''}
+            ${settings.receiptLogo ? `<img src="${settings.receiptLogo}" style="max-width:60%; margin-bottom:5px;">` : ''}
             ${settings.receiptHeader ? `<div style="font-size:10px; margin-bottom:5px;">${settings.receiptHeader}</div>` : ''}
             <div class="title">${settings.name}</div>
             <div>${settings.address}</div>
             <div>${settings.phone}</div>
-            <div class="line"></div>
-            <div>Ticket #${transaction.id}</div>
-            <div>${new Date(transaction.date).toLocaleString()}</div>
-            <div>Cliente: ${customerName}</div>
         </div>
-        <div class="line"></div>
-        <div class="row" style="font-weight:bold; border-bottom:1px solid #000;"><span>Can</span><span>Descripcion</span><span>Total</span></div>
-        ${transaction.items.map(item => `
-            <div class="item-row">
-                <div style="display:flex; justify-content:space-between;">
-                    <span style="width:15%">${item.quantity}</span>
-                    <span style="width:55%">${item.name}</span>
-                    <span style="width:30%; text-align:right;">$${(item.price * item.quantity).toFixed(2)}</span>
-                </div>
-            </div>
-        `).join('')}
-        <div class="line"></div>
-        <div class="row"><span>Subtotal:</span><span>$${transaction.subtotal.toFixed(2)}</span></div>
-        ${transaction.taxAmount > 0 ? `<div class="row"><span>Impuestos:</span><span>$${transaction.taxAmount.toFixed(2)}</span></div>` : ''}
-        ${transaction.discount > 0 ? `<div class="row"><span>Descuento:</span><span>-$${transaction.discount.toFixed(2)}</span></div>` : ''}
-        <div class="total">Total: $${transaction.total.toFixed(2)}</div>
-        <div class="line"></div>
+        
+        <div class="separator"></div>
+        
+        <div>Ticket: #${transaction.id}</div>
+        <div>Fecha: ${new Date(transaction.date).toLocaleDateString()} ${new Date(transaction.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+        <div>Cliente: ${customerName}</div>
+        
+        <div class="separator"></div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th class="col-qty">Can</th>
+                    <th class="col-desc">Desc</th>
+                    <th class="col-total">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${transaction.items.map(item => `
+                    <tr>
+                        <td class="col-qty">${item.quantity}</td>
+                        <td class="col-desc">${item.name}</td>
+                        <td class="col-total">$${(item.price * item.quantity).toFixed(2)}</td>
+                    </tr>
+                    ${item.variantName ? `<tr><td></td><td class="col-desc" style="font-size:9px; font-style:italic;">  ${item.variantName}</td><td></td></tr>` : ''}
+                `).join('')}
+            </tbody>
+        </table>
+
+        <div class="separator"></div>
+        
+        <div class="totals-section">
+            <div class="row"><span>Subtotal:</span><span>$${transaction.subtotal.toFixed(2)}</span></div>
+            ${transaction.taxAmount > 0 ? `<div class="row"><span>Impuestos:</span><span>$${transaction.taxAmount.toFixed(2)}</span></div>` : ''}
+            ${transaction.discount > 0 ? `<div class="row"><span>Descuento:</span><span>-$${transaction.discount.toFixed(2)}</span></div>` : ''}
+            <div class="final-total row"><span>TOTAL:</span><span>$${transaction.total.toFixed(2)}</span></div>
+        </div>
+
         <div class="footer">${settings.receiptFooter}</div>
     `;
 
-    // For HTML print, we just put both on the same page (scroll) if copy is requested
     const html = `
         <html>
         <head><style>${TICKET_CSS}</style></head>

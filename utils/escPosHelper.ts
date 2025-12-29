@@ -19,8 +19,8 @@ const COMMANDS = {
 const normalize = (str: string) => {
     return str
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^\x20-\x7E\n]/g, "?");
+        .replace(/[\u0300-\u036f]/g, "") // Remove accents
+        .replace(/[^\x20-\x7E\n]/g, "?"); // Replace non-ascii with ?
 };
 
 const encode = (str: string) => {
@@ -28,41 +28,47 @@ const encode = (str: string) => {
     return encoder.encode(normalize(str));
 };
 
-// --- HELPER: FIXED WIDTH COLUMNS ---
+// --- HELPER: STRICT FIXED WIDTH COLUMNS ---
 const formatRow = (col1: string, col2: string, col3: string, widthType: '58mm' | '80mm') => {
-    const totalWidth = widthType === '58mm' ? 32 : 48;
+    const is58mm = widthType === '58mm';
+    // Total Chars: 32 for 58mm, 48 for 80mm
     
-    // Config: 58mm [Qty 3][Space 1][Name 19][Space 1][Total 8] = 32
-    // Config: 80mm [Qty 4][Space 1][Name 32][Space 1][Total 10] = 48
-    
-    const w1 = widthType === '58mm' ? 3 : 4;
-    const w3 = widthType === '58mm' ? 8 : 10;
-    const w2 = totalWidth - w1 - w3 - 2; 
+    // DEFINICION DE COLUMNAS 
+    // 58mm: [Qty 4] [Desc 17] [Total 11] = 32
+    // 80mm: [Qty 6] [Desc 30] [Total 12] = 48
 
-    // Normalize FIRST to avoid length mismatch issues with accents
+    const wQty = is58mm ? 4 : 6;
+    const wTotal = is58mm ? 11 : 12;
+    const wDesc = is58mm ? 17 : 30; // Remainder
+
+    // 1. Normalizar (Quitar acentos)
     const nCol1 = normalize(col1);
     const nCol2 = normalize(col2);
     const nCol3 = normalize(col3);
 
-    // Truncate and Pad
-    const c1 = nCol1.substring(0, w1).padEnd(w1);
-    const c2 = nCol2.substring(0, w2).padEnd(w2);
-    const c3 = nCol3.substring(0, w3).padStart(w3); // Align right
+    // 2. Truncar y Rellenar
+    // PadEnd adds spaces to the right. PadStart adds spaces to the left.
+    // NOTE: -1 on substring for Qty and Desc to allow for visual spacing if needed, but strict grid usually better full.
+    // Let's use strict full width.
+    
+    const c1 = nCol1.substring(0, wQty - 1).padEnd(wQty, ' '); // Left align
+    const c2 = nCol2.substring(0, wDesc - 1).padEnd(wDesc, ' '); // Left align
+    const c3 = nCol3.substring(0, wTotal).padStart(wTotal, ' '); // Right align
 
-    return `${c1} ${c2} ${c3}`;
+    return c1 + c2 + c3;
 };
 
 const formatTwoCols = (left: string, right: string, widthType: '58mm' | '80mm') => {
     const totalWidth = widthType === '58mm' ? 32 : 48;
-    const wRight = Math.floor(totalWidth * 0.4); 
-    const wLeft = totalWidth - wRight - 1;
+    const wRight = Math.floor(totalWidth * 0.4); // 40% for value
+    const wLeft = totalWidth - wRight; 
     
     const nLeft = normalize(left);
     const nRight = normalize(right);
 
-    const l = nLeft.substring(0, wLeft).padEnd(wLeft);
-    const r = nRight.substring(0, wRight).padStart(wRight);
-    return `${l} ${r}`;
+    const l = nLeft.substring(0, wLeft - 1).padEnd(wLeft, ' ');
+    const r = nRight.substring(0, wRight).padStart(wRight, ' ');
+    return l + r;
 };
 
 // --- IMAGE PROCESSING ---
@@ -180,14 +186,21 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
     addLine(separator);
 
     add(COMMANDS.BOLD_ON);
-    addLine(formatRow("Can", "Descripcion", "Total", settings.ticketPaperWidth));
+    // Usamos headers cortos para que encajen mejor
+    addLine(formatRow("Can", "Desc.", "Total", settings.ticketPaperWidth));
     add(COMMANDS.BOLD_OFF);
     addLine(separator);
     
     transaction.items.forEach(item => {
         const total = (item.price * item.quantity).toFixed(2);
+        // El nombre se trunca para asegurar alineacion perfecta
         addLine(formatRow(item.quantity.toString(), item.name, `$${total}`, settings.ticketPaperWidth));
-        if (item.variantName) addLine(`  ${item.variantName}`);
+        
+        // Si hay variante, se pone en otra linea con sangría
+        if (item.variantName) {
+            const indent = settings.ticketPaperWidth === '58mm' ? '    ' : '      ';
+            addLine(`${indent}${normalize(item.variantName).substring(0, settings.ticketPaperWidth === '58mm' ? 28 : 42)}`);
+        }
     });
 
     addLine(separator);
