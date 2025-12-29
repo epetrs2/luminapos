@@ -8,6 +8,34 @@ const BASE_CSS = `
     body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; background-color: #fff; }
 `;
 
+const PRODUCTION_CSS = `
+    ${BASE_CSS}
+    body { font-size: 12px; margin: 20px; }
+    .header { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
+    .header-left h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -1px; }
+    .header-left p { margin: 0; color: #666; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+    .header-right { text-align: right; font-size: 11px; }
+    
+    .section-header { background: #000; color: #fff; padding: 8px 12px; font-weight: 800; margin-bottom: 15px; border-radius: 6px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+    .section-header.secondary { background: #cbd5e1; color: #334155; margin-top: 30px; }
+    
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
+    th { border-bottom: 2px solid #0f172a; text-align: left; padding: 8px 5px; font-weight: 800; color: #334155; text-transform: uppercase; font-size: 11px; }
+    td { border-bottom: 1px solid #e2e8f0; padding: 8px 5px; vertical-align: middle; color: #334155; }
+    
+    .check-box { width: 18px; height: 18px; border: 2px solid #cbd5e1; border-radius: 4px; margin: 0 auto; }
+    .qty-box { display: inline-block; padding: 4px 10px; border: 2px solid #0f172a; border-radius: 6px; font-weight: 800; min-width: 20px; text-align: center; }
+    
+    .footer { display: flex; justify-content: space-between; margin-top: 60px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
+    .sig-box { border-top: 2px solid #cbd5e1; width: 30%; text-align: center; padding-top: 8px; font-size: 10px; font-weight: 700; color: #94a3b8; }
+    
+    .row-high td { background-color: #fef2f2; }
+    .priority-high { color: #dc2626; font-weight: 800; font-size: 9px; background: #fee2e2; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-top: 4px; }
+    
+    .order-items-list { margin: 0; padding-left: 0; list-style: none; }
+    .order-items-list li { margin-bottom: 3px; font-size: 11px; }
+`;
+
 const generateInvoiceCss = (settings: BusinessSettings) => `
     ${BASE_CSS}
     @page { 
@@ -253,162 +281,6 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
         font-size: 14px;
         font-weight: 800;
         color: #0f172a;
-    }
-`;
-
-const PRODUCTION_CSS = `
-    ${BASE_CSS}
-    @page { size: letter portrait; margin: 1cm; }
-    body { font-family: 'Inter', sans-serif; color: #000; }
-    
-    .header { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; align-items: flex-end; }
-    .header-left h1 { font-size: 24px; font-weight: 900; margin: 0; text-transform: uppercase; }
-    .header-left p { font-size: 12px; margin: 2px 0 0 0; }
-    .header-right { text-align: right; font-size: 11px; }
-    
-    .section-header { 
-        background-color: #000;
-        color: #fff;
-        border: 2px solid #000;
-        padding: 5px 10px; 
-        font-weight: 800; 
-        text-transform: uppercase; 
-        font-size: 14px;
-        margin-bottom: 10px;
-        display: flex;
-        justify-content: space-between;
-    }
-    
-    .section-header.secondary {
-        background-color: #f3f4f6;
-        color: #000;
-        border-bottom: 1px solid #000;
-        border-top: 1px solid #000;
-    }
-
-    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
-    th { text-align: left; border-bottom: 2px solid #000; padding: 4px; font-weight: 700; text-transform: uppercase; }
-    td { border-bottom: 1px solid #ddd; padding: 6px 4px; vertical-align: top; }
-    
-    .qty-box { 
-        display: inline-block; 
-        border: 2px solid #000; 
-        padding: 2px 6px; 
-        font-weight: 800; 
-        font-size: 14px; 
-        min-width: 30px; 
-        text-align: center; 
-        border-radius: 4px;
-    }
-    
-    .check-box {
-        width: 16px;
-        height: 16px;
-        border: 2px solid #ccc;
-        display: inline-block;
-        margin-top: 2px;
-    }
-
-    .priority-high { color: #dc2626; font-weight: 800; }
-    .row-high { background-color: #fef2f2; }
-    
-    .order-items-list { margin: 0; padding-left: 15px; }
-    .order-items-list li { margin-bottom: 2px; }
-
-    .footer {
-        margin-top: 40px;
-        border-top: 1px dashed #999;
-        padding-top: 20px;
-        display: flex;
-        justify-content: space-between;
-        font-size: 10px;
-    }
-    .sig-box { width: 30%; border-top: 1px solid #000; padding-top: 5px; text-align: center; }
-    
-    .tag { font-size: 9px; padding: 2px 4px; border-radius: 4px; font-weight: 700; display: inline-block; }
-    .tag-stock { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
-    .tag-produce { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-`;
-
-const FINANCIAL_REPORT_CSS = `
-    ${BASE_CSS}
-    @page { size: letter portrait; margin: 1cm; }
-    body { color: #1e293b; padding: 20px; }
-    
-    .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; }
-    .logo { height: 60px; object-fit: contain; margin-bottom: 10px; }
-    .title { font-size: 24px; font-weight: 800; text-transform: uppercase; color: #0f172a; margin-bottom: 5px; }
-    .subtitle { font-size: 14px; color: #64748b; font-weight: 500; }
-    
-    .period-box { 
-        background: #f8fafc; 
-        border: 1px solid #e2e8f0; 
-        padding: 8px 16px; 
-        border-radius: 8px; 
-        display: inline-block; 
-        font-size: 12px; 
-        font-weight: 600; 
-        color: #475569;
-        margin-bottom: 30px;
-        width: 100%;
-        text-align: center;
-        box-sizing: border-box;
-    }
-
-    .two-col-layout { display: flex; gap: 30px; margin-bottom: 30px; }
-    .col { flex: 1; }
-    
-    .section-title { 
-        font-size: 12px; 
-        font-weight: 800; 
-        text-transform: uppercase; 
-        color: #94a3b8; 
-        letter-spacing: 1px; 
-        margin-bottom: 15px; 
-        border-bottom: 1px solid #e2e8f0; 
-        padding-bottom: 5px; 
-    }
-
-    .row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
-    .label { font-weight: 500; color: #475569; }
-    .value { font-weight: 700; color: #0f172a; }
-    
-    .summary-box { 
-        background: #f1f5f9; 
-        padding: 20px; 
-        border-radius: 12px; 
-        margin-top: 10px; 
-    }
-    .summary-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; font-weight: 600; color: #475569; }
-    .summary-row.total { 
-        margin-top: 15px; 
-        padding-top: 15px; 
-        border-top: 1px dashed #cbd5e1; 
-        font-size: 16px; 
-        font-weight: 800; 
-        color: #0f172a; 
-    }
-
-    .income-text { color: #10b981; }
-    .expense-text { color: #ef4444; }
-    .net-text { color: #0f172a; }
-
-    .charts-container { margin-bottom: 30px; page-break-inside: avoid; }
-    .chart-title { font-size: 12px; font-weight: 800; text-transform: uppercase; color: #94a3b8; margin-bottom: 15px; }
-    
-    .bar-row { display: flex; align-items: center; margin-bottom: 12px; font-size: 11px; }
-    .bar-label-text { width: 80px; font-weight: 600; color: #475569; }
-    .bar-track { flex: 1; height: 16px; background: #f1f5f9; border-radius: 4px; overflow: hidden; margin: 0 10px; }
-    .bar-fill { height: 100%; display: flex; align-items: center; justify-content: flex-end; color: white; font-size: 9px; font-weight: 700; padding-right: 5px; }
-    .bar-value { width: 80px; text-align: right; font-weight: 700; font-family: monospace; font-size: 11px; }
-
-    .footer { 
-        margin-top: 50px; 
-        text-align: center; 
-        font-size: 10px; 
-        color: #94a3b8; 
-        border-top: 1px solid #e2e8f0; 
-        padding-top: 20px; 
     }
 `;
 
@@ -691,6 +563,12 @@ export const printThermalTicket = async (
         .page-break { page-break-after: always; height: 10px; border-bottom: 1px dotted #ccc; margin-bottom: 10px; }
     `;
     
+    // Calculate Change
+    // Fallback to amountPaid if tenderedAmount is missing (for older transactions)
+    const paid = transaction.tenderedAmount || transaction.amountPaid || 0;
+    const change = Math.max(0, paid - transaction.total);
+    const showChange = transaction.paymentMethod === 'cash' || paid > transaction.total;
+
     // Helper to generate the ticket HTML body
     const generateTicketBody = (label?: string) => `
         <div class="header">
@@ -737,6 +615,10 @@ export const printThermalTicket = async (
             ${transaction.taxAmount > 0 ? `<div class="row"><span>Impuestos:</span><span>$${transaction.taxAmount.toFixed(2)}</span></div>` : ''}
             ${transaction.discount > 0 ? `<div class="row"><span>Descuento:</span><span>-$${transaction.discount.toFixed(2)}</span></div>` : ''}
             <div class="final-total row"><span>TOTAL:</span><span>$${transaction.total.toFixed(2)}</span></div>
+            ${showChange ? `
+                <div class="row" style="margin-top:2px;"><span>Efectivo:</span><span>$${paid.toFixed(2)}</span></div>
+                <div class="row" style="font-weight:bold;"><span>Cambio:</span><span>$${change.toFixed(2)}</span></div>
+            ` : ''}
         </div>
 
         <div class="footer">${settings.receiptFooter}</div>
@@ -755,7 +637,6 @@ export const printThermalTicket = async (
 };
 
 export const printProductionSummary = (orders: Order[], settings: BusinessSettings, inventory?: Product[]) => {
-    // ... (Keep existing production summary code)
     // 1. Consolidate items
     const summaryItems: Record<string, {
         id: string,
@@ -968,129 +849,6 @@ export const printProductionSummary = (orders: Order[], settings: BusinessSettin
     openPrintWindow(html);
 };
 
-export const printFinancialReport = (
-    startDate: Date, 
-    endDate: Date, 
-    categories: {name: string, value: number}[], 
-    summary: {totalSales: number, totalExpenses: number, netProfit: number, thirdParty: number}, 
-    settings: BusinessSettings
-) => {
-    // ... (Keep existing financial report code)
-    const startStr = startDate.toLocaleDateString();
-    const endStr = endDate.toLocaleDateString();
-    
-    // Sort expenses for chart
-    const expenses = categories.filter(c => c.name !== 'Ventas' && c.name !== 'Otros Ingresos').sort((a,b) => b.value - a.value);
-    
-    // Data for charts
-    const maxVal = Math.max(summary.totalSales, summary.totalExpenses);
-    const salesPct = maxVal > 0 ? (summary.totalSales / maxVal) * 100 : 0;
-    const expPct = maxVal > 0 ? (summary.totalExpenses / maxVal) * 100 : 0;
-    
-    const maxExpenseVal = expenses.length > 0 ? expenses[0].value : 1;
-
-    const html = `
-        <html>
-        <head>
-            <title>Estado Financiero</title>
-            <style>${FINANCIAL_REPORT_CSS}</style>
-        </head>
-        <body>
-            <div class="header">
-                ${settings.logo ? `<img src="${settings.logo}" class="logo"/>` : ''}
-                <div class="title">Estado Financiero</div>
-                <div class="subtitle">${settings.name}</div>
-            </div>
-
-            <div class="period-box">
-                PERIODO: ${startStr} - ${endStr}
-            </div>
-
-            <div class="two-col-layout">
-                <div class="col">
-                    <div class="section-title">RESUMEN DE INGRESOS</div>
-                    <div class="row">
-                        <span class="label">Ventas Brutas</span>
-                        <span class="value income-text">$${summary.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                    </div>
-                    ${summary.thirdParty > 0 ? `
-                    <div class="row">
-                        <span class="label">Venta Terceros</span>
-                        <span class="value" style="color:#f59e0b;">$${summary.thirdParty.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                    </div>
-                    ` : ''}
-                </div>
-                
-                <div class="col">
-                    <div class="summary-box" style="margin-top:0;">
-                        <div class="summary-row">
-                            <span>Ingresos Op.</span>
-                            <span class="income-text">$${summary.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                        </div>
-                        <div class="summary-row">
-                            <span>Egresos Op.</span>
-                            <span class="expense-text">-$${summary.totalExpenses.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                        </div>
-                        <div class="summary-row total">
-                            <span>UTILIDAD NETA</span>
-                            <span class="net-text">$${summary.netProfit.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- VISUAL GRAPHS -->
-            <div class="charts-container">
-                <div class="chart-title">COMPARATIVA DE FLUJO</div>
-                
-                <div class="bar-row">
-                    <span class="bar-label-text">Ingresos</span>
-                    <div class="bar-track">
-                        <div class="bar-fill" style="width: ${salesPct}%; background-color: #10b981;">
-                            ${salesPct > 15 ? salesPct.toFixed(0)+'%' : ''}
-                        </div>
-                    </div>
-                    <span class="bar-value">$${summary.totalSales.toLocaleString()}</span>
-                </div>
-                
-                <div class="bar-row">
-                    <span class="bar-label-text">Egresos</span>
-                    <div class="bar-track">
-                        <div class="bar-fill" style="width: ${expPct}%; background-color: #ef4444;">
-                            ${expPct > 15 ? expPct.toFixed(0)+'%' : ''}
-                        </div>
-                    </div>
-                    <span class="bar-value">$${summary.totalExpenses.toLocaleString()}</span>
-                </div>
-            </div>
-
-            <div class="section" style="margin-top:20px;">
-                <div class="section-title">DESGLOSE DE EGRESOS</div>
-                ${expenses.length === 0 ? '<div class="row"><span class="label">Sin egresos registrados</span></div>' : ''}
-                
-                ${expenses.map(exp => {
-                    const barWidth = (exp.value / maxExpenseVal) * 100;
-                    return `
-                    <div class="bar-row" style="margin-bottom:8px;">
-                        <span class="bar-label-text" style="width:130px;">${exp.name}</span>
-                        <div class="bar-track" style="height:10px; background:#f1f5f9;">
-                            <div class="bar-fill" style="width: ${barWidth}%; background-color: #64748b;"></div>
-                        </div>
-                        <span class="bar-value">$${exp.value.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                    </div>
-                    `;
-                }).join('')}
-            </div>
-
-            <div class="footer">
-                Generado el ${new Date().toLocaleString()} por LuminaPOS
-            </div>
-        </body>
-        </html>
-    `;
-    openPrintWindow(html);
-};
-
 export const printZCutTicket = async (
     movement: CashMovement, 
     settings: BusinessSettings,
@@ -1158,6 +916,103 @@ export const printZCutTicket = async (
             
             <div class="line"></div>
             <div class="footer">--- FIN DEL REPORTE ---</div>
+        </body>
+        </html>
+    `;
+    openPrintWindow(html);
+};
+
+export const printFinancialReport = (
+    startDate: Date,
+    endDate: Date,
+    categories: { name: string, value: number }[],
+    metrics: { totalSales: number, totalExpenses: number, netProfit: number, thirdParty: number },
+    settings: BusinessSettings
+) => {
+    const css = `
+        ${BASE_CSS}
+        body { padding: 40px; }
+        .report-header { text-align: center; margin-bottom: 40px; border-bottom: 3px solid #0f172a; padding-bottom: 20px; }
+        .report-title { font-size: 28px; font-weight: 800; text-transform: uppercase; margin: 0; color: #0f172a; }
+        .report-subtitle { font-size: 14px; color: #64748b; margin-top: 5px; }
+        
+        .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 40px; }
+        .metric-card { border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; text-align: center; }
+        .metric-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 5px; }
+        .metric-value { font-size: 20px; font-weight: 800; color: #0f172a; }
+        
+        .section-title { font-size: 16px; font-weight: 700; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 20px; margin-top: 40px; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th { text-align: left; padding: 10px; background: #f8fafc; font-weight: 700; color: #475569; border-bottom: 1px solid #e2e8f0; }
+        td { padding: 10px; border-bottom: 1px solid #e2e8f0; color: #334155; }
+        .amount-col { text-align: right; font-family: monospace; font-weight: 600; }
+        
+        .footer { margin-top: 60px; text-align: center; font-size: 10px; color: #94a3b8; }
+    `;
+
+    const html = `
+        <html>
+        <head>
+            <title>Reporte Financiero</title>
+            <style>${css}</style>
+        </head>
+        <body>
+            <div class="report-header">
+                ${settings.logo ? `<img src="${settings.logo}" style="max-height:60px; margin-bottom:15px;">` : ''}
+                <h1 class="report-title">Estado Financiero</h1>
+                <div class="report-subtitle">
+                    ${settings.name}<br/>
+                    Periodo: ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}
+                </div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Ventas Totales</div>
+                    <div class="metric-value">$${metrics.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Gastos / Egresos</div>
+                    <div class="metric-value" style="color: #ef4444;">$${metrics.totalExpenses.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Ventas Terceros</div>
+                    <div class="metric-value" style="color: #f59e0b;">$${metrics.thirdParty.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                </div>
+                <div class="metric-card" style="background-color: #f0fdf4; border-color: #bbf7d0;">
+                    <div class="metric-label" style="color: #166534;">Utilidad Neta (Est)</div>
+                    <div class="metric-value" style="color: #15803d;">$${metrics.netProfit.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                </div>
+            </div>
+
+            <div class="section-title">Desglose de Movimientos</div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 70%">Categoría / Concepto</th>
+                        <th class="amount-col">Monto</th>
+                        <th class="amount-col">% del Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${categories.map(cat => {
+                        const percent = metrics.totalSales > 0 ? (cat.value / metrics.totalSales) * 100 : 0;
+                        return `
+                            <tr>
+                                <td>${cat.name}</td>
+                                <td class="amount-col">$${cat.value.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                                <td class="amount-col">${percent.toFixed(1)}%</td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+
+            <div class="footer">
+                Generado el ${new Date().toLocaleString()} por LuminaPOS
+            </div>
         </body>
         </html>
     `;

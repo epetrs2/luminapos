@@ -266,6 +266,7 @@ export const POS: React.FC = () => {
 
     const finalizeSale = () => {
         let finalAmountPaid = 0;
+        let tenderedAmount = 0;
         let paymentStatus: Transaction['paymentStatus'] = 'paid';
 
         if (isPendingPayment || paymentMethod === 'credit') {
@@ -289,12 +290,14 @@ export const POS: React.FC = () => {
             if (paymentMethod === 'cash') {
                 const received = parseFloat(amountPaid) || 0;
                 if (received < total) { alert("El monto recibido es menor al total. Marca 'Pago Pendiente' si deseas dejar deuda."); return; }
-                finalAmountPaid = total;
+                finalAmountPaid = total; // We register paid as total, but tendered is real amount
+                tenderedAmount = received; 
             } else if (paymentMethod === 'split') {
                 const c = parseFloat(splitCash) || 0;
                 const o = parseFloat(splitOther) || 0;
                 if (Math.abs((c + o) - total) > 0.1) { alert("La suma de pagos no coincide con el total."); return; }
                 finalAmountPaid = total;
+                tenderedAmount = c + o;
             } else {
                 finalAmountPaid = total;
             }
@@ -318,6 +321,7 @@ export const POS: React.FC = () => {
             paymentMethod,
             paymentStatus,
             amountPaid: finalAmountPaid,
+            tenderedAmount: tenderedAmount > 0 ? tenderedAmount : undefined, // STORE TENDERED AMOUNT
             customerId: selectedCustomerId || undefined,
             status: 'completed',
             splitDetails: paymentMethod === 'split' ? { cash: parseFloat(splitCash)||0, other: parseFloat(splitOther)||0 } : undefined
@@ -475,7 +479,7 @@ export const POS: React.FC = () => {
                                                 <Edit2 className="w-3 h-3 opacity-50 group-hover/price:opacity-100 transition-opacity" />
                                             </button>
                                         )}
-                                        {item.isConsignment && <span className="text-[9px] bg-orange-100 text-orange-700 px-1 rounded border border-orange-200">3ro</span>}
+                                        {item.isConsignment && <span className="text-[9px] bg-orange-100 text-orange-700 px-1.5 rounded border border-orange-200">3ro</span>}
                                     </div>
                                 </div>
                                 <div className="text-right flex flex-col justify-between h-full min-h-[60px]">

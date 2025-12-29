@@ -104,9 +104,10 @@ export interface Transaction {
   paymentMethod: 'cash' | 'card' | 'transfer' | 'split' | 'credit';
   
   paymentStatus: 'paid' | 'pending' | 'partial' | 'refunded';
-  amountPaid: number;
-  dueDate?: string;
+  amountPaid: number; // This is the amount applied to the debt/total
+  tenderedAmount?: number; // This is the actual amount handed by customer (for change calc)
   
+  dueDate?: string;
   transferReference?: string;
   isTransferConfirmed?: boolean;
 

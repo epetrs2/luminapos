@@ -215,11 +215,16 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
     add([GS, 0x21, 0x00]); // Reset
     add(COMMANDS.BOLD_OFF);
 
-    if (transaction.paymentMethod === 'cash') {
-        const paid = transaction.amountPaid || 0;
-        const change = Math.max(0, paid - transaction.total);
+    // CHANGE AND PAYMENT DISPLAY LOGIC
+    // Use tenderedAmount if available (new logic), otherwise fallback to amountPaid
+    const paid = transaction.tenderedAmount || transaction.amountPaid || 0;
+    const change = Math.max(0, paid - transaction.total);
+    
+    if (transaction.paymentMethod === 'cash' || paid > transaction.total) {
         addLine(`Efectivo: $${paid.toFixed(2)}`);
-        addLine(`Cambio: $${change.toFixed(2)}`);
+        add(COMMANDS.BOLD_ON);
+        addLine(`Cambio:   $${change.toFixed(2)}`);
+        add(COMMANDS.BOLD_OFF);
     } else {
         addLine(`Pago: ${transaction.paymentMethod.toUpperCase()}`);
     }
