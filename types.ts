@@ -214,6 +214,12 @@ export interface SecurityConfig {
     blurAppOnBackground: boolean; // Blur screen if user switches tabs
 }
 
+export type PrintBehavior = 'ALWAYS' | 'ASK' | 'NEVER';
+
+export interface PrintConfig {
+    customerCopyBehavior: PrintBehavior;
+}
+
 export interface BusinessSettings {
   name: string;
   address: string;
@@ -236,6 +242,7 @@ export interface BusinessSettings {
   notificationsEnabled: boolean; 
   soundConfig: SoundConfig; 
   securityConfig: SecurityConfig; // NEW: Security settings
+  printConfig: PrintConfig; // NEW: Print preferences
   sequences: SequenceConfig;
   productionDoc: ProductionDocConfig;
   googleWebAppUrl?: string; 

@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
 import { Product, CartItem, Transaction, Order } from '../types';
-import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle, Scale, Edit2, ClipboardList, Check, AlertTriangle, Clock, ChevronLeft } from 'lucide-react';
+import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle, Scale, Edit2, ClipboardList, Check, AlertTriangle, Clock, ChevronLeft, Copy } from 'lucide-react';
 import { printThermalTicket, printInvoice } from '../utils/printService';
 
 export const POS: React.FC = () => {
@@ -46,6 +46,7 @@ export const POS: React.FC = () => {
     const [splitOther, setSplitOther] = useState<string>('');
     const [isPendingPayment, setIsPendingPayment] = useState(false); // New: Allow marking any sale as pending
     const [lastTransaction, setLastTransaction] = useState<Transaction | null>(null);
+    const [showCopyBtn, setShowCopyBtn] = useState(false);
 
     // Computed
     const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -92,6 +93,7 @@ export const POS: React.FC = () => {
             setSplitOther('');
             setIsPendingPayment(false);
             setLastTransaction(null);
+            setShowCopyBtn(false);
         }
     }, [showCheckoutModal]);
 
@@ -331,6 +333,31 @@ export const POS: React.FC = () => {
         updateStockAfterSale(cart);
         setLastTransaction(transaction);
         setCheckoutStep('SUCCESS');
+    };
+
+    const handlePrintTicket = () => {
+        if (!lastTransaction) return;
+        
+        const config = settings.printConfig?.customerCopyBehavior || 'ASK';
+        
+        // Always print original first
+        printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, btDevice ? sendBtData : undefined);
+
+        if (config === 'ALWAYS') {
+            // Wait slightly and print copy
+            setTimeout(() => {
+                printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, btDevice ? sendBtData : undefined, true);
+            }, 500); // 500ms delay
+        } else if (config === 'ASK') {
+            // Show the "Print Copy" button
+            setShowCopyBtn(true);
+        }
+    };
+
+    const handlePrintCopy = () => {
+        if (!lastTransaction) return;
+        printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, btDevice ? sendBtData : undefined, true);
+        setShowCopyBtn(false); // Hide after printing
     };
 
     const resetSale = () => {
@@ -697,14 +724,22 @@ export const POS: React.FC = () => {
                                 )}
 
                                 <div className="grid grid-cols-2 gap-4 w-full mb-6">
-                                    {/* Updated: Added printCopy: true to arguments */}
-                                    <button onClick={() => { if(lastTransaction) printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, btDevice ? sendBtData : undefined, true) }} className="flex flex-col items-center justify-center p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-colors font-bold text-sm gap-2">
+                                    <button onClick={handlePrintTicket} className="flex flex-col items-center justify-center p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-colors font-bold text-sm gap-2">
                                         <Printer className="w-6 h-6"/> Ticket (58mm)
                                     </button>
                                     <button onClick={() => { if(lastTransaction) printInvoice(lastTransaction, customers.find(c => c.id === selectedCustomerId), settings) }} className="flex flex-col items-center justify-center p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-xl hover:bg-blue-100 transition-colors font-bold text-sm gap-2">
                                         <FileText className="w-6 h-6"/> Nota (Carta)
                                     </button>
                                 </div>
+
+                                {showCopyBtn && (
+                                    <button 
+                                        onClick={handlePrintCopy}
+                                        className="w-full mb-4 py-3 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-indigo-200 transition-all animate-[fadeIn_0.3s]"
+                                    >
+                                        <Copy className="w-4 h-4"/> Imprimir Copia Cliente
+                                    </button>
+                                )}
 
                                 <button onClick={resetSale} className="w-full py-4 bg-slate-900 dark:bg-slate-700 text-white font-bold rounded-xl shadow-lg">Nueva Venta</button>
                             </div>

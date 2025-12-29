@@ -1,14 +1,13 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList, Database, Download, UploadCloud, Lock, Shield } from 'lucide-react';
+import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList, Database, Download, UploadCloud, Lock, Shield, FileCheck, Copy } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 import { generateTestTicket } from '../utils/escPosHelper';
 import { optimizeForThermal } from '../utils/imageHelper';
 import { SoundType } from '../types';
 import { playSystemSound } from '../utils/sound';
 
-// ... (Keep existing ImageCropper component and InputField component) ...
 // --- IMAGE CROPPER COMPONENT ---
 interface ImageCropperProps {
     imageSrc: string;
@@ -441,56 +440,7 @@ export const Settings: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-            {/* ... (Existing tabs content) ... */}
-            
-            {activeTab === 'SECURITY' && (
-                <div className="animate-[fadeIn_0.3s_ease-out]">
-                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 max-w-2xl">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
-                            <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600"><Lock className="w-5 h-5"/></div>
-                            Protección Activa de Sesión
-                        </h3>
-                        
-                        <div className="space-y-8">
-                            <div className="flex flex-col gap-2">
-                                <div className="flex justify-between items-center">
-                                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Bloqueo Automático (Inactividad)</label>
-                                    <span className="text-sm font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 dark:text-indigo-400 px-3 py-1 rounded-lg">
-                                        {formData.securityConfig?.autoLockMinutes === 0 ? 'Desactivado' : `${formData.securityConfig?.autoLockMinutes} min`}
-                                    </span>
-                                </div>
-                                <input 
-                                    type="range" 
-                                    min="0" 
-                                    max="60" 
-                                    step="1" 
-                                    value={formData.securityConfig?.autoLockMinutes || 0} 
-                                    onChange={(e) => setFormData({ ...formData, securityConfig: { ...formData.securityConfig, autoLockMinutes: parseInt(e.target.value) } })}
-                                    className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
-                                />
-                                <p className="text-xs text-slate-500 mt-1">
-                                    Si no se detecta actividad (mouse/teclado) por este tiempo, la pantalla se bloqueará pidiendo contraseña para continuar. 
-                                    <br/><strong>0 = Nunca bloquear.</strong>
-                                </p>
-                            </div>
-
-                            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                                <div>
-                                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">Ocultar contenido en 2do plano</h4>
-                                    <p className="text-xs text-slate-500 mt-1">Desenfoca la app si cambias de pestaña o minimizas.</p>
-                                </div>
-                                <button 
-                                    onClick={() => setFormData({ ...formData, securityConfig: { ...formData.securityConfig, blurAppOnBackground: !formData.securityConfig?.blurAppOnBackground } })}
-                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${formData.securityConfig?.blurAppOnBackground ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
-                                >
-                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.securityConfig?.blurAppOnBackground ? 'translate-x-6' : 'translate-x-1'}`} />
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
+            {/* GENERAL TAB - RESTORED */}
             {activeTab === 'GENERAL' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     <div className="lg:col-span-2 space-y-6">
@@ -528,50 +478,7 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* ... (Rest of existing tabs: BACKUP, NOTIFICATIONS, OPERATIONS, TICKETS, BLUETOOTH, DATA) ... */}
-            {activeTab === 'BACKUP' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
-                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Download className="w-5 h-5"/></div>
-                            Crear Respaldo Local
-                        </h3>
-                        <p className="text-sm text-slate-500 mb-6">
-                            Descarga una copia completa de tu base de datos (ventas, productos, clientes, etc.) a tu computadora.
-                            <br/><br/>
-                            <span className="font-bold text-slate-700 dark:text-slate-300">Recomendación:</span> Haz esto antes de sincronizar con la nube o actualizar.
-                        </p>
-                        <button 
-                            onClick={handleExportBackup}
-                            className="w-full py-4 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-lg"
-                        >
-                            <Download className="w-5 h-5" /> Descargar Copia de Seguridad
-                        </button>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><UploadCloud className="w-5 h-5"/></div>
-                            Restaurar desde Archivo
-                        </h3>
-                        <p className="text-sm text-slate-500 mb-6">
-                            Carga un archivo de respaldo (.json) para recuperar tus datos. 
-                            <span className="text-red-500 font-bold block mt-2">¡Atención! Esto sobrescribirá los datos actuales.</span>
-                        </p>
-                        
-                        <label className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer">
-                            <Upload className="w-5 h-5" /> Seleccionar Archivo...
-                            <input 
-                                type="file" 
-                                accept=".json" 
-                                className="hidden" 
-                                onChange={handleImportBackup}
-                            />
-                        </label>
-                    </div>
-                </div>
-            )}
-            
+            {/* OPERATIONS TAB - RESTORED */}
             {activeTab === 'OPERATIONS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     <div className={`bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border transition-colors ${budgetTotal > 100 ? 'border-red-300 dark:border-red-900' : 'border-slate-100 dark:border-slate-800'}`}>
@@ -656,10 +563,166 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
+            {/* NOTIFICATIONS TAB - RESTORED */}
+            {activeTab === 'NOTIFICATIONS' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg text-pink-600"><Bell className="w-5 h-5"/></div>
+                            Preferencias de Alertas y Sonido
+                        </h3>
+                        
+                        <div className="space-y-8 max-w-2xl">
+                            <div className="flex items-center justify-between p-3 md:p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 gap-3 md:gap-4">
+                                <div className="flex-1 min-w-0">
+                                    <h4 className="font-bold text-slate-800 dark:text-white mb-0.5 md:mb-1 text-sm md:text-base">Activar Efectos de Sonido</h4>
+                                    <p className="text-[10px] md:text-xs text-slate-500 leading-snug">Reproducir sonidos al completar ventas, errores o advertencias.</p>
+                                </div>
+                                <button 
+                                    onClick={() => setFormData({...formData, soundConfig: {...formData.soundConfig, enabled: !formData.soundConfig.enabled}})}
+                                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${formData.soundConfig?.enabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.soundConfig?.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </div>
+
+                            <div className={`transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <div className="flex items-center gap-4 mb-2">
+                                    <Volume2 className="w-5 h-5 text-slate-400" />
+                                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Volumen General</span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="1" 
+                                    step="0.1" 
+                                    value={formData.soundConfig?.volume || 0.5} 
+                                    onChange={(e) => {
+                                        const vol = parseFloat(e.target.value);
+                                        setFormData({...formData, soundConfig: {...formData.soundConfig, volume: vol}});
+                                    }}
+                                    className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                                />
+                            </div>
+
+                            <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Venta Exitosa</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.saleSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, saleSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="SUCCESS">Éxito (Cash)</option>
+                                            <option value="GLASS">Cristal (Apple)</option>
+                                            <option value="GAMING">Gaming (Arcade)</option>
+                                            <option value="CHORD">Acorde Suave</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.saleSound, formData.soundConfig.volume)} className="p-2.5 bg-indigo-5 dark:bg-indigo-900/30 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Error / Alerta</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.errorSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, errorSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="ERROR">Error (Bonk)</option>
+                                            <option value="ALERT">Alerta (Doble)</option>
+                                            <option value="RETRO">Retro (8-bit)</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.errorSound, formData.soundConfig.volume)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-100 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Interacción / Clics</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.clickSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, clickSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="POP">Pop Suave</option>
+                                            <option value="NOTE">Nota Simple</option>
+                                            <option value="BEEP">Beep Digital</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.clickSound, formData.soundConfig.volume)} className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Notificación General</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.notificationSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, notificationSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="GLASS">Cristal (Apple)</option>
+                                            <option value="BELL">Campana Suave</option>
+                                            <option value="CHORD">Acorde</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.notificationSound, formData.soundConfig.volume)} className="p-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TICKETS TAB - UPDATED WITH PRINT CONFIG */}
             {activeTab === 'TICKETS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-[fadeIn_0.3s_ease-out]">
-                    {/* ... (Content for Tickets unchanged) ... */}
                     <div className="space-y-6">
+                        {/* PRINT BEHAVIOR CONFIG */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Copy className="w-5 h-5"/></div>
+                                Copia de Cliente
+                            </h3>
+                            <p className="text-xs text-slate-500 mb-4">Define qué sucede con la copia del cliente al finalizar una venta.</p>
+                            
+                            <div className="grid grid-cols-3 gap-2">
+                                <button 
+                                    onClick={() => setFormData({...formData, printConfig: { customerCopyBehavior: 'NEVER' }})}
+                                    className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${formData.printConfig?.customerCopyBehavior === 'NEVER' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                                >
+                                    <FileText className="w-5 h-5 mb-1" />
+                                    <span className="text-[10px] font-bold text-center">Solo Original</span>
+                                </button>
+                                <button 
+                                    onClick={() => setFormData({...formData, printConfig: { customerCopyBehavior: 'ASK' }})}
+                                    className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${formData.printConfig?.customerCopyBehavior === 'ASK' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                                >
+                                    <FileCheck className="w-5 h-5 mb-1" />
+                                    <span className="text-[10px] font-bold text-center">Preguntar</span>
+                                </button>
+                                <button 
+                                    onClick={() => setFormData({...formData, printConfig: { customerCopyBehavior: 'ALWAYS' }})}
+                                    className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${formData.printConfig?.customerCopyBehavior === 'ALWAYS' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                                >
+                                    <div className="flex gap-0.5"><FileText className="w-4 h-4"/><FileText className="w-4 h-4"/></div>
+                                    <span className="text-[10px] font-bold text-center mt-1">Automático</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Existing Ticket Config */}
                         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
                             <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
                                 <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><FileText className="w-5 h-5"/></div>
@@ -834,71 +897,99 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {activeTab === 'BLUETOOTH' && (
+            {/* BACKUP TAB - RESTORED */}
+            {activeTab === 'BACKUP' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Download className="w-5 h-5"/></div>
+                            Crear Respaldo Local
+                        </h3>
+                        <p className="text-sm text-slate-500 mb-6">
+                            Descarga una copia completa de tu base de datos (ventas, productos, clientes, etc.) a tu computadora.
+                            <br/><br/>
+                            <span className="font-bold text-slate-700 dark:text-slate-300">Recomendación:</span> Haz esto antes de sincronizar con la nube o actualizar.
+                        </p>
+                        <button 
+                            onClick={handleExportBackup}
+                            className="w-full py-4 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-lg"
+                        >
+                            <Download className="w-5 h-5" /> Descargar Copia de Seguridad
+                        </button>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><UploadCloud className="w-5 h-5"/></div>
+                            Restaurar desde Archivo
+                        </h3>
+                        <p className="text-sm text-slate-500 mb-6">
+                            Carga un archivo de respaldo (.json) para recuperar tus datos. 
+                            <span className="text-red-500 font-bold block mt-2">¡Atención! Esto sobrescribirá los datos actuales.</span>
+                        </p>
+                        
+                        <label className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer">
+                            <Upload className="w-5 h-5" /> Seleccionar Archivo...
+                            <input 
+                                type="file" 
+                                accept=".json" 
+                                className="hidden" 
+                                onChange={handleImportBackup}
+                            />
+                        </label>
+                    </div>
+                </div>
+            )}
+
+            {/* SECURITY TAB (Preserved) */}
+            {activeTab === 'SECURITY' && (
                 <div className="animate-[fadeIn_0.3s_ease-out]">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        {/* Connection Panel */}
-                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
-                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Bluetooth className="w-5 h-5"/></div>
-                                Vincular Impresora Portátil
-                            </h3>
-                            <p className="text-sm text-slate-500 mb-6">Conecta tu impresora térmica directamente desde la app sin instalar drivers.</p>
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 max-w-2xl">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600"><Lock className="w-5 h-5"/></div>
+                            Protección Activa de Sesión
+                        </h3>
+                        
+                        <div className="space-y-8">
+                            <div className="flex flex-col gap-2">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Bloqueo Automático (Inactividad)</label>
+                                    <span className="text-sm font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 dark:text-indigo-400 px-3 py-1 rounded-lg">
+                                        {formData.securityConfig?.autoLockMinutes === 0 ? 'Desactivado' : `${formData.securityConfig?.autoLockMinutes} min`}
+                                    </span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="60" 
+                                    step="1" 
+                                    value={formData.securityConfig?.autoLockMinutes || 0} 
+                                    onChange={(e) => setFormData({ ...formData, securityConfig: { ...formData.securityConfig, autoLockMinutes: parseInt(e.target.value) } })}
+                                    className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                                />
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Si no se detecta actividad (mouse/teclado) por este tiempo, la pantalla se bloqueará pidiendo contraseña para continuar. 
+                                    <br/><strong>0 = Nunca bloquear.</strong>
+                                </p>
+                            </div>
 
-                            <div className="space-y-6">
-                                {btError && (
-                                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl text-xs text-red-600 dark:text-red-300 font-medium flex items-start gap-2">
-                                        <AlertTriangle className="w-4 h-4 shrink-0" />
-                                        {btError}
-                                    </div>
-                                )}
-
-                                {!btDevice ? (
-                                    <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-800/50">
-                                        <div className="w-16 h-16 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4 text-slate-400">
-                                            <Printer className="w-8 h-8" />
-                                        </div>
-                                        <p className="font-bold text-slate-600 dark:text-slate-300 mb-4">No hay impresora conectada</p>
-                                        <button 
-                                            onClick={handleBtScan}
-                                            disabled={isScanningBt}
-                                            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg flex items-center gap-2 transition-all disabled:opacity-50"
-                                        >
-                                            {isScanningBt ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>}
-                                            {isScanningBt ? 'Buscando...' : 'Buscar Dispositivo'}
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center p-8 border-2 border-emerald-500/30 rounded-2xl bg-emerald-50 dark:bg-emerald-900/10">
-                                        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-4 text-emerald-600 dark:text-emerald-400 animate-pulse">
-                                            <CheckCircle className="w-8 h-8" />
-                                        </div>
-                                        <h3 className="text-xl font-black text-slate-800 dark:text-white mb-1">{btDevice.name || 'Impresora Genérica'}</h3>
-                                        <p className="text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-6">Conectado</p>
-                                        
-                                        <div className="grid grid-cols-2 gap-3 w-full">
-                                            <button 
-                                                onClick={printBtTest}
-                                                disabled={!btCharacteristic}
-                                                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                                            >
-                                                <Printer className="w-4 h-4" /> Prueba
-                                            </button>
-                                            <button 
-                                                onClick={disconnectBtPrinter}
-                                                className="flex-1 py-3 bg-white border border-red-200 text-red-500 hover:bg-red-50 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
-                                            >
-                                                <Power className="w-4 h-4" /> Desconectar
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
+                            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                                <div>
+                                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">Ocultar contenido en 2do plano</h4>
+                                    <p className="text-xs text-slate-500 mt-1">Desenfoca la app si cambias de pestaña o minimizas.</p>
+                                </div>
+                                <button 
+                                    onClick={() => setFormData({ ...formData, securityConfig: { ...formData.securityConfig, blurAppOnBackground: !formData.securityConfig?.blurAppOnBackground } })}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${formData.securityConfig?.blurAppOnBackground ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.securityConfig?.blurAppOnBackground ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
-
+            
             {activeTab === 'DATA' && (
                 <div className="grid grid-cols-1 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
@@ -970,124 +1061,66 @@ export const Settings: React.FC = () => {
                     </div>
                 </div>
             )}
-            
-            {activeTab === 'NOTIFICATIONS' && (
+
+            {activeTab === 'BLUETOOTH' && (
                 <div className="animate-[fadeIn_0.3s_ease-out]">
-                    {/* ... (Existing notification settings) ... */}
-                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
-                            <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg text-pink-600"><Bell className="w-5 h-5"/></div>
-                            Preferencias de Alertas y Sonido
-                        </h3>
-                        
-                        <div className="space-y-8 max-w-2xl">
-                            <div className="flex items-center justify-between p-3 md:p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 gap-3 md:gap-4">
-                                <div className="flex-1 min-w-0">
-                                    <h4 className="font-bold text-slate-800 dark:text-white mb-0.5 md:mb-1 text-sm md:text-base">Activar Efectos de Sonido</h4>
-                                    <p className="text-[10px] md:text-xs text-slate-500 leading-snug">Reproducir sonidos al completar ventas, errores o advertencias.</p>
-                                </div>
-                                <button 
-                                    onClick={() => setFormData({...formData, soundConfig: {...formData.soundConfig, enabled: !formData.soundConfig.enabled}})}
-                                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${formData.soundConfig?.enabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
-                                >
-                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.soundConfig?.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                                </button>
-                            </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Connection Panel */}
+                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Bluetooth className="w-5 h-5"/></div>
+                                Vincular Impresora Portátil
+                            </h3>
+                            <p className="text-sm text-slate-500 mb-6">Conecta tu impresora térmica directamente desde la app sin instalar drivers.</p>
 
-                            <div className={`transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                <div className="flex items-center gap-4 mb-2">
-                                    <Volume2 className="w-5 h-5 text-slate-400" />
-                                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Volumen General</span>
-                                </div>
-                                <input 
-                                    type="range" 
-                                    min="0" 
-                                    max="1" 
-                                    step="0.1" 
-                                    value={formData.soundConfig?.volume || 0.5} 
-                                    onChange={(e) => {
-                                        const vol = parseFloat(e.target.value);
-                                        setFormData({...formData, soundConfig: {...formData.soundConfig, volume: vol}});
-                                    }}
-                                    className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                                />
-                            </div>
+                            <div className="space-y-6">
+                                {btError && (
+                                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl text-xs text-red-600 dark:text-red-300 font-medium flex items-start gap-2">
+                                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                                        {btError}
+                                    </div>
+                                )}
 
-                            <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                {/* Sound Selects... */}
-                                <div className="space-y-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase">Venta Exitosa</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={formData.soundConfig?.saleSound}
-                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, saleSound: e.target.value as SoundType}})}
-                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                {!btDevice ? (
+                                    <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-800/50">
+                                        <div className="w-16 h-16 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                                            <Printer className="w-8 h-8" />
+                                        </div>
+                                        <p className="font-bold text-slate-600 dark:text-slate-300 mb-4">No hay impresora conectada</p>
+                                        <button 
+                                            onClick={handleBtScan}
+                                            disabled={isScanningBt}
+                                            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg flex items-center gap-2 transition-all disabled:opacity-50"
                                         >
-                                            <option value="SUCCESS">Éxito (Cash)</option>
-                                            <option value="GLASS">Cristal (Apple)</option>
-                                            <option value="GAMING">Gaming (Arcade)</option>
-                                            <option value="CHORD">Acorde Suave</option>
-                                            <option value="NONE">Silencio</option>
-                                        </select>
-                                        <button onClick={() => playSystemSound(formData.soundConfig.saleSound, formData.soundConfig.volume)} className="p-2.5 bg-indigo-5 dark:bg-indigo-900/30 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
-                                            <Play className="w-4 h-4" />
+                                            {isScanningBt ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>}
+                                            {isScanningBt ? 'Buscando...' : 'Buscar Dispositivo'}
                                         </button>
                                     </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase">Error / Alerta</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={formData.soundConfig?.errorSound}
-                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, errorSound: e.target.value as SoundType}})}
-                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
-                                        >
-                                            <option value="ERROR">Error (Bonk)</option>
-                                            <option value="ALERT">Alerta (Doble)</option>
-                                            <option value="RETRO">Retro (8-bit)</option>
-                                            <option value="NONE">Silencio</option>
-                                        </select>
-                                        <button onClick={() => playSystemSound(formData.soundConfig.errorSound, formData.soundConfig.volume)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-100 transition-colors">
-                                            <Play className="w-4 h-4" />
-                                        </button>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center p-8 border-2 border-emerald-500/30 rounded-2xl bg-emerald-50 dark:bg-emerald-900/10">
+                                        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-4 text-emerald-600 dark:text-emerald-400 animate-pulse">
+                                            <CheckCircle className="w-8 h-8" />
+                                        </div>
+                                        <h3 className="text-xl font-black text-slate-800 dark:text-white mb-1">{btDevice.name || 'Impresora Genérica'}</h3>
+                                        <p className="text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-6">Conectado</p>
+                                        
+                                        <div className="grid grid-cols-2 gap-3 w-full">
+                                            <button 
+                                                onClick={printBtTest}
+                                                disabled={!btCharacteristic}
+                                                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                                            >
+                                                <Printer className="w-4 h-4" /> Prueba
+                                            </button>
+                                            <button 
+                                                onClick={disconnectBtPrinter}
+                                                className="flex-1 py-3 bg-white border border-red-200 text-red-500 hover:bg-red-50 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
+                                            >
+                                                <Power className="w-4 h-4" /> Desconectar
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase">Interacción / Clics</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={formData.soundConfig?.clickSound}
-                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, clickSound: e.target.value as SoundType}})}
-                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
-                                        >
-                                            <option value="POP">Pop Suave</option>
-                                            <option value="NOTE">Nota Simple</option>
-                                            <option value="BEEP">Beep Digital</option>
-                                            <option value="NONE">Silencio</option>
-                                        </select>
-                                        <button onClick={() => playSystemSound(formData.soundConfig.clickSound, formData.soundConfig.volume)} className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors">
-                                            <Play className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase">Notificación General</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={formData.soundConfig?.notificationSound}
-                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, notificationSound: e.target.value as SoundType}})}
-                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
-                                        >
-                                            <option value="GLASS">Cristal (Apple)</option>
-                                            <option value="BELL">Campana Suave</option>
-                                            <option value="CHORD">Acorde</option>
-                                            <option value="NONE">Silencio</option>
-                                        </select>
-                                        <button onClick={() => playSystemSound(formData.soundConfig.notificationSound, formData.soundConfig.volume)} className="p-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors">
-                                            <Play className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
+                                )}
                             </div>
                         </div>
                     </div>

@@ -130,6 +130,9 @@ const DEFAULT_SETTINGS: BusinessSettings = {
         autoLockMinutes: 5, // Default 5 min auto-lock
         blurAppOnBackground: true
     },
+    printConfig: {
+        customerCopyBehavior: 'ASK' // ALWAYS, ASK, NEVER
+    },
     sequences: {
         customerStart: 1,
         ticketStart: 1,
@@ -200,7 +203,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             ...DEFAULT_SETTINGS, 
             ...loaded,
             soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(loaded.soundConfig || {}) },
-            securityConfig: { ...DEFAULT_SETTINGS.securityConfig, ...(loaded.securityConfig || {}) }
+            securityConfig: { ...DEFAULT_SETTINGS.securityConfig, ...(loaded.securityConfig || {}) },
+            printConfig: { ...DEFAULT_SETTINGS.printConfig, ...(loaded.printConfig || {}) } // Merge Print Config
         };
     });
     
@@ -545,7 +549,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         ...safeData.settings,
                         budgetConfig: { ...DEFAULT_SETTINGS.budgetConfig, ...(safeData.settings.budgetConfig || {}) },
                         soundConfig: { ...DEFAULT_SETTINGS.soundConfig, ...(safeData.settings.soundConfig || {}) },
-                        securityConfig: { ...DEFAULT_SETTINGS.securityConfig, ...(safeData.settings.securityConfig || {}) }, // Merge Security
+                        securityConfig: { ...DEFAULT_SETTINGS.securityConfig, ...(safeData.settings.securityConfig || {}) },
+                        printConfig: { ...DEFAULT_SETTINGS.printConfig, ...(safeData.settings.printConfig || {}) }, // Merge Print Config
                         sequences: { ...DEFAULT_SETTINGS.sequences, ...(safeData.settings.sequences || {}) },
                         productionDoc: { ...DEFAULT_SETTINGS.productionDoc, ...(safeData.settings.productionDoc || {}) },
                         googleWebAppUrl: safeData.settings.googleWebAppUrl || currentSettings.googleWebAppUrl,
