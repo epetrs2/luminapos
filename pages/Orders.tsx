@@ -1,9 +1,9 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus, Scan, QrCode, Layers } from 'lucide-react';
+import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Order, CartItem, Product, AppView } from '../types';
-import { printOrderInvoice, printProductionSummary, printProductionTicket, printProductionMasterList } from '../utils/printService';
+import { printOrderInvoice, printProductionSummary } from '../utils/printService';
 
 // --- MEMOIZED ORDER CARD ---
 const OrderCard = React.memo(({ 
@@ -105,59 +105,12 @@ const OrderCard = React.memo(({
     );
 });
 
-// --- QR SCANNER MODAL COMPONENT ---
-const QrScannerModal = ({ onClose, onScanSuccess }: { onClose: () => void, onScanSuccess: (id: string) => void }) => {
-    const scannerRef = useRef<any>(null);
-
-    useEffect(() => {
-        // Initialize HTML5-QRCode
-        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-        const onScan = (decodedText: string, decodedResult: any) => {
-            // Stop scanning and callback
-            if (scannerRef.current) {
-                scannerRef.current.clear().then(() => {
-                    onScanSuccess(decodedText);
-                }).catch((err: any) => console.error("Failed to clear scanner", err));
-            }
-        };
-
-        const html5QrcodeScanner = new (window as any).Html5QrcodeScanner(
-            "reader", config, /* verbose= */ false);
-        
-        scannerRef.current = html5QrcodeScanner;
-        html5QrcodeScanner.render(onScan, (err: any) => {/* ignore errors */});
-
-        return () => {
-            if (scannerRef.current) {
-                try {
-                    scannerRef.current.clear(); 
-                } catch(e) {}
-            }
-        };
-    }, []);
-
-    return (
-        <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl relative">
-                <button onClick={onClose} className="absolute top-4 right-4 z-10 bg-black/50 text-white p-2 rounded-full">
-                    <X className="w-6 h-6" />
-                </button>
-                <div className="p-6 text-center">
-                    <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Escanear Ticket</h3>
-                    <p className="text-sm text-slate-500 mb-4">Apunta la cámara al código QR del pedido.</p>
-                    <div id="reader" className="w-full rounded-xl overflow-hidden"></div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 interface OrdersProps {
     setView?: (view: AppView) => void;
 }
 
 export const Orders: React.FC<OrdersProps> = ({ setView }) => {
-    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS, btDevice, sendBtData, notify } = useStore();
+    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS } = useStore();
     const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
     const [mobileCreateStep, setMobileCreateStep] = useState<'CATALOG' | 'DETAILS'>('CATALOG');
     
@@ -184,13 +137,9 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     // Print Modal State
     const [printModalOpen, setPrintModalOpen] = useState(false);
     const [selectedOrdersForPrint, setSelectedOrdersForPrint] = useState<Set<string>>(new Set());
-    const [showMasterListPrompt, setShowMasterListPrompt] = useState(false); // NEW STATE FOR WORKFLOW
 
     // Delete Confirmation State
     const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
-
-    // Scanner State
-    const [isScannerOpen, setIsScannerOpen] = useState(false);
 
     // Desktop DnD State
     const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -393,7 +342,6 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         }
         const allIds = new Set<string>(activeOrders.map(o => o.id));
         setSelectedOrdersForPrint(allIds);
-        setShowMasterListPrompt(false); // Reset flow
         setPrintModalOpen(true);
     };
 
@@ -421,117 +369,14 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         setSelectedOrdersForPrint(new Set(filtered.map(o => o.id)));
     };
 
-    // --- SMART PRINT WORKFLOW ---
-    const confirmPrintProduction = async (type: 'SHEET' | 'THERMAL' | 'MASTER') => {
+    const confirmPrintProduction = () => {
         const ordersToPrint = activeOrders.filter(o => selectedOrdersForPrint.has(o.id));
         if (ordersToPrint.length === 0) {
             alert("Selecciona al menos un pedido.");
             return;
         }
-        
-        if (type === 'SHEET') {
-            printProductionSummary(ordersToPrint, settings, products);
-            setPrintModalOpen(false);
-        } else if (type === 'MASTER') {
-            if (!btDevice) { notify("Error", "Conecta la impresora Bluetooth.", "error"); return; }
-            printProductionMasterList(ordersToPrint, settings, products, sendBtData);
-            setPrintModalOpen(false);
-        } else {
-            // THERMAL INDIVIDUAL TICKETS FLOW
-            if (!btDevice) {
-                notify("Error", "Conecta la impresora Bluetooth en Configuración.", "error");
-                return;
-            }
-
-            // --- VIRTUAL STOCK TRACKER LOGIC ---
-            // Create a temporary map of current stock to decrement as we print each ticket.
-            // This prevents multiple orders from "claiming" the same stock items in the warehouse.
-            const stockTracker = new Map<string, number>();
-            products.forEach(p => {
-                stockTracker.set(p.id, p.stock);
-                if (p.variants) {
-                    p.variants.forEach(v => stockTracker.set(`${p.id}-${v.id}`, v.stock));
-                }
-            });
-            
-            // 1. Print Individual Tickets (QR) with 10s Delay
-            for (let i = 0; i < ordersToPrint.length; i++) {
-                const order = ordersToPrint[i];
-                
-                // Pass the tracker so the generator knows what's actually available *now*
-                await printProductionTicket(order, settings, products, sendBtData, stockTracker);
-                
-                // Update tracker: Deduct what was theoretically used by this order
-                order.items.forEach(item => {
-                    const trackKey = item.variantId ? `${item.id}-${item.variantId}` : item.id;
-                    const currentStock = stockTracker.get(trackKey) || 0;
-                    // We consume only what was available (the generator used Min(qty, stock))
-                    // So we must replicate that logic to decrement correctly
-                    const consumed = Math.min(item.quantity, Math.max(0, currentStock));
-                    stockTracker.set(trackKey, currentStock - consumed);
-                });
-                
-                // Add delay between tickets (except optionally after the very last one, but safer to keep it)
-                if (i < ordersToPrint.length - 1) {
-                    notify("Enfriando Impresora", `Esperando 10s para siguiente ticket (${i+1}/${ordersToPrint.length})`, "info");
-                    await new Promise(r => setTimeout(r, 10000)); 
-                } else {
-                    // Small delay after last one before prompt
-                    await new Promise(r => setTimeout(r, 1000));
-                }
-            }
-
-            // 2. Ask user for Master List
-            setShowMasterListPrompt(true);
-        }
-    };
-
-    const handleMasterListResponse = (shouldPrint: boolean) => {
-        if (shouldPrint) {
-            const ordersToPrint = activeOrders.filter(o => selectedOrdersForPrint.has(o.id));
-            printProductionMasterList(ordersToPrint, settings, products, sendBtData);
-        }
+        printProductionSummary(ordersToPrint, settings, products);
         setPrintModalOpen(false);
-        setShowMasterListPrompt(false);
-    };
-
-    // --- SCANNER LOGIC ---
-    const handleScanSuccess = (decodedId: string) => {
-        setIsScannerOpen(false);
-        const order = orders.find(o => o.id === decodedId);
-        
-        if (!order) {
-            alert("Pedido no encontrado. Verifica el código QR.");
-            return;
-        }
-
-        if (order.status === 'COMPLETED') {
-            alert("Este pedido ya fue completado y entregado.");
-            return;
-        }
-
-        let nextStatus: any = order.status;
-        let action = "";
-
-        if (order.status === 'PENDING') {
-            nextStatus = 'IN_PROGRESS';
-            action = "Iniciar Producción";
-        } else if (order.status === 'IN_PROGRESS') {
-            nextStatus = 'READY';
-            action = "Marcar como LISTO";
-        } else if (order.status === 'READY') {
-            // Deliver
-            if (confirm(`¿Entregar pedido de ${order.customerName}? Se enviará a caja para cobro.`)) {
-                handleDeliverToPOS(order.id);
-                return;
-            }
-            return;
-        }
-
-        if (confirm(`Pedido #${order.id} de ${order.customerName}.\n¿${action}?`)) {
-            updateOrderStatus(order.id, nextStatus);
-            notify("Actualizado", "Estado del pedido actualizado correctamente.", "success");
-        }
     };
 
     // --- DESKTOP DRAG HANDLERS ---
@@ -701,11 +546,6 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 </p>
             </div>
 
-            {/* SCANNER MODAL */}
-            {isScannerOpen && (
-                <QrScannerModal onClose={() => setIsScannerOpen(false)} onScanSuccess={handleScanSuccess} />
-            )}
-
             <div className="max-w-7xl mx-auto h-full flex flex-col">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                     <div>
@@ -717,20 +557,12 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                     </div>
                     <div className="flex flex-col md:flex-row w-full md:w-auto gap-2">
                         {activeTab === 'LIST' && (
-                            <>
-                                <button
-                                    onClick={() => setIsScannerOpen(true)}
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-colors"
-                                >
-                                    <Scan className="w-4 h-4" /> Escanear
-                                </button>
-                                <button
-                                    onClick={handleOpenPrintModal}
-                                    className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors"
-                                >
-                                    <ListChecks className="w-4 h-4" /> Generar Orden
-                                </button>
-                            </>
+                            <button
+                                onClick={handleOpenPrintModal}
+                                className="bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors"
+                            >
+                                <ListChecks className="w-4 h-4" /> Hoja de Producción
+                            </button>
                         )}
                         <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-auto">
                             <button onClick={() => setActiveTab('LIST')} className={`flex-1 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 whitespace-nowrap ${activeTab === 'LIST' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>Tablero</button>
@@ -799,113 +631,79 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 {printModalOpen && (
                     <div className="fixed inset-0 bg-black/60 z-[100] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4 animate-[fadeIn_0.2s_ease-out]">
                         <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-2xl shadow-2xl max-w-lg w-full flex flex-col max-h-[90vh] border border-slate-100 dark:border-slate-800 animate-[slideUp_0.3s_ease-out]">
-                            {showMasterListPrompt ? (
-                                // SECONDARY FLOW: ASK FOR MASTER LIST
-                                <div className="p-8 text-center flex flex-col items-center">
-                                    <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mb-4">
-                                        <Layers className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
-                                    </div>
-                                    <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Tickets Individuales Enviados</h3>
-                                    <p className="text-slate-500 mb-6 text-sm">¿Deseas imprimir también la Lista Maestra consolidada para producción?</p>
-                                    
-                                    <div className="flex gap-3 w-full">
-                                        <button onClick={() => handleMasterListResponse(false)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold">No, Gracias</button>
-                                        <button onClick={() => handleMasterListResponse(true)} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg">Sí, Imprimir</button>
-                                    </div>
+                            <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center rounded-t-3xl md:rounded-t-2xl">
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                        <Printer className="w-5 h-5 text-indigo-500" />
+                                        Seleccionar Pedidos
+                                    </h3>
+                                    <p className="text-xs text-slate-500">Calcula automáticamente qué necesitas producir.</p>
                                 </div>
-                            ) : (
-                                // PRIMARY FLOW: SELECT ORDERS
-                                <>
-                                    <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center rounded-t-3xl md:rounded-t-2xl">
-                                        <div>
-                                            <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                                <Printer className="w-5 h-5 text-indigo-500" />
-                                                Seleccionar Pedidos
-                                            </h3>
-                                            <p className="text-xs text-slate-500">Calcula automáticamente qué necesitas producir.</p>
-                                        </div>
-                                        <button onClick={() => setPrintModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                                            <X className="w-5 h-5" />
-                                        </button>
-                                    </div>
+                                <button onClick={() => setPrintModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
 
-                                    <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
-                                        <p className="text-xs font-bold text-slate-400 uppercase mb-2">Filtros Rápidos</p>
-                                        <div className="flex gap-2 overflow-x-auto pb-2">
-                                            <button onClick={() => filterPrintSelection('TODAY_CREATED')} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 transition-colors whitespace-nowrap">
-                                                Creados Hoy
-                                            </button>
-                                            <button onClick={() => filterPrintSelection('TODAY_DELIVERY')} className="px-3 py-1.5 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-colors whitespace-nowrap">
-                                                Entrega Hoy
-                                            </button>
-                                            <button onClick={() => filterPrintSelection('ALL')} className="px-3 py-1.5 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-colors whitespace-nowrap">
-                                                Seleccionar Todo
-                                            </button>
-                                        </div>
-                                    </div>
+                            <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+                                <p className="text-xs font-bold text-slate-400 uppercase mb-2">Filtros Rápidos</p>
+                                <div className="flex gap-2 overflow-x-auto pb-2">
+                                    <button onClick={() => filterPrintSelection('TODAY_CREATED')} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 transition-colors whitespace-nowrap">
+                                        Creados Hoy
+                                    </button>
+                                    <button onClick={() => filterPrintSelection('TODAY_DELIVERY')} className="px-3 py-1.5 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-colors whitespace-nowrap">
+                                        Entrega Hoy
+                                    </button>
+                                    <button onClick={() => filterPrintSelection('ALL')} className="px-3 py-1.5 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-colors whitespace-nowrap">
+                                        Seleccionar Todo
+                                    </button>
+                                </div>
+                            </div>
 
-                                    <div className="flex-1 overflow-y-auto p-2">
-                                        {activeOrders.length === 0 ? (
-                                            <p className="text-center text-slate-400 text-sm py-10">No hay pedidos disponibles.</p>
-                                        ) : (
-                                            <div className="space-y-1">
-                                                {activeOrders.map(order => (
-                                                    <div 
-                                                        key={order.id} 
-                                                        onClick={() => togglePrintOrder(order.id)}
-                                                        className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selectedOrdersForPrint.has(order.id) ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/20 dark:border-indigo-800' : 'bg-white border-transparent hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800'}`}
-                                                    >
-                                                        <div className={`shrink-0 ${selectedOrdersForPrint.has(order.id) ? 'text-indigo-600' : 'text-slate-300'}`}>
-                                                            {selectedOrdersForPrint.has(order.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex justify-between">
-                                                                <p className="font-bold text-sm text-slate-800 dark:text-white truncate">{order.customerName}</p>
-                                                                <span className="text-xs font-mono text-slate-400">#{order.id.slice(-4)}</span>
-                                                            </div>
-                                                            <div className="flex justify-between items-end mt-1">
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{order.items.length} items • {order.items[0]?.name}...</p>
-                                                                {new Date(order.date).toDateString() === new Date().toDateString() && (
-                                                                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 rounded font-bold">NUEVO</span>
-                                                                )}
-                                                            </div>
-                                                        </div>
+                            <div className="flex-1 overflow-y-auto p-2">
+                                {activeOrders.length === 0 ? (
+                                    <p className="text-center text-slate-400 text-sm py-10">No hay pedidos disponibles.</p>
+                                ) : (
+                                    <div className="space-y-1">
+                                        {activeOrders.map(order => (
+                                            <div 
+                                                key={order.id} 
+                                                onClick={() => togglePrintOrder(order.id)}
+                                                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selectedOrdersForPrint.has(order.id) ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/20 dark:border-indigo-800' : 'bg-white border-transparent hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800'}`}
+                                            >
+                                                <div className={`shrink-0 ${selectedOrdersForPrint.has(order.id) ? 'text-indigo-600' : 'text-slate-300'}`}>
+                                                    {selectedOrdersForPrint.has(order.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex justify-between">
+                                                        <p className="font-bold text-sm text-slate-800 dark:text-white truncate">{order.customerName}</p>
+                                                        <span className="text-xs font-mono text-slate-400">#{order.id.slice(-4)}</span>
                                                     </div>
-                                                ))}
+                                                    <div className="flex justify-between items-end mt-1">
+                                                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{order.items.length} items • {order.items[0]?.name}...</p>
+                                                        {new Date(order.date).toDateString() === new Date().toDateString() && (
+                                                            <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 rounded font-bold">NUEVO</span>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
-                                        )}
+                                        ))}
                                     </div>
+                                )}
+                            </div>
 
-                                    <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex gap-2 flex-wrap">
-                                        <button 
-                                            onClick={() => confirmPrintProduction('SHEET')}
-                                            disabled={selectedOrdersForPrint.size === 0}
-                                            className="flex-1 py-3 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-100 disabled:opacity-50 flex items-center justify-center gap-2 text-xs"
-                                        >
-                                            <FileText className="w-4 h-4"/> Hoja Carta
-                                        </button>
-                                        <button 
-                                            onClick={() => confirmPrintProduction('MASTER')}
-                                            disabled={selectedOrdersForPrint.size === 0}
-                                            className="flex-1 py-3 bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-white rounded-xl font-bold hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2 text-xs"
-                                        >
-                                            <Layers className="w-4 h-4"/> Lista Maestra
-                                        </button>
-                                        <button 
-                                            onClick={() => confirmPrintProduction('THERMAL')}
-                                            disabled={selectedOrdersForPrint.size === 0}
-                                            className="flex-[1.5] py-3 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold hover:opacity-90 disabled:opacity-50 transition-opacity shadow-lg flex items-center justify-center gap-2 text-xs"
-                                        >
-                                            <Receipt className="w-4 h-4"/> Ticket Térmico
-                                        </button>
-                                    </div>
-                                </>
-                            )}
+                            <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                                <button 
+                                    onClick={confirmPrintProduction}
+                                    disabled={selectedOrdersForPrint.size === 0}
+                                    className="w-full py-3 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity shadow-lg"
+                                >
+                                    Generar Hoja Inteligente ({selectedOrdersForPrint.size})
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
 
-                {/* ... (Rest of modal content: Create Tab, Edit Modal, Delete Modal) */}
                 {/* --- RESTORED CREATE TAB CONTENT --- */}
                 {activeTab === 'CREATE' && (
                     <div className="flex flex-col lg:flex-row gap-6 h-full overflow-hidden pb-4 relative">
@@ -926,7 +724,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                         </div>
 
                         {/* Left: Product Catalog */}
-                        <div className={`flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden ${mobileCreateStep === 'DETAILS' ? 'hidden md:flex' : 'flex'}`}>
+                        <div className={`flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden ${mobileCreateStep === 'DETAILS' ? 'hidden md:flex' : 'flex'}`}>
                             <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />

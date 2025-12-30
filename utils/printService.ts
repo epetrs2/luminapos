@@ -1,6 +1,6 @@
 
 import { Transaction, BusinessSettings, CashMovement, Order, CartItem, Product } from '../types';
-import { generateEscPosTicket, generateEscPosZReport, generateProductionTicket, generateConsolidatedProduction } from './escPosHelper';
+import { generateEscPosTicket, generateEscPosZReport } from './escPosHelper';
 
 // Estilos CSS base compartidos
 const BASE_CSS = `
@@ -492,67 +492,24 @@ export const printOrderInvoice = (order: Order, customer: any, settings: Busines
     openPrintWindow(html);
 };
 
-// --- SINGLE OR MULTIPLE TICKET PRINTING ---
-export const printProductionTicket = async (
-    order: Order,
-    settings: BusinessSettings,
-    products: Product[],
-    btSendFn?: (data: Uint8Array) => Promise<void>,
-    stockTracker?: Map<string, number>
-) => {
-    if (!btSendFn) {
-        console.error("Bluetooth printer not connected");
-        return;
-    }
-    try {
-        const data = await generateProductionTicket(order, settings, products, stockTracker);
-        await btSendFn(data);
-    } catch (e) {
-        console.error("Print Error", e);
-    }
-};
-
-// --- MASTER LIST PRINTING ---
-export const printProductionMasterList = async (
-    orders: Order[],
-    settings: BusinessSettings,
-    products: Product[],
-    btSendFn?: (data: Uint8Array) => Promise<void>
-) => {
-    if (!btSendFn) {
-        console.error("Bluetooth printer not connected");
-        return;
-    }
-    try {
-        const data = await generateConsolidatedProduction(orders, settings, products);
-        await btSendFn(data);
-    } catch (e) {
-        console.error("Print Error", e);
-    }
-};
-
 export const printThermalTicket = async (
     transaction: Transaction, 
     customerName: string, 
     settings: BusinessSettings,
     btSendFn?: (data: Uint8Array) => Promise<void>,
-    printMode: 'ORIGINAL' | 'COPY' | 'BOTH' = 'ORIGINAL'
+    printCopy: boolean = false
 ) => {
     if (btSendFn) {
         try {
-            // Print Original Logic
-            if (printMode === 'ORIGINAL' || printMode === 'BOTH') {
-                const data = await generateEscPosTicket(transaction, customerName, settings, "ORIGINAL");
-                await btSendFn(data);
-            }
+            // Print Original
+            const data = await generateEscPosTicket(transaction, customerName, settings, "ORIGINAL");
+            await btSendFn(data);
             
-            // Wait for cut/tear if printing both
-            if (printMode === 'BOTH') {
-                await new Promise(resolve => setTimeout(resolve, 8000));
-            }
-
-            // Print Copy Logic
-            if (printMode === 'COPY' || printMode === 'BOTH') {
+            // Print Copy with delay if requested
+            if (printCopy) {
+                // 10 second delay for user to tear off original
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                
                 const dataCopy = await generateEscPosTicket(transaction, customerName, settings, "COPIA CLIENTE");
                 await btSendFn(dataCopy);
             }
@@ -671,9 +628,8 @@ export const printThermalTicket = async (
         <html>
         <head><style>${TICKET_CSS}</style></head>
         <body>
-            ${(printMode === 'ORIGINAL' || printMode === 'BOTH') ? generateTicketBody(printMode === 'BOTH' ? "ORIGINAL" : undefined) : ''}
-            ${printMode === 'BOTH' ? '<div class="page-break"></div>' : ''}
-            ${(printMode === 'COPY' || printMode === 'BOTH') ? generateTicketBody("COPIA CLIENTE") : ''}
+            ${generateTicketBody(printCopy ? "ORIGINAL" : undefined)}
+            ${printCopy ? `<div class="page-break"></div>${generateTicketBody("COPIA CLIENTE")}` : ''}
         </body>
         </html>
     `;
