@@ -68,6 +68,7 @@ interface StoreContextType {
   convertOrderToSale: (id: string, paymentMethod: string) => void;
   deleteOrder: (id: string) => void;
   registerProductionSurplus: (orderId: string, items: {id: string, variantId?: string, quantity: number}[]) => void;
+  finalizeProduction: (orderId: string, actualItems: {id: string, variantId?: string, quantity: number}[]) => void;
   updateSettings: (s: BusinessSettings) => void;
   importData: (data: any) => Promise<boolean>;
   login: (u: string, p: string, code?: string) => Promise<string>;
@@ -1081,6 +1082,32 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         notify("Stock Actualizado", "El excedente se ha agregado al inventario.", "success");
     };
 
+    // --- FINALIZE PRODUCTION LOGIC (SMART STOCK UPDATE) ---
+    const finalizeProduction = (orderId: string, actualItems: {id: string, variantId?: string, quantity: number}[]) => {
+        // 1. Update Stock based on ACTUAL production counts
+        actualItems.forEach(item => {
+            if (item.quantity > 0) {
+                adjustStock(item.id, item.quantity, 'IN', item.variantId);
+            }
+        });
+
+        // 2. Log Activity
+        logActivity('INVENTORY', `Entrada Producción Orden #${orderId}`);
+
+        // 3. Prepare Order for POS with ACTUAL quantities
+        const originalOrder = orders.find(o => o.id === orderId);
+        if (originalOrder) {
+            const posItems = originalOrder.items.map(originalItem => {
+                const produced = actualItems.find(p => p.id === originalItem.id && p.variantId === originalItem.variantId);
+                // Use actual produced qty for sale, if available. Defaults to 0 if nothing produced.
+                return { ...originalItem, quantity: produced ? produced.quantity : 0 };
+            }).filter(i => i.quantity > 0); // Remove items with 0 production
+
+            // 4. Send modified order to POS
+            sendOrderToPOS({ ...originalOrder, items: posItems });
+        }
+    };
+
     const updateSettings = (s: BusinessSettings) => { 
         setSettings(s); 
         storeRef.current.settings = s;
@@ -1171,7 +1198,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 const updater = (p: Order[]) => p.filter(o=>o.id!==id);
                 setOrders(updater);
                 storeRef.current.orders = updater(storeRef.current.orders);
-            }, registerProductionSurplus, 
+            }, registerProductionSurplus, finalizeProduction,
             updateSettings, importData, login, logout, addUser, updateUser, deleteUser, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
             notify, removeToast: (id)=>setToasts(p=>p.filter(t=>t.id !== id)), requestNotificationPermission: async ()=>true, logActivity, pullFromCloud, pushToCloud, generateInvite, registerWithInvite, deleteInvite, hardReset,
             playSound,

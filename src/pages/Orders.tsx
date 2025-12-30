@@ -136,8 +136,165 @@ const OrderCard = React.memo(({
     );
 });
 
+// --- SURPLUS MODAL COMPONENT (Reusing logic but can be simplified if needed) ---
+const SurplusModal = ({ order, onClose, onConfirm }: { order: Order, onClose: () => void, onConfirm: (items: any[]) => void }) => {
+    const [surplusItems, setSurplusItems] = useState<{id: string, variantId?: string, quantity: number}[]>([]);
+
+    const handleQtyChange = (itemId: string, variantId: string | undefined, val: number) => {
+        if (val < 0) val = 0;
+        setSurplusItems(prev => {
+            const exists = prev.find(p => p.id === itemId && p.variantId === variantId);
+            if (exists) {
+                return prev.map(p => p.id === itemId && p.variantId === variantId ? { ...p, quantity: val } : p);
+            }
+            return [...prev, { id: itemId, variantId, quantity: val }];
+        });
+    };
+
+    const handleFinalize = () => {
+        const finalItems = surplusItems.filter(i => i.quantity > 0);
+        if (finalItems.length === 0) {
+            alert("Ingresa al menos una cantidad mayor a 0.");
+            return;
+        }
+        onConfirm(finalItems);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/80 z-[9999] flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out] backdrop-blur-sm">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-100 dark:border-slate-800 relative animate-[slideUp_0.2s_ease-out]">
+                <div className="flex justify-between items-center mb-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                            <PackagePlus className="w-6 h-6 text-emerald-500" /> Registrar Sobrante
+                        </h3>
+                        <p className="text-sm text-slate-500 mt-1">Ingresa la cantidad EXTRA producida.</p>
+                    </div>
+                    <button onClick={onClose}><X className="w-6 h-6 text-slate-400 hover:text-slate-600"/></button>
+                </div>
+
+                <div className="space-y-3 max-h-[40vh] overflow-y-auto mb-6 custom-scrollbar pr-1 bg-slate-50 dark:bg-slate-950/50 p-2 rounded-xl">
+                    {order.items.map((item, idx) => {
+                        const current = surplusItems.find(s => s.id === item.id && s.variantId === item.variantId)?.quantity || 0;
+                        return (
+                            <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <div>
+                                    <p className="font-bold text-sm text-slate-700 dark:text-slate-200">{item.name}</p>
+                                    <p className="text-xs text-slate-500">Ordenado: <strong>{item.quantity}</strong></p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Extra:</span>
+                                    <input 
+                                        type="number" 
+                                        min="0"
+                                        className="w-16 p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-center font-bold outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white"
+                                        value={current}
+                                        onChange={(e) => handleQtyChange(item.id, item.variantId, parseInt(e.target.value) || 0)}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="flex flex-col gap-3">
+                    <button 
+                        onClick={handleFinalize} 
+                        className="w-full py-4 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 bg-emerald-600 hover:bg-emerald-700"
+                    >
+                        <Save className="w-5 h-5" /> Guardar en Inventario
+                    </button>
+                    <button onClick={onClose} className="w-full py-3 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- UPDATED DELIVERY MODAL (SMART PRODUCTION) ---
+const DeliveryModal = ({ order, onClose, onConfirm }: { order: Order, onClose: () => void, onConfirm: (actualItems: any[]) => void }) => {
+    // Initialize with Ordered Quantities
+    const [producedItems, setProducedItems] = useState<{id: string, variantId?: string, quantity: number}[]>(
+        order.items.map(i => ({ id: i.id, variantId: i.variantId, quantity: i.quantity }))
+    );
+
+    const handleQtyChange = (itemId: string, variantId: string | undefined, val: number) => {
+        if (val < 0) val = 0;
+        setProducedItems(prev => prev.map(p => 
+            (p.id === itemId && p.variantId === variantId) ? { ...p, quantity: val } : p
+        ));
+    };
+
+    const handleFinalize = () => {
+        // We send exactly what was produced
+        onConfirm(producedItems);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/80 z-[9999] flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out] backdrop-blur-sm">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-100 dark:border-slate-800 relative animate-[slideUp_0.2s_ease-out]">
+                <div className="flex justify-between items-center mb-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                            <CheckCircle className="w-6 h-6 text-emerald-500" /> Resultado Producción
+                        </h3>
+                        <p className="text-sm text-slate-500 mt-1">Confirma la cantidad real producida.</p>
+                    </div>
+                    <button onClick={onClose}><X className="w-6 h-6 text-slate-400 hover:text-slate-600"/></button>
+                </div>
+
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg mb-4 border border-blue-100 dark:border-blue-900/50 flex gap-2">
+                    <ArrowUpRight className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <p className="text-xs text-blue-800 dark:text-blue-300">
+                        La cantidad "Producida" ingresará al inventario y se enviará a caja para cobro.
+                    </p>
+                </div>
+
+                <div className="space-y-3 max-h-[40vh] overflow-y-auto mb-6 custom-scrollbar pr-1 bg-slate-50 dark:bg-slate-950/50 p-2 rounded-xl">
+                    {order.items.map((item, idx) => {
+                        const currentProduced = producedItems.find(p => p.id === item.id && p.variantId === item.variantId)?.quantity || 0;
+                        const diff = currentProduced - item.quantity;
+                        
+                        return (
+                            <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <div>
+                                    <p className="font-bold text-sm text-slate-700 dark:text-slate-200">{item.name}</p>
+                                    <div className="flex gap-2 text-xs mt-1">
+                                        <span className="text-slate-500">Solicitado: <strong>{item.quantity}</strong></span>
+                                        {diff > 0 && <span className="text-emerald-600 font-bold">+{diff} Extra</span>}
+                                        {diff < 0 && <span className="text-red-500 font-bold">{diff} Faltante</span>}
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Producido:</span>
+                                    <input 
+                                        type="number" 
+                                        min="0"
+                                        className={`w-16 p-2 rounded-lg border text-center font-bold outline-none focus:ring-2 ${diff !== 0 ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : 'border-slate-300 bg-white text-slate-800'}`}
+                                        value={currentProduced}
+                                        onChange={(e) => handleQtyChange(item.id, item.variantId, parseInt(e.target.value) || 0)}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="flex flex-col gap-3">
+                    <button 
+                        onClick={handleFinalize} 
+                        className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                    >
+                        <CheckCircle className="w-5 h-5" /> Confirmar e Ir a Caja
+                    </button>
+                    <button onClick={onClose} className="w-full py-3 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- QR SCANNER MODAL COMPONENT ---
-/* Fixed Error: Added missing QrScannerModal definition */
 const QrScannerModal = ({ onClose, onScanSuccess }: { onClose: () => void, onScanSuccess: (id: string) => void }) => {
     const scannerRef = useRef<any>(null);
 
@@ -184,179 +341,12 @@ const QrScannerModal = ({ onClose, onScanSuccess }: { onClose: () => void, onSca
     );
 };
 
-// --- SURPLUS MODAL COMPONENT ---
-const SurplusModal = ({ order, onClose, onConfirm }: { order: Order, onClose: () => void, onConfirm: (items: any[]) => void }) => {
-    const [surplusItems, setSurplusItems] = useState<{id: string, variantId?: string, quantity: number}[]>([]);
-
-    const handleQtyChange = (itemId: string, variantId: string | undefined, val: number) => {
-        if (val < 0) val = 0;
-        setSurplusItems(prev => {
-            const exists = prev.find(p => p.id === itemId && p.variantId === variantId);
-            if (exists) {
-                return prev.map(p => p.id === itemId && p.variantId === variantId ? { ...p, quantity: val } : p);
-            }
-            return [...prev, { id: itemId, variantId, quantity: val }];
-        });
-    };
-
-    const handleFinalize = () => {
-        const finalItems = surplusItems.filter(i => i.quantity > 0);
-        if (finalItems.length === 0) {
-            alert("Ingresa al menos una cantidad mayor a 0.");
-            return;
-        }
-        onConfirm(finalItems);
-    };
-
-    return (
-        <div className="fixed inset-0 bg-slate-900/80 z-[9999] flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out] backdrop-blur-sm">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-100 dark:border-slate-800 relative animate-[slideUp_0.2s_ease-out]">
-                <div className="flex justify-between items-center mb-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <div>
-                        <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                            <PackagePlus className="w-6 h-6 text-emerald-500" /> Registrar Sobrante
-                        </h3>
-                        <p className="text-sm text-slate-500 mt-1">Ingresa la cantidad EXTRA producida.</p>
-                    </div>
-                    <button onClick={onClose}><X className="w-6 h-6 text-slate-400 hover:text-slate-600"/></button>
-                </div>
-
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg mb-4 border border-blue-100 dark:border-blue-900/50 flex gap-2">
-                    <ArrowUpRight className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
-                    <p className="text-xs text-blue-800 dark:text-blue-300">
-                        Estas cantidades se sumarán al inventario general inmediatamente.
-                    </p>
-                </div>
-
-                <div className="space-y-3 max-h-[40vh] overflow-y-auto mb-6 custom-scrollbar pr-1 bg-slate-50 dark:bg-slate-950/50 p-2 rounded-xl">
-                    {order.items.map((item, idx) => {
-                        const current = surplusItems.find(s => s.id === item.id && s.variantId === item.variantId)?.quantity || 0;
-                        return (
-                            <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                                <div>
-                                    <p className="font-bold text-sm text-slate-700 dark:text-slate-200">{item.name}</p>
-                                    <p className="text-xs text-slate-500">Ordenado: <strong>{item.quantity}</strong></p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Extra:</span>
-                                    <input 
-                                        type="number" 
-                                        min="0"
-                                        className="w-16 p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-center font-bold outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white"
-                                        value={current}
-                                        onChange={(e) => handleQtyChange(item.id, item.variantId, parseInt(e.target.value) || 0)}
-                                    />
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                <div className="flex flex-col gap-3">
-                    <button 
-                        onClick={handleFinalize} 
-                        className="w-full py-4 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 bg-emerald-600 hover:bg-emerald-700"
-                    >
-                        <Save className="w-5 h-5" /> Guardar en Inventario
-                    </button>
-                    <button onClick={onClose} className="w-full py-3 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">Cancelar</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- DELIVERY MODAL COMPONENT (WITH SURPLUS) ---
-const DeliveryModal = ({ order, onClose, onConfirm }: { order: Order, onClose: () => void, onConfirm: (surplusItems: any[]) => void }) => {
-    const [surplusItems, setSurplusItems] = useState<{id: string, variantId?: string, quantity: number}[]>([]);
-
-    const handleQtyChange = (itemId: string, variantId: string | undefined, val: number) => {
-        if (val < 0) val = 0;
-        setSurplusItems(prev => {
-            const exists = prev.find(p => p.id === itemId && p.variantId === variantId);
-            if (exists) {
-                return prev.map(p => p.id === itemId && p.variantId === variantId ? { ...p, quantity: val } : p);
-            }
-            return [...prev, { id: itemId, variantId, quantity: val }];
-        });
-    };
-
-    const handleFinalize = () => {
-        const finalItems = surplusItems.filter(i => i.quantity > 0);
-        onConfirm(finalItems);
-    };
-
-    const hasSurplus = surplusItems.some(i => i.quantity > 0);
-
-    return (
-        <div className="fixed inset-0 bg-slate-900/80 z-[9999] flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out] backdrop-blur-sm">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-100 dark:border-slate-800 relative animate-[slideUp_0.2s_ease-out]">
-                <div className="flex justify-between items-center mb-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <div>
-                        <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                            <CheckCircle className="w-6 h-6 text-emerald-500" /> Finalizar Producción
-                        </h3>
-                        <p className="text-sm text-slate-500 mt-1">Confirma la entrada al inventario.</p>
-                    </div>
-                    <button onClick={onClose}><X className="w-6 h-6 text-slate-400 hover:text-slate-600"/></button>
-                </div>
-
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg mb-4 border border-blue-100 dark:border-blue-900/50 flex gap-2">
-                    <ArrowUpRight className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
-                    <p className="text-xs text-blue-800 dark:text-blue-300">
-                        Al confirmar, se sumará el stock de la orden automáticamente. Si produjiste extra, regístralo abajo.
-                    </p>
-                </div>
-
-                <p className="text-xs font-bold text-slate-500 uppercase mb-2">Registrar Excedentes (Opcional)</p>
-                <div className="space-y-3 max-h-[40vh] overflow-y-auto mb-6 custom-scrollbar pr-1 bg-slate-50 dark:bg-slate-950/50 p-2 rounded-xl">
-                    {order.items.map((item, idx) => {
-                        const current = surplusItems.find(s => s.id === item.id && s.variantId === item.variantId)?.quantity || 0;
-                        return (
-                            <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                                <div>
-                                    <p className="font-bold text-sm text-slate-700 dark:text-slate-200">{item.name}</p>
-                                    <p className="text-xs text-slate-500">Ordenado: <strong>{item.quantity}</strong></p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Extra:</span>
-                                    <input 
-                                        type="number" 
-                                        min="0"
-                                        className="w-16 p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-center font-bold outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white"
-                                        value={current}
-                                        onChange={(e) => handleQtyChange(item.id, item.variantId, parseInt(e.target.value) || 0)}
-                                    />
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                <div className="flex flex-col gap-3">
-                    <button 
-                        onClick={handleFinalize} 
-                        className={`w-full py-4 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 ${hasSurplus ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-                    >
-                        {hasSurplus ? (
-                            <><PackagePlus className="w-5 h-5" /> Registrar Entrada con Extras</>
-                        ) : (
-                            <><CheckCircle className="w-5 h-5" /> Confirmar y Enviar a Caja</>
-                        )}
-                    </button>
-                    <button onClick={onClose} className="w-full py-3 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">Cancelar</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 interface OrdersProps {
     setView?: (view: AppView) => void;
 }
 
 export const Orders: React.FC<OrdersProps> = ({ setView }) => {
-    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS, btDevice, sendBtData, notify, registerProductionSurplus, adjustStock } = useStore();
+    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS, btDevice, sendBtData, notify, registerProductionSurplus, adjustStock, finalizeProduction } = useStore();
     const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
     const [mobileCreateStep, setMobileCreateStep] = useState<'CATALOG' | 'DETAILS'>('CATALOG');
     
@@ -607,23 +597,12 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         }
     };
 
-    const handleConfirmDelivery = (surplusItems: any[]) => {
+    const handleConfirmDelivery = (actualItems: any[]) => {
         if(deliveryOrder) {
-            // 1. ADD BASE ORDER TO INVENTORY (Production Finished)
-            // Loop through all items in the order and increase stock
-            deliveryOrder.items.forEach(item => {
-                adjustStock(item.id, item.quantity, 'IN', item.variantId);
-            });
-
-            // 2. ADD SURPLUS TO INVENTORY (Extra Production)
-            if (surplusItems.length > 0) {
-                registerProductionSurplus(deliveryOrder.id, surplusItems);
-            }
-
-            // 3. SEND TO POS (Will deduct stock when sold)
-            sendOrderToPOS(deliveryOrder);
+            // Updated to use the SMART finalize function from context
+            finalizeProduction(deliveryOrder.id, actualItems);
             
-            // 4. FEEDBACK & CLEANUP
+            // FEEDBACK & CLEANUP
             notify("Producción Registrada", "Stock actualizado y orden enviada a caja.", "success");
             
             if (setView) setView(AppView.POS);
@@ -1099,7 +1078,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                     <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
                                         <p className="text-xs font-bold text-slate-400 uppercase mb-2">Filtros Rápidos</p>
                                         <div className="flex gap-2 overflow-x-auto pb-2">
-                                            <button onClick={() => filterPrintSelection('TODAY_CREATED')} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 transition-colors whitespace-nowrap">
+                                            <button onClick={() => filterPrintSelection('TODAY_CREATED')} className="px-3 py-1.5 bg-indigo-5 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 transition-colors whitespace-nowrap">
                                                 Creados Hoy
                                             </button>
                                             <button onClick={() => filterPrintSelection('TODAY_DELIVERY')} className="px-3 py-1.5 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-colors whitespace-nowrap">
@@ -1191,7 +1170,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                         </div>
 
                         {/* Left: Product Catalog */}
-                        <div className={`flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col overflow-hidden ${mobileCreateStep === 'DETAILS' ? 'hidden md:flex' : 'flex'}`}>
+                        <div className={`flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden ${mobileCreateStep === 'DETAILS' ? 'hidden md:flex' : 'flex'}`}>
                             <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
@@ -1450,7 +1429,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                         />
                                     </div>
 
-                                    <div className="border-t border-slate-100 dark:border-slate-700 pt-4">
+                                    <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
                                         <div className="space-y-2">
                                             {editCart.map(item => (
                                                 <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
