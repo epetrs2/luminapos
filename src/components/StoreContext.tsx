@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
-import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, Purchase, UserInvite, UserRole, SoundType } from '../types';
+import { Product, Transaction, Customer, Supplier, CashMovement, Order, User, ActivityLog, ToastNotification, BusinessSettings, Purchase, UserInvite, UserRole, SoundType, ProductVariant, CartItem, PurchaseItem } from '../types';
 import { hashPassword, verifyPassword, sanitizeDataStructure, generateSalt } from '../utils/security';
 import { verify2FAToken } from '../utils/twoFactor';
 import { pushFullDataToCloud, fetchFullDataFromCloud } from '../services/syncService';
@@ -544,7 +544,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (Array.isArray(safeData.userInvites)) setUserInvites(safeData.userInvites);
             
             if (safeData.settings) {
-                setSettings(currentSettings => {
+                setSettings((currentSettings: BusinessSettings) => {
                     const incomingSettings = { 
                         ...DEFAULT_SETTINGS, 
                         ...safeData.settings,
@@ -781,8 +781,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const updater = (p: Product) => {
             if (p.id === id) {
                 if (vId) {
-                    const vs = p.variants?.map(v => v.id === vId ? { ...v, stock: type === 'IN' ? v.stock + qty : Math.max(0, v.stock - qty) } : v);
-                    return { ...p, variants: vs, stock: vs?.reduce((a,b)=>a+b.stock,0) || 0 };
+                    const vs = p.variants?.map((v: ProductVariant) => v.id === vId ? { ...v, stock: type === 'IN' ? v.stock + qty : Math.max(0, v.stock - qty) } : v);
+                    return { ...p, variants: vs, stock: vs?.reduce((a: number, b: ProductVariant)=>a+b.stock,0) || 0 };
                 }
                 return { ...p, stock: type === 'IN' ? p.stock + qty : Math.max(0, p.stock - qty) };
             }
@@ -998,7 +998,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const addPurchase = (p: Purchase) => {
         setPurchases(prev => [...prev, p]);
         storeRef.current.purchases = [...storeRef.current.purchases, p];
-        p.items.forEach(item => adjustStock(item.productId, item.quantity, 'IN', item.variantId));
+        p.items.forEach((item: PurchaseItem) => adjustStock(item.productId, item.quantity, 'IN', item.variantId));
         addCashMovement({ id: `purch_${p.id}`, type: 'EXPENSE', amount: p.total, description: `Compra a ${p.supplierName}`, date: p.date, category: 'OPERATIONAL' });
         markLocalChange();
         logActivity('INVENTORY', `Compra a ${p.supplierName}`);
@@ -1097,11 +1097,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // 3. Prepare Order for POS with ACTUAL quantities
         const originalOrder = orders.find(o => o.id === orderId);
         if (originalOrder) {
-            const posItems = originalOrder.items.map(originalItem => {
+            const posItems = originalOrder.items.map((originalItem: CartItem) => {
                 const produced = actualItems.find(p => p.id === originalItem.id && p.variantId === originalItem.variantId);
                 // Use actual produced qty for sale, if available. Defaults to 0 if nothing produced.
                 return { ...originalItem, quantity: produced ? produced.quantity : 0 };
-            }).filter(i => i.quantity > 0); // Remove items with 0 production
+            }).filter((i: CartItem) => i.quantity > 0); // Remove items with 0 production
 
             // 4. Send modified order to POS
             sendOrderToPOS({ ...originalOrder, items: posItems });

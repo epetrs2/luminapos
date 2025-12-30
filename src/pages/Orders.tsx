@@ -1,7 +1,8 @@
+
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, Printer, Edit2, ListChecks, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus, Scan, Trash2, Layers, PackagePlus, AlertTriangle, Timer, FileText, ArrowUpRight, ChefHat, Factory, Truck, QrCode } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
-import { Order, CartItem, Product, AppView } from '../types';
+import { Order, CartItem, Product, AppView, ProductVariant } from '../types';
 import { printOrderInvoice, printProductionSummary, printProductionTicket, printProductionMasterList } from '../utils/printService';
 
 // --- STYLED ORDER TICKET CARD ---
@@ -14,7 +15,7 @@ const OrderCard = React.memo(({
     isReady, 
     onConvert, 
     onDragStart, 
-    onTouchStart,
+    onTouchStart, 
     onEdit,
     onRegisterSurplus
 }: {
@@ -195,7 +196,7 @@ const SurplusModal = ({ order, onClose, onConfirm }: { order: Order, onClose: ()
 const DeliveryModal = ({ order, onClose, onConfirm }: { order: Order, onClose: () => void, onConfirm: (actualItems: any[]) => void }) => {
     // ... (Same logic as provided in previous turns)
     const [producedItems, setProducedItems] = useState<{id: string, variantId?: string, quantity: number}[]>(
-        order.items.map(i => ({ id: i.id, variantId: i.variantId, quantity: i.quantity }))
+        order.items.map((i: CartItem) => ({ id: i.id, variantId: i.variantId, quantity: i.quantity }))
     );
     const handleQtyChange = (itemId: string, variantId: string | undefined, val: number) => {
         if (val < 0) val = 0;
@@ -311,8 +312,8 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     const animationFrameRef = useRef<number | null>(null);
 
     const activeOrders = useMemo(() => orders.filter(o => o.status !== 'COMPLETED').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()), [orders]);
-    const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku.includes(searchTerm));
-    const filteredEditProducts = products.filter(p => p.name.toLowerCase().includes(editSearchTerm.toLowerCase()) || p.sku.includes(editSearchTerm));
+    const filteredProducts = products.filter((p: Product) => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku.includes(searchTerm));
+    const filteredEditProducts = products.filter((p: Product) => p.name.toLowerCase().includes(editSearchTerm.toLowerCase()) || p.sku.includes(editSearchTerm));
     const todayStr = useMemo(() => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().split('T')[0]; }, []);
 
     useEffect(() => { if (editingItemId && editInputRef.current) { editInputRef.current.focus(); editInputRef.current.select(); } }, [editingItemId]);
@@ -340,7 +341,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     const handleOpenPrintModal = () => { if (activeOrders.length === 0) { alert("No hay pedidos activos para imprimir."); return; } const allIds = new Set<string>(activeOrders.map(o => o.id)); setSelectedOrdersForPrint(allIds); setShowMasterListPrompt(false); setPrintModalOpen(true); };
     const togglePrintOrder = (id: string) => { const newSet = new Set(selectedOrdersForPrint); if (newSet.has(id)) newSet.delete(id); else newSet.add(id); setSelectedOrdersForPrint(newSet); };
     const filterPrintSelection = (criteria: 'TODAY_CREATED' | 'TODAY_DELIVERY' | 'TOMORROW_DELIVERY' | 'ALL') => { const today = new Date().toDateString(); const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); const tomorrowStr = tomorrow.toDateString(); const filtered = activeOrders.filter(o => { if (criteria === 'ALL') return true; if (criteria === 'TODAY_CREATED') return new Date(o.date).toDateString() === today; if (criteria === 'TODAY_DELIVERY') return o.deliveryDate && new Date(o.deliveryDate + 'T00:00:00').toDateString() === today; if (criteria === 'TOMORROW_DELIVERY') return o.deliveryDate && new Date(o.deliveryDate + 'T00:00:00').toDateString() === tomorrowStr; return false; }); setSelectedOrdersForPrint(new Set(filtered.map(o => o.id))); };
-    const confirmPrintProduction = async (type: 'SHEET' | 'THERMAL' | 'MASTER') => { const ordersToPrint = activeOrders.filter(o => selectedOrdersForPrint.has(o.id)); if (ordersToPrint.length === 0) { alert("Selecciona al menos un pedido."); return; } if (type === 'SHEET') { printProductionSummary(ordersToPrint, settings, products); setPrintModalOpen(false); } else if (type === 'MASTER') { if (!btDevice) { notify("Error", "Conecta la impresora Bluetooth.", "error"); return; } printProductionMasterList(ordersToPrint, settings, products, sendBtData); setPrintModalOpen(false); } else { if (!btDevice) { notify("Error", "Conecta la impresora Bluetooth en Configuración.", "error"); return; } const stockTracker = new Map<string, number>(); products.forEach(p => { stockTracker.set(p.id, p.stock); if (p.variants) { p.variants.forEach(v => stockTracker.set(`${p.id}-${v.id}`, v.stock)); } }); for (let i = 0; i < ordersToPrint.length; i++) { const order = ordersToPrint[i]; await printProductionTicket(order, settings, products, sendBtData, stockTracker); order.items.forEach(item => { const trackKey = item.variantId ? `${item.id}-${item.variantId}` : item.id; const currentStock = stockTracker.get(trackKey) || 0; const consumed = Math.min(item.quantity, Math.max(0, currentStock)); stockTracker.set(trackKey, currentStock - consumed); }); if (i < ordersToPrint.length - 1) { notify("Enfriando Impresora", `Esperando 10s para siguiente ticket (${i+1}/${ordersToPrint.length})`, "info"); await new Promise(r => setTimeout(r, 10000)); } else { await new Promise(r => setTimeout(r, 1000)); } } setShowMasterListPrompt(true); } };
+    const confirmPrintProduction = async (type: 'SHEET' | 'THERMAL' | 'MASTER') => { const ordersToPrint = activeOrders.filter(o => selectedOrdersForPrint.has(o.id)); if (ordersToPrint.length === 0) { alert("Selecciona al menos un pedido."); return; } if (type === 'SHEET') { printProductionSummary(ordersToPrint, settings, products); setPrintModalOpen(false); } else if (type === 'MASTER') { if (!btDevice) { notify("Error", "Conecta la impresora Bluetooth.", "error"); return; } printProductionMasterList(ordersToPrint, settings, products, sendBtData); setPrintModalOpen(false); } else { if (!btDevice) { notify("Error", "Conecta la impresora Bluetooth en Configuración.", "error"); return; } const stockTracker = new Map<string, number>(); products.forEach((p: Product) => { stockTracker.set(p.id, p.stock); if (p.variants) { p.variants.forEach((v: ProductVariant) => stockTracker.set(`${p.id}-${v.id}`, v.stock)); } }); for (let i = 0; i < ordersToPrint.length; i++) { const order = ordersToPrint[i]; await printProductionTicket(order, settings, products, sendBtData, stockTracker); order.items.forEach((item: CartItem) => { const trackKey = item.variantId ? `${item.id}-${item.variantId}` : item.id; const currentStock = stockTracker.get(trackKey) || 0; const consumed = Math.min(item.quantity, Math.max(0, currentStock)); stockTracker.set(trackKey, currentStock - consumed); }); if (i < ordersToPrint.length - 1) { notify("Enfriando Impresora", `Esperando 10s para siguiente ticket (${i+1}/${ordersToPrint.length})`, "info"); await new Promise(r => setTimeout(r, 10000)); } else { await new Promise(r => setTimeout(r, 1000)); } } setShowMasterListPrompt(true); } };
     const handleMasterListResponse = (shouldPrint: boolean) => { if (shouldPrint) { const ordersToPrint = activeOrders.filter(o => selectedOrdersForPrint.has(o.id)); printProductionMasterList(ordersToPrint, settings, products, sendBtData); } setPrintModalOpen(false); setShowMasterListPrompt(false); };
     const handleScanSuccess = (decodedId: string) => { setIsScannerOpen(false); const order = orders.find(o => o.id === decodedId); if (!order) { alert("Pedido no encontrado."); return; } if (order.status === 'COMPLETED') { alert("Este pedido ya fue completado."); return; } let nextStatus: any = order.status; let action = ""; if (order.status === 'PENDING') { nextStatus = 'IN_PROGRESS'; action = "Iniciar Producción"; } else if (order.status === 'IN_PROGRESS') { nextStatus = 'READY'; action = "Marcar como LISTO"; } else if (order.status === 'READY') { handleDeliveryClick(order.id); return; } if (confirm(`Pedido #${order.id}.\n¿${action}?`)) { updateOrderStatus(order.id, nextStatus); notify("Actualizado", "Estado actualizado.", "success"); } };
     const handleDragStart = useCallback((e: React.DragEvent, id: string) => { e.dataTransfer.setData("orderId", id); e.dataTransfer.effectAllowed = "move"; }, []);
@@ -528,7 +529,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                             </div>
                             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                    {filteredProducts.map(p => (
+                                    {filteredProducts.map((p: Product) => (
                                         <button key={p.id} onClick={() => addToCart(p)} className="relative group p-4 rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md transition-all text-left flex flex-col h-32 active:scale-95">
                                             <div className="flex-1">
                                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-1">{p.category}</span>
@@ -611,7 +612,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                 <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10">
                                     <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar productos..." className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white" value={editSearchTerm} onChange={e => setEditSearchTerm(e.target.value)} autoFocus /></div>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-4"><div className="grid grid-cols-2 lg:grid-cols-3 gap-3">{filteredEditProducts.map(p => (<button key={p.id} onClick={() => addToEditCart(p)} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 transition-all text-left flex flex-col h-28 active:scale-95 shadow-sm"><div className="flex-1 min-w-0"><p className="font-bold text-sm text-slate-800 dark:text-white line-clamp-2">{p.name}</p><p className="text-[10px] text-slate-500 uppercase mt-1">{p.category}</p></div><div className="flex justify-between items-end mt-2"><span className="font-bold text-indigo-600 dark:text-indigo-400">${p.price}</span><Plus className="w-5 h-5 text-slate-300" /></div></button>))}</div></div>
+                                <div className="flex-1 overflow-y-auto p-4"><div className="grid grid-cols-2 lg:grid-cols-3 gap-3">{filteredEditProducts.map((p: Product) => (<button key={p.id} onClick={() => addToEditCart(p)} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 transition-all text-left flex flex-col h-28 active:scale-95 shadow-sm"><div className="flex-1 min-w-0"><p className="font-bold text-sm text-slate-800 dark:text-white line-clamp-2">{p.name}</p><p className="text-[10px] text-slate-500 uppercase mt-1">{p.category}</p></div><div className="flex justify-between items-end mt-2"><span className="font-bold text-indigo-600 dark:text-indigo-400">${p.price}</span><Plus className="w-5 h-5 text-slate-300" /></div></button>))}</div></div>
                             </div>
                             {/* Right Details */}
                             <div className={`w-full md:w-[400px] flex flex-col bg-white dark:bg-slate-900 ${editMobileTab === 'CATALOG' ? 'hidden md:flex' : 'flex'}`}>
