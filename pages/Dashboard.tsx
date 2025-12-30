@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useStore } from '../components/StoreContext';
 import { DollarSign, ShoppingCart, Package, Users, TrendingUp, AlertTriangle, ArrowRight, Clock, Box, Wallet } from 'lucide-react';
@@ -68,18 +69,18 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
 
           {/* Featured Stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              {/* Sales Card (Pastel Blue) */}
-              <div className="bg-blue-200 dark:bg-blue-900 rounded-3xl p-6 text-blue-900 dark:text-blue-50 shadow-xl shadow-blue-100 dark:shadow-none relative overflow-hidden group border border-blue-200/50 dark:border-blue-800">
+              {/* Sales Card */}
+              <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-3xl p-6 text-white shadow-xl shadow-indigo-200 dark:shadow-none relative overflow-hidden group">
                   <div className="absolute right-0 top-0 p-6 opacity-10 group-hover:scale-110 transition-transform duration-500">
-                      <DollarSign className="w-32 h-32 text-blue-800 dark:text-blue-300" />
+                      <DollarSign className="w-32 h-32" />
                   </div>
                   <div className="relative z-10">
-                      <div className="bg-white/60 dark:bg-white/10 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 backdrop-blur-sm shadow-sm">
-                          <TrendingUp className="w-6 h-6 text-blue-700 dark:text-blue-200" />
+                      <div className="bg-white/20 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 backdrop-blur-sm">
+                          <TrendingUp className="w-6 h-6 text-white" />
                       </div>
-                      <p className="text-blue-700 dark:text-blue-300 font-bold mb-1">Ventas Hoy</p>
+                      <p className="text-indigo-100 font-medium mb-1">Ventas Hoy</p>
                       <h3 className="text-4xl font-black tracking-tight">${todaysSales.toFixed(2)}</h3>
-                      <div className="mt-4 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/40 dark:bg-white/10 text-xs font-bold backdrop-blur-md text-blue-800 dark:text-blue-200 shadow-sm">
+                      <div className="mt-4 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-xs font-medium backdrop-blur-md">
                           <ShoppingCart className="w-3 h-3" /> {todaysTransactions.length} tickets
                       </div>
                   </div>
