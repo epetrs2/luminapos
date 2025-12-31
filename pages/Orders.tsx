@@ -697,7 +697,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                             <>
                                 <button
                                     onClick={() => setIsScannerOpen(true)}
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-colors"
+                                    className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-colors"
                                 >
                                     <Scan className="w-4 h-4" /> Escanear
                                 </button>
@@ -1164,7 +1164,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
 
                                     <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
                                         <div className="space-y-2">
-                                            {editCart.map(item => (
+                                            {editCart.map((item: CartItem) => (
                                                 <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
                                                     <div className="flex flex-col items-center gap-1">
                                                         <button onClick={() => updateEditQty(item.id, 1)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm text-slate-500 hover:text-indigo-600 flex items-center justify-center"><Plus className="w-3 h-3"/></button>
