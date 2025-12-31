@@ -1,6 +1,5 @@
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus, Scan, QrCode, Layers } from 'lucide-react';
+import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus, Scan, QrCode, Layers, PackagePlus } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Order, CartItem, Product, AppView } from '../types';
 import { printOrderInvoice, printProductionSummary, printProductionTicket, printProductionMasterList } from '../utils/printService';
@@ -16,7 +15,8 @@ const OrderCard = React.memo(({
     onConvert, 
     onDragStart, 
     onTouchStart,
-    onEdit
+    onEdit,
+    onSurplus
 }: {
     order: Order;
     statusColor: string;
@@ -29,6 +29,7 @@ const OrderCard = React.memo(({
     onDragStart: (e: React.DragEvent, id: string) => void;
     onTouchStart: (e: React.TouchEvent, id: string, name: string, element: HTMLElement | null) => void;
     onEdit: () => void;
+    onSurplus: () => void;
 }) => {
     const cardRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +88,10 @@ const OrderCard = React.memo(({
             <div className="flex justify-between items-center gap-2 mt-auto relative z-10">
                 <div className="flex gap-1" onTouchStart={(e) => e.stopPropagation()}>
                     <button onClick={onPrint} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-indigo-500 rounded transition-colors" title="Imprimir"><Printer className="w-4 h-4"/></button>
+                    {/* SURPLUS BUTTON */}
+                    {(order.status === 'IN_PROGRESS' || order.status === 'READY') && (
+                        <button onClick={onSurplus} className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-slate-400 hover:text-emerald-500 rounded transition-colors" title="Registrar Excedente"><PackagePlus className="w-4 h-4"/></button>
+                    )}
                     <button onClick={onEdit} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-500 rounded transition-colors" title="Editar"><Edit2 className="w-4 h-4"/></button>
                     <button onClick={onCancel} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 rounded transition-colors" title="Cancelar"><Trash2 className="w-4 h-4"/></button>
                 </div>
@@ -104,6 +109,76 @@ const OrderCard = React.memo(({
         </div>
     );
 });
+
+// --- SURPLUS MODAL COMPONENT ---
+const SurplusModal = ({ order, onClose, onSave }: { order: Order, onClose: () => void, onSave: (items: any[]) => void }) => {
+    const [surplusItems, setSurplusItems] = useState<{id: string, variantId?: string, quantity: number}[]>([]);
+
+    const handleQtyChange = (itemId: string, variantId: string | undefined, val: number) => {
+        if (val < 0) val = 0;
+        setSurplusItems(prev => {
+            const exists = prev.find(p => p.id === itemId && p.variantId === variantId);
+            if (exists) {
+                return prev.map(p => p.id === itemId && p.variantId === variantId ? { ...p, quantity: val } : p);
+            }
+            return [...prev, { id: itemId, variantId, quantity: val }];
+        });
+    };
+
+    const handleConfirm = () => {
+        const finalItems = surplusItems.filter(i => i.quantity > 0);
+        if (finalItems.length === 0) {
+            onClose();
+            return;
+        }
+        onSave(finalItems);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out]">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-100 dark:border-slate-800">
+                <div className="flex justify-between items-center mb-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                            <PackagePlus className="w-5 h-5 text-emerald-500" /> Registrar Excedente
+                        </h3>
+                        <p className="text-xs text-slate-500">¿Produjiste más de lo pedido? Agrégalo al stock.</p>
+                    </div>
+                    <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
+                </div>
+
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto mb-6 custom-scrollbar pr-1">
+                    {order.items.map((item, idx) => {
+                        const current = surplusItems.find(s => s.id === item.id && s.variantId === item.variantId)?.quantity || 0;
+                        return (
+                            <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                                <div>
+                                    <p className="font-bold text-sm text-slate-700 dark:text-slate-200">{item.name}</p>
+                                    <p className="text-xs text-slate-500">Pedido: {item.quantity}</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase">Extra:</span>
+                                    <input 
+                                        type="number" 
+                                        min="0"
+                                        className="w-16 p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-center font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                                        value={current}
+                                        onChange={(e) => handleQtyChange(item.id, item.variantId, parseInt(e.target.value) || 0)}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="flex gap-3">
+                    <button onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">Cancelar</button>
+                    <button onClick={handleConfirm} className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg">Confirmar Ingreso</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // --- QR SCANNER MODAL COMPONENT ---
 const QrScannerModal = ({ onClose, onScanSuccess }: { onClose: () => void, onScanSuccess: (id: string) => void }) => {
@@ -157,7 +232,7 @@ interface OrdersProps {
 }
 
 export const Orders: React.FC<OrdersProps> = ({ setView }) => {
-    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS, btDevice, sendBtData, notify } = useStore();
+    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS, btDevice, sendBtData, notify, registerProductionSurplus } = useStore();
     const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
     const [mobileCreateStep, setMobileCreateStep] = useState<'CATALOG' | 'DETAILS'>('CATALOG');
     
@@ -188,6 +263,10 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
 
     // Delete Confirmation State
     const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
+
+    // Surplus State
+    const [surplusModalOpen, setSurplusModalOpen] = useState(false);
+    const [surplusOrder, setSurplusOrder] = useState<Order | null>(null);
 
     // Scanner State
     const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -687,6 +766,20 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         };
     }, [orders, updateOrderStatus]);
 
+    // --- HANDLE OPEN SURPLUS ---
+    const handleOpenSurplus = (order: Order) => {
+        setSurplusOrder(order);
+        setSurplusModalOpen(true);
+    };
+
+    const handleConfirmSurplus = (items: any[]) => {
+        if(surplusOrder) {
+            registerProductionSurplus(surplusOrder.id, items);
+            setSurplusModalOpen(false);
+            setSurplusOrder(null);
+        }
+    };
+
     return (
         <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
             {/* OPTIMIZED GHOST ELEMENT */}
@@ -704,6 +797,15 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             {/* SCANNER MODAL */}
             {isScannerOpen && (
                 <QrScannerModal onClose={() => setIsScannerOpen(false)} onScanSuccess={handleScanSuccess} />
+            )}
+
+            {/* SURPLUS MODAL */}
+            {surplusModalOpen && surplusOrder && (
+                <SurplusModal 
+                    order={surplusOrder} 
+                    onClose={() => setSurplusModalOpen(false)} 
+                    onSave={handleConfirmSurplus} 
+                />
             )}
 
             <div className="max-w-7xl mx-auto h-full flex flex-col">
@@ -775,6 +877,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                                     onPrint={() => handlePrintOrder(order)}
                                                     onCancel={() => setOrderToDelete(order.id)}
                                                     onEdit={() => handleEditClick(order)}
+                                                    onSurplus={() => handleOpenSurplus(order)}
                                                     isReady={status === 'READY'}
                                                     onConvert={() => handleDeliverToPOS(order.id)}
                                                     onDragStart={handleDragStart}
@@ -832,7 +935,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                     <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
                                         <p className="text-xs font-bold text-slate-400 uppercase mb-2">Filtros Rápidos</p>
                                         <div className="flex gap-2 overflow-x-auto pb-2">
-                                            <button onClick={() => filterPrintSelection('TODAY_CREATED')} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 transition-colors whitespace-nowrap">
+                                            <button onClick={() => filterPrintSelection('TODAY_CREATED')} className="px-3 py-1.5 bg-indigo-5 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 transition-colors whitespace-nowrap">
                                                 Creados Hoy
                                             </button>
                                             <button onClick={() => filterPrintSelection('TODAY_DELIVERY')} className="px-3 py-1.5 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-colors whitespace-nowrap">

@@ -339,24 +339,24 @@ export const POS: React.FC = () => {
         if (!lastTransaction) return;
         
         const config = settings.printConfig?.customerCopyBehavior || 'ASK';
+        const customerName = customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador';
         
-        // Always print original first
-        printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, btDevice ? sendBtData : undefined);
-
         if (config === 'ALWAYS') {
-            // Wait slightly and print copy
-            setTimeout(() => {
-                printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, btDevice ? sendBtData : undefined, true);
-            }, 500); // 500ms delay
-        } else if (config === 'ASK') {
-            // Show the "Print Copy" button
-            setShowCopyBtn(true);
+            printThermalTicket(lastTransaction, customerName, settings, btDevice ? sendBtData : undefined, 'BOTH');
+        } else {
+            printThermalTicket(lastTransaction, customerName, settings, btDevice ? sendBtData : undefined, 'ORIGINAL');
+            if (config === 'ASK') {
+                setShowCopyBtn(true);
+            }
         }
     };
 
     const handlePrintCopy = () => {
         if (!lastTransaction) return;
-        printThermalTicket(lastTransaction, customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador', settings, btDevice ? sendBtData : undefined, true);
+        const customerName = customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador';
+        
+        // Fix: Explicitly ask for COPY mode only
+        printThermalTicket(lastTransaction, customerName, settings, btDevice ? sendBtData : undefined, 'COPY');
         setShowCopyBtn(false); // Hide after printing
     };
 

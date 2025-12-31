@@ -1,5 +1,6 @@
 
-import { Transaction, BusinessSettings, CashMovement } from "../types";
+import { Transaction, BusinessSettings, CashMovement, Order, Product } from "../types";
+import QRCode from 'qrcode';
 
 // Standard ESC/POS Commands
 const ESC = 0x1B;
@@ -13,6 +14,8 @@ const COMMANDS = {
     ALIGN_RIGHT: [ESC, 0x61, 0x02],
     BOLD_ON: [ESC, 0x45, 0x01],
     BOLD_OFF: [ESC, 0x45, 0x00],
+    INVERT_ON: [GS, 0x42, 0x01], // Black background / White text
+    INVERT_OFF: [GS, 0x42, 0x00],
     FEED_LINES: (n: number) => [ESC, 0x64, n],
 };
 
@@ -47,10 +50,6 @@ const formatRow = (col1: string, col2: string, col3: string, widthType: '58mm' |
     const nCol3 = normalize(col3);
 
     // 2. Truncar y Rellenar
-    // PadEnd adds spaces to the right. PadStart adds spaces to the left.
-    // NOTE: -1 on substring for Qty and Desc to allow for visual spacing if needed, but strict grid usually better full.
-    // Let's use strict full width.
-    
     const c1 = nCol1.substring(0, wQty - 1).padEnd(wQty, ' '); // Left align
     const c2 = nCol2.substring(0, wDesc - 1).padEnd(wDesc, ' '); // Left align
     const c3 = nCol3.substring(0, wTotal).padStart(wTotal, ' '); // Right align
@@ -137,6 +136,265 @@ const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): nu
     return rasterData;
 };
 
+// --- QR GENERATOR ---
+const generateQRCodeBytes = async (text: string): Promise<number[]> => {
+    try {
+        const dataUrl = await QRCode.toDataURL(text, { margin: 1, width: 250, errorCorrectionLevel: 'M' });
+        const img = await loadImage(dataUrl);
+        return convertImageToRaster(img, 250);
+    } catch (e) {
+        console.error("QR Gen Error", e);
+        return [];
+    }
+};
+
+// --- PRODUCTION TICKET GENERATOR (INDIVIDUAL) ---
+export const generateProductionTicket = async (
+    order: Order, 
+    settings: BusinessSettings, 
+    products: Product[],
+    stockTracker?: Map<string, number>
+): Promise<Uint8Array> => {
+    const buffer: number[] = [];
+    const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
+    const addLine = (text: string) => add(encode(text + '\n'));
+    const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
+
+    add(COMMANDS.INIT);
+    add(COMMANDS.CODE_PAGE); 
+    add(COMMANDS.ALIGN_CENTER);
+
+    // --- HEADER ---
+    add(COMMANDS.BOLD_ON);
+    // Double Height Title
+    add([GS, 0x21, 0x10]); 
+    addLine("PRODUCCION");
+    add([GS, 0x21, 0x00]); 
+    add(COMMANDS.BOLD_OFF);
+    addLine(separator);
+    
+    // Order ID (Huge)
+    add(COMMANDS.BOLD_ON);
+    add([GS, 0x21, 0x11]); // Double Height/Width
+    addLine(`#${order.id.slice(-4)}`);
+    add([GS, 0x21, 0x00]); // Reset
+    add(COMMANDS.BOLD_OFF);
+    
+    add(COMMANDS.ALIGN_LEFT);
+    addLine(`Cliente: ${normalize(order.customerName).substring(0, 20)}`);
+    
+    if (order.deliveryDate) {
+        add(COMMANDS.BOLD_ON);
+        addLine(`ENTREGA: ${new Date(order.deliveryDate).toLocaleDateString()}`);
+        add(COMMANDS.BOLD_OFF);
+    }
+    
+    if (order.priority === 'HIGH') {
+        addLine('\n');
+        add(COMMANDS.ALIGN_CENTER);
+        add([GS, 0x42, 0x01]); // Invert
+        addLine(" !!! URGENTE !!! ");
+        add([GS, 0x42, 0x00]); // Normal
+        add(COMMANDS.ALIGN_LEFT);
+    }
+    addLine('\n');
+
+    // Split Logic
+    const toProduce: any[] = [];
+    const toPick: any[] = [];
+
+    order.items.forEach(item => {
+        let currentStock = 0;
+        
+        // --- NEW LOGIC: USE TRACKER IF AVAILABLE ---
+        // If stockTracker is provided (during batch print), use it.
+        // Otherwise fall back to global product state.
+        const trackKey = item.variantId ? `${item.id}-${item.variantId}` : item.id;
+        
+        if (stockTracker && stockTracker.has(trackKey)) {
+            currentStock = stockTracker.get(trackKey) || 0;
+        } else {
+            const product = products.find(p => p.id === item.id);
+            if (product) {
+                if (item.variantId && product.variants) {
+                    const v = product.variants.find(v => v.id === item.variantId);
+                    currentStock = v ? v.stock : 0;
+                } else {
+                    currentStock = product.stock;
+                }
+            }
+        }
+
+        const pickQty = Math.min(item.quantity, Math.max(0, currentStock));
+        const makeQty = item.quantity - pickQty;
+
+        if (pickQty > 0) toPick.push({ ...item, quantity: pickQty });
+        if (makeQty > 0) toProduce.push({ ...item, quantity: makeQty });
+    });
+
+    // --- SECTION: PRODUCE (Bold, Big) ---
+    if (toProduce.length > 0) {
+        add(COMMANDS.ALIGN_LEFT);
+        add(COMMANDS.BOLD_ON);
+        addLine(">> A FABRICAR:");
+        add(COMMANDS.BOLD_OFF);
+        addLine(separator);
+        
+        toProduce.forEach(item => {
+            // Checkbox and Qty
+            add(COMMANDS.BOLD_ON);
+            add([GS, 0x21, 0x01]); // Double Height only
+            add(encode(`[ ] ${item.quantity}`));
+            add([GS, 0x21, 0x00]); // Reset
+            add(COMMANDS.BOLD_OFF);
+            
+            // Item Name
+            add(COMMANDS.BOLD_ON);
+            addLine(` x ${normalize(item.name)}`);
+            add(COMMANDS.BOLD_OFF);
+            
+            if (item.variantName) {
+                addLine(`     ${normalize(item.variantName)}`);
+            }
+            addLine('\n'); // Spacing between items
+        });
+    }
+
+    // --- SECTION: WAREHOUSE (Simple list) ---
+    if (toPick.length > 0) {
+        add(COMMANDS.ALIGN_LEFT);
+        addLine("\n");
+        addLine(">> TOMAR DE BODEGA:");
+        addLine(separator);
+        
+        toPick.forEach(item => {
+            addLine(`[ ] ${item.quantity} x ${normalize(item.name)}`);
+            if (item.variantName) {
+                addLine(`    (${normalize(item.variantName)})`);
+            }
+        });
+        addLine('\n');
+    }
+
+    // --- NOTES ---
+    if (order.notes) {
+        add(COMMANDS.ALIGN_CENTER);
+        add([GS, 0x42, 0x01]); // Invert
+        addLine(" NOTAS ");
+        add([GS, 0x42, 0x00]); // Normal
+        add(COMMANDS.ALIGN_LEFT);
+        addLine(normalize(order.notes));
+        addLine('\n');
+    }
+
+    // --- QR CODE ---
+    add(COMMANDS.ALIGN_CENTER);
+    addLine(separator);
+    const qrData = await generateQRCodeBytes(order.id);
+    if (qrData.length > 0) {
+        add(qrData);
+        addLine("TRACKING ID");
+    }
+    
+    add(COMMANDS.FEED_LINES(4));
+    return new Uint8Array(buffer);
+};
+
+// --- GLOBAL BATCH TICKET (CONSOLIDATED) ---
+export const generateConsolidatedProduction = async (
+    orders: Order[], 
+    settings: BusinessSettings,
+    products: Product[]
+): Promise<Uint8Array> => {
+    const buffer: number[] = [];
+    const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
+    const addLine = (text: string) => add(encode(text + '\n'));
+    const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
+
+    // Consolidate Logic
+    const summaryItems: Record<string, any> = {};
+    orders.forEach(o => o.items.forEach(i => {
+        const key = i.variantId ? `${i.id}-${i.variantId}` : i.id;
+        if (!summaryItems[key]) summaryItems[key] = { ...i, quantity: 0, orders: [] };
+        summaryItems[key].quantity += i.quantity;
+    }));
+    
+    // Split Logic
+    const toProduce: any[] = [];
+    const toPick: any[] = [];
+
+    Object.values(summaryItems).forEach((item: any) => {
+        let currentStock = 0;
+        const product = products.find(p => p.id === item.id);
+        if (product) {
+            if (item.variantId && product.variants) {
+                const v = product.variants.find(v => v.id === item.variantId);
+                currentStock = v ? v.stock : 0;
+            } else {
+                currentStock = product.stock;
+            }
+        }
+        const pickQty = Math.min(item.quantity, Math.max(0, currentStock));
+        const makeQty = item.quantity - pickQty;
+        if (pickQty > 0) toPick.push({ ...item, quantity: pickQty });
+        if (makeQty > 0) toProduce.push({ ...item, quantity: makeQty });
+    });
+
+    add(COMMANDS.INIT);
+    add(COMMANDS.CODE_PAGE); 
+    add(COMMANDS.ALIGN_CENTER);
+    
+    // Header
+    add(COMMANDS.BOLD_ON);
+    add([GS, 0x42, 0x01]); // Invert
+    addLine("  LISTA MAESTRA  ");
+    add([GS, 0x42, 0x00]);
+    add(COMMANDS.BOLD_OFF);
+    addLine(new Date().toLocaleTimeString());
+    addLine(`TOTAL: ${orders.length} PEDIDOS`);
+    addLine(separator);
+
+    if (toProduce.length > 0) {
+        add(COMMANDS.ALIGN_CENTER);
+        add(COMMANDS.BOLD_ON);
+        addLine("--- TOTAL A PRODUCIR ---");
+        add(COMMANDS.BOLD_OFF);
+        add(COMMANDS.ALIGN_LEFT);
+        addLine('\n');
+
+        toProduce.forEach(item => {
+            // Big Qty
+            add(COMMANDS.BOLD_ON);
+            add([GS, 0x21, 0x11]); // Double Size
+            add(encode(`[ ] ${item.quantity}`));
+            add([GS, 0x21, 0x00]); 
+            add(COMMANDS.BOLD_OFF);
+            
+            addLine(` x ${normalize(item.name)}`);
+            if(item.variantName) addLine(`     VAR: ${normalize(item.variantName)}`);
+            addLine(separator);
+        });
+        addLine('\n');
+    }
+
+    if (toPick.length > 0) {
+        add(COMMANDS.ALIGN_CENTER);
+        addLine("--- TOTAL BODEGA ---");
+        add(COMMANDS.ALIGN_LEFT);
+        toPick.forEach(item => {
+            addLine(`[ ] ${item.quantity} x ${normalize(item.name)}`);
+            if(item.variantName) addLine(`    (${normalize(item.variantName)})`);
+        });
+    }
+
+    add(COMMANDS.ALIGN_CENTER);
+    addLine('\n');
+    addLine("FIN DE LISTA MAESTRA");
+    add(COMMANDS.FEED_LINES(4));
+    return new Uint8Array(buffer);
+};
+
+// ... (Rest of existing Ticket generators remain unchanged)
 // --- TICKET GENERATOR ---
 export const generateEscPosTicket = async (transaction: Transaction, customerName: string, settings: BusinessSettings, copyLabel?: string): Promise<Uint8Array> => {
     const buffer: number[] = [];
