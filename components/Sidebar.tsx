@@ -13,7 +13,10 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
-  const { currentUser, logout, isSyncing, hasPendingChanges, notify, useStore: _ } = useStore();
+  // Fix: Get the whole store object first, then destructure what we need for rendering
+  const store = useStore();
+  const { currentUser, logout, isSyncing, hasPendingChanges, notify } = store;
+  
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleNavClick = (view: AppView) => {
@@ -23,7 +26,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
 
   const handleForceSync = async (e: React.MouseEvent) => {
       e.stopPropagation();
-      const store = useStore(); // Access store here directly to call methods if needed
       if (isSyncing) return;
 
       // SMART SYNC LOGIC
