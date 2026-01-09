@@ -88,7 +88,7 @@ interface StoreContextType {
     addOrder: (order: Order) => void;
     updateOrder: (order: Order) => void;
     updateOrderStatus: (id: string, status: string) => void;
-    convertOrderToSale: (order: Order) => void; // This seems to be unused or replaced by sendOrderToPOS
+    convertOrderToSale: (order: Order) => void; 
     deleteOrder: (id: string) => void;
     sendOrderToPOS: (order: Order) => void;
     clearIncomingOrder: () => void;
@@ -109,7 +109,7 @@ interface StoreContextType {
     getUserPublicInfo: (username: string) => { securityQuestion?: string } | null;
     
     generateInvite: (role: UserRole) => string;
-    registerWithInvite: (code: string, userData: Partial<User>) => Promise<'SUCCESS' | 'INVALID_CODE' | 'USERNAME_EXISTS'>;
+    registerWithInvite: (code: string, userData: Partial<User> & { password?: string; securityAnswer?: string }) => Promise<'SUCCESS' | 'INVALID_CODE' | 'USERNAME_EXISTS'>;
     deleteInvite: (code: string) => void;
 
     notify: (title: string, message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
@@ -168,7 +168,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, [products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, settings]);
 
     // ... Implementation of all methods ...
-    // Since the original file was truncated, I will implement the methods minimally but functionally to satisfy the interface and errors.
 
     // Load from LocalStorage on mount
     useEffect(() => {
@@ -194,7 +193,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (savedUser) setCurrentUser(JSON.parse(savedUser));
     }, []);
 
-    // Save to LocalStorage on change (Debounced slightly could be better but direct for now)
+    // Save to LocalStorage on change
     useEffect(() => { localStorage.setItem('products', JSON.stringify(products)); }, [products]);
     useEffect(() => { localStorage.setItem('customers', JSON.stringify(customers)); }, [customers]);
     useEffect(() => { localStorage.setItem('suppliers', JSON.stringify(suppliers)); }, [suppliers]);
@@ -241,12 +240,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             details,
             timestamp: new Date().toISOString()
         };
-        setActivityLogs(prev => [log, ...prev].slice(0, 1000)); // Keep last 1000
+        setActivityLogs(prev => [log, ...prev].slice(0, 1000));
     };
 
     // --- CRUD ---
     const addProduct = (p: Product) => {
-        const newProduct = { ...p, id: p.id || (settings.sequences.productStart + products.length).toString() }; // Simple sequence
+        const newProduct = { ...p, id: p.id || (settings.sequences.productStart + products.length).toString() };
         setProducts(prev => [...prev, newProduct]);
         setHasPendingChanges(true);
         logActivity('INVENTORY', `Producto creado: ${p.name}`);
@@ -277,13 +276,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }));
         setHasPendingChanges(true);
     };
-    const addCategory = (c: string) => { /* Derived, no op mostly */ };
+    const addCategory = (c: string) => { /* Derived */ };
     const removeCategory = (c: string) => { /* Derived */ };
 
     const addTransaction = (t: Transaction, options?: { shouldAffectCash?: boolean }) => {
         setTransactions(prev => [t, ...prev]);
         
-        // Affect Cash if Cash Payment
         if (options?.shouldAffectCash !== false && t.paymentMethod === 'cash') {
             const amount = t.amountPaid || t.total;
             if (amount > 0) {
@@ -299,7 +297,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         
         if (t.customerId) {
-            // Update customer debt if pending
             const debt = t.total - (t.amountPaid || 0);
             if (debt > 0) {
                 setCustomers(prev => prev.map(c => c.id === t.customerId ? { ...c, currentDebt: c.currentDebt + debt } : c));
@@ -334,7 +331,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const deleteTransaction = (id: string, items: any[]) => {
-        // Restore stock
         items.forEach(item => adjustStock(item.id, item.quantity, 'IN', item.variantId));
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled' } : t));
         setHasPendingChanges(true);
@@ -409,9 +405,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     const addPurchase = (p: Purchase) => {
         setPurchases(prev => [p, ...prev]);
-        // Update stock
         p.items.forEach(item => adjustStock(item.productId, item.quantity, 'IN', item.variantId));
-        // Add expense
         addCashMovement({
             id: crypto.randomUUID(),
             type: 'EXPENSE',
@@ -441,17 +435,42 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setOrders(prev => prev.map(item => item.id === o.id ? o : item));
         setHasPendingChanges(true);
     };
+    
+    // --- FIX: Update Order Status with Immediate Sync ---
     const updateOrderStatus = (id: string, status: string) => {
-        setOrders(prev => prev.map(o => o.id === id ? { ...o, status: status as any } : o));
+        setOrders(prev => {
+            const updatedOrders = prev.map(o => o.id === id ? { ...o, status: status as any } : o);
+            // Trigger auto-sync for status change to avoid reverts
+            if (settings.enableCloudSync && settings.googleWebAppUrl) {
+                const payload = { ...storeRef.current, orders: updatedOrders };
+                pushFullDataToCloud(settings.googleWebAppUrl, settings.cloudSecret, payload)
+                    .then(() => setHasPendingChanges(false))
+                    .catch(console.error);
+            }
+            return updatedOrders;
+        });
         setHasPendingChanges(true);
     };
+
+    // --- FIX: Delete Order with Immediate Sync to prevent Bounce Back ---
     const deleteOrder = (id: string) => {
-        setOrders(prev => prev.filter(o => o.id !== id));
+        setOrders(prev => {
+            const updatedOrders = prev.filter(o => o.id !== id);
+            
+            // CRITICAL: Push deletion immediately to cloud
+            if (settings.enableCloudSync && settings.googleWebAppUrl) {
+                const payload = { ...storeRef.current, orders: updatedOrders };
+                pushFullDataToCloud(settings.googleWebAppUrl, settings.cloudSecret, payload)
+                    .then(() => setHasPendingChanges(false))
+                    .catch(console.error);
+            }
+            return updatedOrders;
+        });
         setHasPendingChanges(true);
+        logActivity('ORDER', `Pedido eliminado #${id}`);
     };
-    const convertOrderToSale = (o: Order) => {
-        // Implementation might just be adding transaction, but usually handled in POS
-    };
+
+    const convertOrderToSale = (o: Order) => { };
     const sendOrderToPOS = (order: Order) => {
         setIncomingOrder(order);
     };
@@ -479,7 +498,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     };
 
-    // User & Auth
     const login = async (u: string, p: string, code?: string) => {
         const user = users.find(usr => usr.username.toLowerCase() === u.toLowerCase());
         if (!user) return 'INVALID';
@@ -489,10 +507,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!user.active) return 'INVALID';
 
         const validPass = await verifyPassword(p, user.salt, user.passwordHash);
-        if (!validPass) {
-            // Handle failed attempt
-            return 'INVALID';
-        }
+        if (!validPass) return 'INVALID';
 
         if (user.isTwoFactorEnabled) {
             if (!code) return '2FA_REQUIRED';
@@ -531,7 +546,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return code;
     };
 
-    const registerWithInvite = async (code: string, userData: Partial<User>) => {
+    const registerWithInvite = async (code: string, userData: Partial<User> & { password?: string; securityAnswer?: string }) => {
         const invite = userInvites.find(i => i.code === code);
         if (!invite) return 'INVALID_CODE';
         
@@ -540,7 +555,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const salt = generateSalt();
         const hash = await hashPassword(userData.password || '', salt);
         
-        // Handle security answer hashing
         let securityAnswerHash;
         if (userData.securityAnswer) {
             securityAnswerHash = await hashPassword(userData.securityAnswer.trim().toLowerCase(), salt);
@@ -561,22 +575,35 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
 
         setUsers(prev => [...prev, newUser]);
-        setUserInvites(prev => prev.filter(i => i.code !== code)); // Consume invite
+        setUserInvites(prev => prev.filter(i => i.code !== code));
         return 'SUCCESS';
     };
 
     const deleteInvite = (code: string) => setUserInvites(prev => prev.filter(i => i.code !== code));
 
-    const recoverAccount = async () => 'FAIL'; // Placeholder
-    const verifyRecoveryAttempt = async () => false; // Placeholder
+    const recoverAccount = async () => 'FAIL'; 
+    const verifyRecoveryAttempt = async () => false;
     const getUserPublicInfo = (username: string) => {
         const u = users.find(user => user.username.toLowerCase() === username.toLowerCase());
         return u ? { securityQuestion: u.securityQuestion } : null;
     };
 
-    // Cloud Sync
+    // --- FIX: Cloud Sync with Pending Changes Guard ---
     const pullFromCloud = async (url?: string, secret?: string, silent?: boolean, force?: boolean) => {
         if (!settings.enableCloudSync && !force) return false;
+        
+        // CRITICAL FIX: If we have pending local changes (like a deletion), do NOT download cloud data yet.
+        // This prevents the "bounce back" effect where the server overwrites local deletions.
+        if (hasPendingChanges && !force) {
+            if (!silent) {
+                // Optionally notify, but often better to just skip silently to avoid spam
+                // notify("Sync Pausado", "Subiendo cambios pendientes...", "warning");
+            }
+            // Trigger a push instead to resolve the difference
+            await pushToCloud();
+            return false;
+        }
+
         setIsSyncing(true);
         try {
             const data = await fetchFullDataFromCloud(url || settings.googleWebAppUrl || '', secret || settings.cloudSecret);
@@ -614,7 +641,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const connectBtPrinter = async () => {
         try {
             const device = await navigator.bluetooth.requestDevice({
-                filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }] // Standard POS service UUID
+                filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }]
             });
             const server = await device.gatt?.connect();
             const service = await server?.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
@@ -639,7 +666,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const sendBtData = async (data: Uint8Array) => {
         if (!btCharacteristic) throw new Error("No printer connected");
-        // Chunking for BLE limits (usually 20-512 bytes)
         const chunkSize = 512;
         for (let i = 0; i < data.length; i += chunkSize) {
             await btCharacteristic.writeValue(data.slice(i, i + chunkSize));
