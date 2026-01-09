@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus, Scan, QrCode, Layers } from 'lucide-react';
+import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus, Scan, QrCode, Layers, PackagePlus } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Order, CartItem, Product, AppView } from '../types';
 import { printOrderInvoice, printProductionSummary, printProductionTicket, printProductionMasterList } from '../utils/printService';
@@ -16,7 +16,8 @@ const OrderCard = React.memo(({
     onConvert, 
     onDragStart, 
     onTouchStart,
-    onEdit
+    onEdit,
+    onSurplus
 }: {
     order: Order;
     statusColor: string;
@@ -29,6 +30,7 @@ const OrderCard = React.memo(({
     onDragStart: (e: React.DragEvent, id: string) => void;
     onTouchStart: (e: React.TouchEvent, id: string, name: string, element: HTMLElement | null) => void;
     onEdit: () => void;
+    onSurplus: () => void;
 }) => {
     const cardRef = useRef<HTMLDivElement>(null);
 
@@ -88,6 +90,14 @@ const OrderCard = React.memo(({
                 <div className="flex gap-1" onTouchStart={(e) => e.stopPropagation()}>
                     <button onClick={onPrint} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-indigo-500 rounded transition-colors" title="Imprimir"><Printer className="w-4 h-4"/></button>
                     <button onClick={onEdit} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-500 rounded transition-colors" title="Editar"><Edit2 className="w-4 h-4"/></button>
+                    
+                    {/* SURPLUS BUTTON - Only for IN_PROGRESS or READY */}
+                    {(order.status === 'IN_PROGRESS' || order.status === 'READY') && (
+                        <button onClick={onSurplus} className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-slate-400 hover:text-emerald-500 rounded transition-colors" title="Registrar Sobrante Producción">
+                            <PackagePlus className="w-4 h-4"/>
+                        </button>
+                    )}
+
                     <button onClick={onCancel} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 rounded transition-colors" title="Cancelar"><Trash2 className="w-4 h-4"/></button>
                 </div>
                 
@@ -104,6 +114,88 @@ const OrderCard = React.memo(({
         </div>
     );
 });
+
+// --- SURPLUS MODAL COMPONENT ---
+const SurplusModal = ({ order, onClose, onConfirm }: { order: Order, onClose: () => void, onConfirm: (items: {itemId: string, variantId?: string, qty: number}[]) => void }) => {
+    const [quantities, setQuantities] = useState<Record<string, string>>({});
+
+    const handleQtyChange = (id: string, val: string) => {
+        setQuantities(prev => ({ ...prev, [id]: val }));
+    };
+
+    const handleSave = () => {
+        const surplusItems: {itemId: string, variantId?: string, qty: number}[] = [];
+        
+        order.items.forEach(item => {
+            const key = item.variantId ? `${item.id}-${item.variantId}` : item.id;
+            const qty = parseFloat(quantities[key]);
+            if (qty > 0) {
+                surplusItems.push({
+                    itemId: item.id,
+                    variantId: item.variantId,
+                    qty: qty
+                });
+            }
+        });
+
+        if (surplusItems.length === 0) {
+            alert("Ingresa al menos una cantidad mayor a 0.");
+            return;
+        }
+
+        onConfirm(surplusItems);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-[130] flex items-center justify-center p-4 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 dark:border-slate-800 overflow-hidden">
+                <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-emerald-50 dark:bg-emerald-900/20 flex justify-between items-center">
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                            <PackagePlus className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                            Registrar Sobrante
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Ingresa la cantidad EXTRA producida para sumar al stock.</p>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-black/10 rounded-full"><X className="w-5 h-5 opacity-50"/></button>
+                </div>
+                
+                <div className="p-5 max-h-[60vh] overflow-y-auto space-y-4">
+                    {order.items.map(item => {
+                        const key = item.variantId ? `${item.id}-${item.variantId}` : item.id;
+                        return (
+                            <div key={key} className="flex items-center justify-between p-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                                <div className="flex-1 pr-4">
+                                    <p className="font-bold text-slate-700 dark:text-slate-200 text-sm">{item.name}</p>
+                                    {item.variantName && <p className="text-xs text-slate-500">{item.variantName}</p>}
+                                    <p className="text-xs text-slate-400 mt-1">Pedido: {item.quantity}</p>
+                                </div>
+                                <div className="flex flex-col items-center gap-1">
+                                    <label className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400">Sobrante</label>
+                                    <input 
+                                        type="number" 
+                                        min="0"
+                                        placeholder="0"
+                                        className="w-20 p-2 text-center font-bold border border-slate-300 dark:border-slate-600 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 bg-white dark:bg-slate-900 dark:text-white"
+                                        value={quantities[key] || ''}
+                                        onChange={(e) => handleQtyChange(key, e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="p-5 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                    <button onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">Cancelar</button>
+                    <button onClick={handleSave} className="flex-[2] py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 dark:shadow-none flex items-center justify-center gap-2">
+                        <Save className="w-4 h-4" /> Guardar en Inventario
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // --- QR SCANNER MODAL COMPONENT ---
 const QrScannerModal = ({ onClose, onScanSuccess }: { onClose: () => void, onScanSuccess: (id: string) => void }) => {
@@ -157,7 +249,7 @@ interface OrdersProps {
 }
 
 export const Orders: React.FC<OrdersProps> = ({ setView }) => {
-    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS, btDevice, sendBtData, notify } = useStore();
+    const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS, btDevice, sendBtData, notify, adjustStock } = useStore();
     const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
     const [mobileCreateStep, setMobileCreateStep] = useState<'CATALOG' | 'DETAILS'>('CATALOG');
     
@@ -175,6 +267,9 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     const [editCart, setEditCart] = useState<CartItem[]>([]);
     const [editSearchTerm, setEditSearchTerm] = useState('');
     const [editMobileTab, setEditMobileTab] = useState<'CATALOG' | 'DETAILS'>('DETAILS');
+
+    // Surplus State
+    const [surplusOrder, setSurplusOrder] = useState<Order | null>(null);
 
     // Edit Price State
     const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -419,6 +514,15 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         });
 
         setSelectedOrdersForPrint(new Set(filtered.map(o => o.id)));
+    };
+
+    // --- SURPLUS HANDLERS ---
+    const handleSaveSurplus = (surplusItems: {itemId: string, variantId?: string, qty: number}[]) => {
+        surplusItems.forEach(item => {
+            adjustStock(item.itemId, item.qty, 'IN', item.variantId);
+        });
+        notify("Inventario Actualizado", `${surplusItems.length} productos sobrantes agregados al stock.`, "success");
+        setSurplusOrder(null);
     };
 
     // --- SMART PRINT WORKFLOW ---
@@ -683,6 +787,15 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 <QrScannerModal onClose={() => setIsScannerOpen(false)} onScanSuccess={handleScanSuccess} />
             )}
 
+            {/* SURPLUS MODAL */}
+            {surplusOrder && (
+                <SurplusModal 
+                    order={surplusOrder} 
+                    onClose={() => setSurplusOrder(null)} 
+                    onConfirm={handleSaveSurplus} 
+                />
+            )}
+
             <div className="max-w-7xl mx-auto h-full flex flex-col">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                     <div>
@@ -756,6 +869,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                                     onConvert={() => handleDeliverToPOS(order.id)}
                                                     onDragStart={handleDragStart}
                                                     onTouchStart={handleTouchStart}
+                                                    onSurplus={() => setSurplusOrder(order)}
                                                 />
                                             ))}
                                             {columnOrders.length === 0 && (
