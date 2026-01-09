@@ -738,6 +738,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const manualLockApp = () => setIsAppLocked(true);
 
+    // --- NEW: Auto-Sync Interval ---
+    useEffect(() => {
+        let intervalId: any;
+
+        if (settings.enableCloudSync && settings.googleWebAppUrl) {
+            intervalId = setInterval(() => {
+                // Prevent overlap if already syncing
+                if (isSyncing) return;
+
+                // Decision logic: Push if local changes exist, otherwise Pull to get updates
+                if (pendingChangesRef.current) {
+                    pushToCloud().catch(console.error);
+                } else {
+                    // Silent pull (no success toast) to keep UI clean
+                    pullFromCloud(undefined, undefined, true).catch(console.error);
+                }
+            }, 30000); // Run every 30 seconds
+        }
+
+        return () => {
+            if (intervalId) clearInterval(intervalId);
+        };
+    }, [settings.enableCloudSync, settings.googleWebAppUrl, isSyncing]);
+
     return (
         <StoreContext.Provider value={{
             products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, settings, currentUser, toasts, isSyncing, hasPendingChanges,
