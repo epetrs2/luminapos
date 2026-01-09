@@ -47,7 +47,7 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
         display: flex;
         width: 100%;
         height: 98vh;
-        gap: 15px;
+        gap: 20px;
         justify-content: center;
         align-items: stretch;
     }
@@ -55,7 +55,7 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
     .invoice-panel {
         flex: 1;
         border: 2px solid #1e293b; /* Slate 800 */
-        border-radius: 4px;
+        border-radius: 6px;
         display: flex;
         flex-direction: column;
         height: 100%;
@@ -67,7 +67,7 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
     .header-bar {
         background-color: #1e293b; 
         color: white;
-        padding: 4px 10px;
+        padding: 8px 12px;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -76,7 +76,7 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
     
     .header-title {
         font-weight: 800;
-        font-size: 14px;
+        font-size: 20px; /* Increased */
         letter-spacing: 1px;
         text-transform: uppercase;
     }
@@ -84,29 +84,28 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
     .header-tag {
         background-color: white;
         color: #1e293b;
-        font-size: 10px;
+        font-size: 12px; /* Increased */
         font-weight: 800;
-        padding: 2px 8px;
-        border-radius: 2px;
+        padding: 3px 10px;
+        border-radius: 4px;
         text-transform: uppercase;
     }
 
     .brand-row {
         display: flex;
-        height: 55px; /* Increased height for bigger logo */
+        height: 70px; /* Increased height */
         border-bottom: 1px solid #334155;
     }
 
     .logo-area {
-        width: 120px;
+        width: 130px;
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 4px;
+        padding: 5px;
         border-right: 1px solid #e2e8f0;
     }
-    /* Logo increased size */
-    .logo-area img { max-height: 50px; max-width: 100%; object-fit: contain; }
+    .logo-area img { max-height: 60px; max-width: 100%; object-fit: contain; }
 
     .company-info {
         flex: 1;
@@ -115,14 +114,14 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
         justify-content: center;
         align-items: center;
         background-color: #f8fafc;
-        padding: 0 10px;
+        padding: 0 15px;
     }
     
-    .company-name { font-weight: 800; font-size: 12px; color: #334155; text-transform: uppercase; }
-    .company-details { font-size: 8px; color: #64748b; text-align: center; line-height: 1.2; }
+    .company-name { font-weight: 800; font-size: 18px; color: #334155; text-transform: uppercase; margin-bottom: 2px; } /* Increased */
+    .company-details { font-size: 11px; color: #475569; text-align: center; line-height: 1.3; font-weight: 500; } /* Increased */
 
     .ticket-id-box {
-        width: 90px;
+        width: 110px;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -130,36 +129,37 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
         background-color: #fff;
         border-left: 2px solid #334155;
     }
-    .ticket-label { font-size: 8px; font-weight: 700; color: #64748b; text-transform: uppercase; }
-    .ticket-value { font-size: 14px; font-weight: 800; color: #ef4444; }
+    .ticket-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; } /* Increased */
+    .ticket-value { font-size: 20px; font-weight: 800; color: #ef4444; } /* Increased */
 
     /* --- INFO GRID --- */
     .info-grid {
         display: grid;
-        grid-template-columns: 70px 1fr 70px 1fr;
-        font-size: 9px;
+        grid-template-columns: 85px 1fr 85px 1fr; /* Adjusted for larger text */
+        font-size: 12px; /* Increased Base Font */
         border-bottom: 2px solid #1e293b;
     }
 
     .info-cell {
         display: flex;
         align-items: center;
-        padding: 3px 6px;
+        padding: 5px 8px; /* Increased Padding */
         border-bottom: 1px solid #e2e8f0;
-        height: 18px;
+        height: 24px; /* Increased Height */
         overflow: hidden;
     }
     
     .info-label {
-        background-color: #cbd5e1;
+        background-color: #e2e8f0;
         font-weight: 700;
         color: #1e293b;
         text-transform: uppercase;
         border-right: 1px solid #94a3b8;
+        font-size: 11px;
     }
     
     .info-value {
-        font-weight: 500;
+        font-weight: 600;
         color: #0f172a;
         white-space: nowrap;
         border-right: 1px solid #e2e8f0;
@@ -176,62 +176,64 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
     table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 9px;
+        font-size: 12px; /* Increased Table Font */
     }
 
     thead th {
-        background-color: #e2e8f0;
+        background-color: #f1f5f9;
         color: #334155;
         font-weight: 800;
         text-transform: uppercase;
-        padding: 4px;
-        border-bottom: 1px solid #334155;
+        padding: 6px 8px; /* Increased Padding */
+        border-bottom: 2px solid #334155;
         border-right: 1px solid #cbd5e1;
-        height: 16px;
+        height: 20px;
     }
     thead th:last-child { border-right: none; }
 
     tbody td {
-        padding: 3px 5px;
+        padding: 5px 8px; /* Increased Padding */
         border-bottom: 1px solid #f1f5f9;
         border-right: 1px solid #f1f5f9;
         color: #334155;
-        height: 16px;
+        height: 20px; /* Min height */
+        font-weight: 500;
     }
     tbody td:last-child { border-right: none; }
     
-    .col-price { text-align: right; width: 60px; }
-    .col-qty { text-align: center; width: 40px; font-weight: bold; }
-    .col-total { text-align: right; width: 70px; font-weight: bold; background-color: #f8fafc; }
+    .col-price { text-align: right; width: 75px; }
+    .col-qty { text-align: center; width: 50px; font-weight: bold; }
+    .col-total { text-align: right; width: 85px; font-weight: bold; background-color: #f8fafc; }
     .row-empty td { border: none; }
 
     /* --- FOOTER --- */
     .footer-section {
-        height: 105px; /* Fixed height to prevent overflow */
+        height: 120px; /* Increased Height for larger font footer */
         border-top: 2px solid #1e293b;
         display: flex;
     }
 
     .footer-left {
         flex: 1;
-        padding: 8px;
+        padding: 10px;
         display: flex;
         flex-direction: column;
         justify-content: flex-end;
     }
 
     .signature-area {
-        border-top: 1px solid #94a3b8;
+        border-top: 2px solid #94a3b8;
         text-align: center;
-        font-size: 8px;
+        font-size: 10px;
+        font-weight: 600;
         color: #64748b;
-        padding-top: 2px;
-        width: 70%;
+        padding-top: 4px;
+        width: 80%;
         margin: 0 auto;
     }
 
     .footer-right {
-        width: 220px;
+        width: 260px; /* Wider for larger numbers */
         border-left: 2px solid #1e293b;
         display: flex;
         flex-direction: column;
@@ -248,25 +250,26 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
     .t-label {
         flex: 1;
         background-color: #f1f5f9;
-        font-size: 9px;
+        font-size: 11px; /* Increased */
         font-weight: 700;
         color: #475569;
         display: flex;
         align-items: center;
         justify-content: flex-end;
-        padding-right: 8px;
+        padding-right: 10px;
         text-align: right;
         line-height: 1;
+        text-transform: uppercase;
     }
 
     .t-value {
-        width: 80px;
-        font-size: 11px;
-        font-weight: 600;
+        width: 100px;
+        font-size: 13px; /* Increased */
+        font-weight: 700;
         display: flex;
         align-items: center;
         justify-content: flex-end;
-        padding-right: 8px;
+        padding-right: 10px;
         border-left: 1px solid #cbd5e1;
         background-color: white;
     }
@@ -274,12 +277,12 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
     .final-total .t-label {
         background-color: #334155;
         color: white;
-        font-size: 11px;
+        font-size: 14px; /* Increased */
     }
     .final-total .t-value {
         background-color: #e2e8f0;
-        font-size: 14px;
-        font-weight: 800;
+        font-size: 20px; /* SUPER LEGIBLE */
+        font-weight: 900;
         color: #0f172a;
     }
 `;
@@ -297,15 +300,15 @@ const openPrintWindow = (content: string) => {
 };
 
 const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: BusinessSettings) => {
-    // 14 rows is a safe number for landscape split view
-    const minRows = 14; 
+    // REDUCED MIN ROWS TO 12 to accommodate larger fonts without overflow
+    const minRows = 12; 
     const emptyRows = Math.max(0, minRows - t.items.length);
     const emptyRowsArray = Array.from({ length: emptyRows });
     
     // FOR INVOICE: Use Main Logo (settings.logo) exclusively
     const logoHtml = settings.logo 
         ? `<div class="logo-area"><img src="${settings.logo}" /></div>` 
-        : '<div class="logo-area" style="font-size:10px; color:#ccc;">SIN LOGO</div>';
+        : '<div class="logo-area" style="font-size:12px; font-weight:bold; color:#ccc;">SIN LOGO</div>';
 
     return `
     <div class="invoice-panel">
@@ -333,7 +336,7 @@ const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: Bus
         <!-- INFO GRID -->
         <div class="info-grid">
             <div class="info-cell info-label">CLIENTE</div>
-            <div class="info-cell info-value" style="font-weight:700">${c?.name || 'Cliente General'}</div>
+            <div class="info-cell info-value" style="font-weight:800; font-size:13px;">${c?.name || 'Cliente General'}</div>
             <div class="info-cell info-label">FECHA</div>
             <div class="info-cell info-value" style="justify-content:center;">${new Date(t.date).toLocaleDateString()}</div>
 
@@ -363,11 +366,11 @@ const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: Bus
                 <tbody>
                     ${t.items.map(item => `
                         <tr>
-                            <td style="text-align:center; font-family:monospace;">${item.sku || '---'}</td>
+                            <td style="text-align:center; font-family:monospace; font-weight:600;">${item.sku || '---'}</td>
                             <td>${item.name} ${item.variantName ? `(${item.variantName})` : ''}</td>
-                            <td class="col-qty">${item.quantity}</td>
+                            <td class="col-qty" style="font-size:13px;">${item.quantity}</td>
                             <td class="col-price">$${item.price.toFixed(2)}</td>
-                            <td class="col-total">$${(item.price * item.quantity).toFixed(2)}</td>
+                            <td class="col-total" style="font-size:13px;">$${(item.price * item.quantity).toFixed(2)}</td>
                         </tr>
                     `).join('')}
                     ${emptyRowsArray.map(() => `
@@ -382,7 +385,7 @@ const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: Bus
         <!-- FOOTER -->
         <div class="footer-section">
             <div class="footer-left">
-                <div style="font-size:9px; font-weight:bold; margin-bottom:2px; color:#64748b;">RECIBIDO DE CONFORMIDAD</div>
+                <div style="font-size:10px; font-weight:bold; margin-bottom:4px; color:#64748b;">RECIBIDO DE CONFORMIDAD</div>
                 <div style="flex:1;"></div>
                 <div class="signature-area">NOMBRE Y FIRMA</div>
             </div>
@@ -453,12 +456,12 @@ export const printOrderInvoice = (order: Order, customer: any, settings: Busines
                     
                     <div class="info-grid">
                         <div class="info-cell info-label">CLIENTE</div>
-                        <div class="info-cell info-value">${order.customerName}</div>
+                        <div class="info-cell info-value" style="font-size:14px; font-weight:800;">${order.customerName}</div>
                         <div class="info-cell info-label">FECHA</div>
                         <div class="info-cell info-value" style="justify-content:center;">${new Date(order.date).toLocaleDateString()}</div>
 
                         <div class="info-cell info-label">ENTREGA</div>
-                        <div class="info-cell info-value" style="font-weight:800">${order.deliveryDate || 'PENDIENTE'}</div>
+                        <div class="info-cell info-value" style="font-weight:800; font-size:13px;">${order.deliveryDate || 'PENDIENTE'}</div>
                         <div class="info-cell info-label">NOTAS</div>
                         <div class="info-cell info-value" style="color:#ef4444; font-weight:bold;">${order.notes || '---'}</div>
                     </div>
@@ -476,7 +479,7 @@ export const printOrderInvoice = (order: Order, customer: any, settings: Busines
                                 ${order.items.map(item => `
                                     <tr>
                                         <td class="col-qty" style="font-size:16px;">${item.quantity}</td>
-                                        <td>${item.name}</td>
+                                        <td style="font-size:13px; font-weight:600;">${item.name}</td>
                                         <td style="border:1px solid #ccc;"></td>
                                     </tr>
                                 `).join('')}
