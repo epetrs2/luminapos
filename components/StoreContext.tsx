@@ -163,9 +163,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, settings
     });
 
+    // --- FIX: Use a ref for pending changes to avoid race conditions in async pullFromCloud ---
+    const pendingChangesRef = useRef(false);
+
     useEffect(() => {
         storeRef.current = { products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, settings };
     }, [products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, settings]);
+
+    // Keep pendingChangesRef in sync with state
+    useEffect(() => {
+        pendingChangesRef.current = hasPendingChanges;
+    }, [hasPendingChanges]);
 
     // ... Implementation of all methods ...
 
@@ -440,7 +448,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const updateOrderStatus = (id: string, status: string) => {
         setOrders(prev => {
             const updatedOrders = prev.map(o => o.id === id ? { ...o, status: status as any } : o);
-            // Trigger auto-sync for status change to avoid reverts
             if (settings.enableCloudSync && settings.googleWebAppUrl) {
                 const payload = { ...storeRef.current, orders: updatedOrders };
                 pushFullDataToCloud(settings.googleWebAppUrl, settings.cloudSecret, payload)
@@ -581,8 +588,49 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const deleteInvite = (code: string) => setUserInvites(prev => prev.filter(i => i.code !== code));
 
-    const recoverAccount = async () => 'FAIL'; 
-    const verifyRecoveryAttempt = async () => false;
+    // --- FIX: Correct type signature for recoverAccount ---
+    const recoverAccount = async (username: string, method: string, payload: string, newPass: string): Promise<'SUCCESS' | 'FAIL'> => {
+        const userIndex = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+        if (userIndex === -1) return 'FAIL';
+        
+        const user = users[userIndex];
+        let verified = false;
+        
+        if (method === 'SECURITY_QUESTION') {
+             if (user.securityAnswerHash && user.salt) {
+                 verified = await verifyPassword(payload.trim().toLowerCase(), user.salt, user.securityAnswerHash);
+             }
+        } else {
+             // Code
+             verified = user.recoveryCode === payload.trim();
+        }
+
+        if (!verified) return 'FAIL';
+
+        const salt = generateSalt();
+        const hash = await hashPassword(newPass, salt);
+        
+        const updatedUser = { ...user, passwordHash: hash, salt, failedLoginAttempts: 0, lockoutUntil: undefined };
+        const newUsers = [...users];
+        newUsers[userIndex] = updatedUser;
+        setUsers(newUsers);
+        setHasPendingChanges(true);
+        return 'SUCCESS';
+    };
+
+    const verifyRecoveryAttempt = async (username: string, method: string, payload: string): Promise<boolean> => {
+        const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+        if (!user) return false;
+        if (method === 'SECURITY_QUESTION') {
+             if (user.securityAnswerHash && user.salt) {
+                 return await verifyPassword(payload.trim().toLowerCase(), user.salt, user.securityAnswerHash);
+             }
+             return false;
+        } else {
+             return user.recoveryCode === payload.trim();
+        }
+    };
+
     const getUserPublicInfo = (username: string) => {
         const u = users.find(user => user.username.toLowerCase() === username.toLowerCase());
         return u ? { securityQuestion: u.securityQuestion } : null;
@@ -595,11 +643,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // CRITICAL FIX: If we have pending local changes (like a deletion), do NOT download cloud data yet.
         // This prevents the "bounce back" effect where the server overwrites local deletions.
         if (hasPendingChanges && !force) {
-            if (!silent) {
-                // Optionally notify, but often better to just skip silently to avoid spam
-                // notify("Sync Pausado", "Subiendo cambios pendientes...", "warning");
-            }
-            // Trigger a push instead to resolve the difference
             await pushToCloud();
             return false;
         }
@@ -607,6 +650,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setIsSyncing(true);
         try {
             const data = await fetchFullDataFromCloud(url || settings.googleWebAppUrl || '', secret || settings.cloudSecret);
+            
+            // Post-fetch check using REF to prevent race condition if user deleted something while fetching
+            if (pendingChangesRef.current && !force) {
+                // User modified data while download was in progress. Abort import to protect local change.
+                return false;
+            }
+
             if (data) {
                 await importData(data);
                 if (!silent) notify("Sincronización", "Datos descargados correctamente.", "success");
