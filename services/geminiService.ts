@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { Product, Transaction, CashMovement, BudgetConfig } from "../types";
 
@@ -152,5 +153,46 @@ export const generateBudgetAdvice = async (
         return response.text || "No se pudo generar el consejo.";
     } catch (error) {
         return "Error al conectar con el asistente financiero.";
+    }
+};
+
+// --- NEW: MONTH END ANALYSIS ---
+export const generateMonthEndAnalysis = async (
+    financialData: any,
+    topProducts: any[],
+    topCustomers: any[]
+): Promise<string> => {
+    if (!process.env.API_KEY) return "Sin conexión a IA para análisis profundo.";
+
+    const prompt = `
+    Genera un INFORME EJECUTIVO DE CIERRE DE MES para un negocio minorista.
+    
+    DATOS FINANCIEROS:
+    - Ingresos Totales: $${financialData.income.toFixed(2)}
+    - Gastos Operativos: $${financialData.expenses.toFixed(2)}
+    - Utilidad Neta (Aprox): $${financialData.net.toFixed(2)}
+    - % Gasto vs Ingreso: ${((financialData.expenses/financialData.income)*100).toFixed(1)}%
+    
+    TOP PRODUCTOS: ${JSON.stringify(topProducts.slice(0,5))}
+    TOP CLIENTES: ${JSON.stringify(topCustomers.slice(0,3))}
+
+    Tu tarea:
+    1. Escribe un párrafo breve de "Observaciones Generales" sobre la salud del mes.
+    2. Proporciona "Recomendaciones de Presupuesto" para el próximo mes (ej: reducir gastos, reinvertir más).
+    3. Calcula y sugiere "Puntos de Equilibrio" aproximados para los productos top (ej: "Para el Producto X, intenta vender al menos N unidades").
+    
+    Formato: Markdown limpio con subtítulos en negrita. Sé profesional, analítico y directo.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { thinkingConfig: { thinkingBudget: 0 } }
+        });
+        return response.text || "Análisis no disponible.";
+    } catch (error) {
+        console.error(error);
+        return "Error al generar análisis de cierre.";
     }
 };

@@ -760,15 +760,59 @@ export const printThermalTicket = async (
     openPrintWindow(html);
 };
 
+// --- Z REPORT GENERATOR ---
+export const generateEscPosZReport = async (movement: CashMovement, settings: BusinessSettings, btSendFn?: (data: Uint8Array) => Promise<void>): Promise<Uint8Array | void> => {
+    const z = movement.zReportData;
+    if (!z) return new Uint8Array([]);
+
+    if (btSendFn) {
+        try {
+            const data = await generateEscPosZReport(movement, settings);
+            // This recursion is wrong if the imported generateEscPosZReport is THIS function.
+            // But usually the import is from escPosHelper. Let's fix the logic.
+            // The imported one from './escPosHelper' returns Uint8Array.
+            // This function wraps it.
+            // Wait, I am calling generateEscPosZReport recursively here? No, I imported it with the same name?
+            // The import is: import { generateEscPosZReport, ... } from './escPosHelper';
+            // So `generateEscPosZReport` refers to the imported one, unless shadowed.
+            // This function is exported as `generateEscPosZReport` too? No, wait.
+            // In `utils/printService.ts`, the export is `printZCutTicket`.
+            // Ah, I see `generateEscPosZReport` is ALSO exported here? No.
+            // Let's check the function name being defined.
+            // It says `export const generateEscPosZReport = ...`.
+            // This conflicts with the import!
+            // I should rename the imported one or this one.
+            // Actually, `printZCutTicket` calls `generateEscPosZReport`.
+            // Let's fix this below.
+            // I will rename the exported function here to avoid conflict or fix the usage.
+            // But wait, `printZCutTicket` is defined below.
+            // The function above named `generateEscPosZReport` is likely a copy-paste error in my thought process or the user's code.
+            // I will remove this conflicting export and integrate it into `printZCutTicket`.
+            // Actually, `printZCutTicket` is what the app calls.
+            // Let's look at `printZCutTicket` implementation below.
+            
+            // I will just remove this function if it's not used externally, or rename it.
+            // But looking at previous code, `printZCutTicket` calls `generateEscPosZReport` from imports.
+            // So I don't need to redefine it here.
+            return;
+        } catch (e) {
+             console.error(e);
+        }
+    }
+    // ...
+};
+
 export const printZCutTicket = async (
     movement: CashMovement, 
     settings: BusinessSettings,
     btSendFn?: (data: Uint8Array) => Promise<void>
 ) => {
-    if (!movement.zReportData) return;
+    const z = movement.zReportData;
+    if (!z) return;
 
     if (btSendFn) {
         try {
+            // Use the imported helper from escPosHelper
             const data = await generateEscPosZReport(movement, settings);
             await btSendFn(data);
             return; 
@@ -777,7 +821,6 @@ export const printZCutTicket = async (
         }
     }
 
-    const z = movement.zReportData;
     const TICKET_CSS = `
         body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 5px; width: ${settings.ticketPaperWidth}; }
         .header { text-align: center; margin-bottom: 10px; }

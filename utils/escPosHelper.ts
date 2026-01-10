@@ -562,6 +562,72 @@ export const generateEscPosZReport = async (movement: CashMovement, settings: Bu
     return new Uint8Array(buffer);
 };
 
+// --- NEW: MONTH END TICKET GENERATOR (THERMAL) ---
+export const generateMonthEndTicket = async (
+    data: any, 
+    settings: BusinessSettings
+): Promise<Uint8Array> => {
+    const buffer: number[] = [];
+    const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
+    const addLine = (text: string) => add(encode(text + '\n'));
+    const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
+    const width = settings.ticketPaperWidth;
+
+    add(COMMANDS.INIT);
+    add(COMMANDS.CODE_PAGE); 
+    add(COMMANDS.ALIGN_CENTER);
+
+    // HEADER
+    add(COMMANDS.BOLD_ON);
+    add([GS, 0x21, 0x11]); // Double width/height
+    addLine("CIERRE MES");
+    add([GS, 0x21, 0x00]); 
+    add(COMMANDS.BOLD_OFF);
+    addLine(settings.name);
+    addLine(`${data.periodStart} - ${data.periodEnd}`);
+    addLine(separator);
+
+    // FINANCIAL SUMMARY
+    add(COMMANDS.ALIGN_LEFT);
+    addLine("RESUMEN FINANCIERO:");
+    addLine(formatTwoCols("Ingresos Totales:", `$${data.income.toFixed(2)}`, width));
+    addLine(formatTwoCols("Gastos Operativos:", `$${data.actualOpEx.toFixed(2)}`, width));
+    addLine(formatTwoCols("Retiro Ganancias:", `$${data.actualProfit.toFixed(2)}`, width));
+    
+    add(COMMANDS.BOLD_ON);
+    addLine(formatTwoCols("Ahorro/Inversion:", `$${data.actualInvestment.toFixed(2)}`, width));
+    add(COMMANDS.BOLD_OFF);
+    addLine(separator);
+
+    // DISTRIBUTION CHECK
+    add(COMMANDS.ALIGN_CENTER);
+    addLine("DISTRIBUCION PRESUPUESTO");
+    add(COMMANDS.ALIGN_LEFT);
+    
+    const opExPct = (data.actualOpEx / data.income) * 100;
+    const profitPct = (data.actualProfit / data.income) * 100;
+    
+    addLine(`Gastos: ${opExPct.toFixed(1)}% (Meta: ${data.config.expensesPercentage}%)`);
+    addLine(`Ganancia: ${profitPct.toFixed(1)}% (Meta: ${data.config.profitPercentage}%)`);
+    addLine(separator);
+
+    // OBSERVATIONS
+    add(COMMANDS.ALIGN_CENTER);
+    add(COMMANDS.BOLD_ON);
+    addLine("ESTADO DEL CIERRE");
+    add(COMMANDS.BOLD_OFF);
+    add(COMMANDS.ALIGN_LEFT);
+    addLine(data.checks.profitDistributed ? "[X] Ganancias Repartidas" : "[ ] Ganancias Pendientes");
+    addLine(data.checks.savingsSetAside ? "[X] Ahorro Apartado" : "[ ] Ahorro Pendiente");
+    
+    add(COMMANDS.FEED_LINES(2));
+    add(COMMANDS.ALIGN_CENTER);
+    addLine("Generado por LuminaPOS");
+    add(COMMANDS.FEED_LINES(4));
+
+    return new Uint8Array(buffer);
+};
+
 export const generateTestTicket = (): Uint8Array => {
     // Basic test
     const buffer: number[] = [];
