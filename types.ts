@@ -167,8 +167,6 @@ export enum AppView {
   USERS = 'USERS'
 }
 
-// --- MISSING TYPES ADDED BELOW ---
-
 export type ProductType = 'PRODUCT' | 'SUPPLY';
 export type MeasurementUnit = 'PIECE' | 'KG' | 'GRAM' | 'LITER' | 'METER';
 

@@ -1,5 +1,4 @@
 
-// ... existing imports
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList, Database, Download, UploadCloud, Lock, Shield, FileCheck, Copy, Calendar, Timer } from 'lucide-react';
@@ -613,16 +612,200 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* ... Rest of tabs (TICKETS, NOTIFICATIONS, SECURITY, DATA, BACKUP, BLUETOOTH) remain unchanged ... */}
+            {/* TICKETS TAB */}
+            {activeTab === 'TICKETS' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <div className="flex flex-col md:flex-row gap-8">
+                            <div className="flex-1 space-y-6">
+                                <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                    <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Receipt className="w-5 h-5"/></div>
+                                    Diseño del Ticket
+                                </h3>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Ancho de Papel</label>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => setFormData({...formData, ticketPaperWidth: '58mm'})} className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all ${formData.ticketPaperWidth === '58mm' ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-indigo-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}>58mm (Estándar)</button>
+                                            <button onClick={() => setFormData({...formData, ticketPaperWidth: '80mm'})} className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all ${formData.ticketPaperWidth === '80mm' ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-indigo-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}>80mm (Ancho)</button>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Comportamiento Copia Cliente</label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <button onClick={() => setFormData({...formData, printConfig: {...formData.printConfig, customerCopyBehavior: 'ALWAYS'}})} className={`py-2 rounded-lg text-xs font-bold border ${formData.printConfig?.customerCopyBehavior === 'ALWAYS' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-500'}`}>Siempre</button>
+                                            <button onClick={() => setFormData({...formData, printConfig: {...formData.printConfig, customerCopyBehavior: 'ASK'}})} className={`py-2 rounded-lg text-xs font-bold border ${formData.printConfig?.customerCopyBehavior === 'ASK' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-500'}`}>Preguntar</button>
+                                            <button onClick={() => setFormData({...formData, printConfig: {...formData.printConfig, customerCopyBehavior: 'NEVER'}})} className={`py-2 rounded-lg text-xs font-bold border ${formData.printConfig?.customerCopyBehavior === 'NEVER' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-500'}`}>Nunca</button>
+                                        </div>
+                                    </div>
+
+                                    <InputField label="Encabezado del Ticket" value={formData.receiptHeader} onChange={(e: any) => setFormData({ ...formData, receiptHeader: e.target.value })} placeholder="Ej. Bienvenido a..." />
+                                    <InputField label="Pie de Página" value={formData.receiptFooter} onChange={(e: any) => setFormData({ ...formData, receiptFooter: e.target.value })} placeholder="Ej. ¡Gracias por su compra!" />
+                                    
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Logo para Ticket (B/N)</label>
+                                        <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer relative group">
+                                            <input type="file" accept="image/*" onChange={(e) => handleLogoUpload(e, 'RECEIPT')} className="absolute inset-0 opacity-0 cursor-pointer" />
+                                            {formData.receiptLogo ? (
+                                                <div className="relative h-20 w-full flex items-center justify-center">
+                                                    <img src={formData.receiptLogo} alt="Receipt Logo" className="h-full object-contain filter grayscale" />
+                                                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">Cambiar</div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col items-center text-slate-400">
+                                                    <Upload className="w-8 h-8 mb-2" />
+                                                    <span className="text-xs">Subir imagen (PNG/JPG)</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 mt-1">Se convertirá automáticamente a blanco y negro de alto contraste.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex-1 bg-slate-100 dark:bg-black p-4 rounded-xl shadow-inner font-mono text-xs overflow-hidden flex flex-col items-center">
+                                <p className="text-slate-400 mb-2 uppercase font-bold text-[10px]">Vista Previa Aproximada</p>
+                                <div className={`bg-white text-black p-4 shadow-lg w-full max-w-[${formData.ticketPaperWidth === '58mm' ? '280px' : '360px'}]`} style={{minHeight: '400px'}}>
+                                    <div className="text-center mb-4">
+                                        {formData.receiptLogo && <img src={formData.receiptLogo} className="h-12 mx-auto mb-2 grayscale" />}
+                                        <div className="font-bold text-sm uppercase">{formData.name || 'NOMBRE NEGOCIO'}</div>
+                                        <div>{formData.address || 'Dirección...'}</div>
+                                        <div>Tel: {formData.phone || '000-000-0000'}</div>
+                                    </div>
+                                    <div className="border-b border-black border-dashed my-2"></div>
+                                    <div>Ticket: #0001</div>
+                                    <div>Fecha: {new Date().toLocaleDateString()}</div>
+                                    <div className="border-b border-black border-dashed my-2"></div>
+                                    <div className="flex justify-between font-bold mb-1">
+                                        <span>CANT. DESC</span>
+                                        <span>TOTAL</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>1 x Producto Ejemplo</span>
+                                        <span>$150.00</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>2 x Otro Articulo</span>
+                                        <span>$50.00</span>
+                                    </div>
+                                    <div className="border-b border-black border-dashed my-2"></div>
+                                    <div className="flex justify-between font-bold text-sm">
+                                        <span>TOTAL:</span>
+                                        <span>$200.00</span>
+                                    </div>
+                                    <div className="flex justify-between mt-1">
+                                        <span>Efectivo:</span>
+                                        <span>$200.00</span>
+                                    </div>
+                                    <div className="border-b border-black border-dashed my-2"></div>
+                                    <div className="text-center mt-4">
+                                        {formData.receiptFooter || 'Gracias por su compra'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SECURITY TAB */}
+            {activeTab === 'SECURITY' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg text-red-600"><Lock className="w-5 h-5"/></div>
+                            Seguridad y Privacidad
+                        </h3>
+                        
+                        <div className="space-y-6 max-w-2xl">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Bloqueo Automático</label>
+                                <div className="flex gap-2">
+                                    {[0, 1, 5, 15, 30].map(mins => (
+                                        <button 
+                                            key={mins}
+                                            onClick={() => setFormData({...formData, securityConfig: {...formData.securityConfig, autoLockMinutes: mins}})}
+                                            className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${formData.securityConfig?.autoLockMinutes === mins ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                                        >
+                                            {mins === 0 ? 'Nunca' : `${mins} min`}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1">La pantalla se bloqueará tras este tiempo de inactividad.</p>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                                <div>
+                                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">Desenfocar en Segundo Plano</h4>
+                                    <p className="text-xs text-slate-500">Ocultar contenido si cambias de pestaña o minimizas.</p>
+                                </div>
+                                <button 
+                                    onClick={() => setFormData({...formData, securityConfig: {...formData.securityConfig, blurAppOnBackground: !formData.securityConfig.blurAppOnBackground}})}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${formData.securityConfig?.blurAppOnBackground ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.securityConfig?.blurAppOnBackground ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* BLUETOOTH TAB */}
+            {activeTab === 'BLUETOOTH' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><Bluetooth className="w-5 h-5"/></div>
+                            Impresora Bluetooth
+                        </h3>
+
+                        <div className="flex flex-col items-center justify-center py-10 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 mb-6">
+                            <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all ${btDevice ? 'bg-emerald-100 text-emerald-600 animate-pulse' : 'bg-slate-200 text-slate-400'}`}>
+                                <Bluetooth className="w-10 h-10" />
+                            </div>
+                            <h4 className="text-xl font-bold text-slate-800 dark:text-white mb-1">
+                                {btDevice ? `Conectado: ${btDevice.name || 'Dispositivo'}` : 'No conectado'}
+                            </h4>
+                            <p className="text-sm text-slate-500 mb-6">Estado del servicio: {btDevice ? 'Activo' : 'Inactivo'}</p>
+                            
+                            <div className="flex gap-3">
+                                {!btDevice ? (
+                                    <button 
+                                        onClick={handleBtScan} 
+                                        disabled={isScanningBt}
+                                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all disabled:opacity-50"
+                                    >
+                                        {isScanningBt ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5" />}
+                                        {isScanningBt ? 'Buscando...' : 'Buscar Dispositivo'}
+                                    </button>
+                                ) : (
+                                    <>
+                                        <button onClick={printBtTest} className="bg-white border border-slate-200 text-slate-700 px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-slate-50">
+                                            <FileText className="w-5 h-5" /> Probar Impresión
+                                        </button>
+                                        <button onClick={disconnectBtPrinter} className="bg-red-100 text-red-600 px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-red-200">
+                                            <Power className="w-5 h-5" /> Desconectar
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                            {btError && <p className="mt-4 text-red-500 text-sm font-bold bg-red-50 px-3 py-1 rounded-lg">{btError}</p>}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* NOTIFICATIONS TAB */}
             {activeTab === 'NOTIFICATIONS' && (
                 <div className="animate-[fadeIn_0.3s_ease-out]">
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        {/* ... Notification Settings UI (unchanged) ... */}
                         <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
                             <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg text-pink-600"><Bell className="w-5 h-5"/></div>
                             Preferencias de Alertas y Sonido
                         </h3>
-                        {/* ... rest of the existing notification code ... */}
                         <div className="space-y-8 max-w-2xl">
                             <div className="flex items-center justify-between p-3 md:p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 gap-3 md:gap-4">
                                 <div className="flex-1 min-w-0">
@@ -637,7 +820,6 @@ export const Settings: React.FC = () => {
                                 </button>
                             </div>
                             
-                            {/* ... Volume sliders and select boxes (unchanged) ... */}
                             <div className={`transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                 <div className="flex items-center gap-4 mb-2">
                                     <Volume2 className="w-5 h-5 text-slate-400" />
@@ -651,7 +833,6 @@ export const Settings: React.FC = () => {
                                 />
                             </div>
                             
-                            {/* Simple mapping for select boxes */}
                             {['saleSound', 'errorSound', 'clickSound', 'notificationSound'].map((key) => (
                                 <div key={key} className={`space-y-2 transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                     <label className="block text-xs font-bold text-slate-500 uppercase">{key.replace('Sound', '')}</label>
@@ -676,11 +857,79 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* Other tabs remain identical to existing implementation to save space in this response */}
-            {/* Just ensuring the component closes properly */}
-            {(activeTab === 'TICKETS' || activeTab === 'SECURITY' || activeTab === 'DATA' || activeTab === 'BACKUP' || activeTab === 'BLUETOOTH') && (
-                <div className="text-center py-20 text-slate-400">
-                    <p>Contenido de pestaña {activeTab} (Sin cambios en esta actualización).</p>
+            {/* DATA & CLOUD TAB */}
+            {activeTab === 'DATA' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg text-cyan-600"><Cloud className="w-5 h-5"/></div>
+                            Sincronización en Nube
+                        </h3>
+
+                        <div className="space-y-6">
+                            <div className={`p-4 rounded-2xl border flex items-center gap-4 ${isCloudConfigured ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}>
+                                <div className={`p-3 rounded-full ${isCloudConfigured ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-500'}`}>
+                                    {isCloudConfigured ? <Cloud className="w-6 h-6" /> : <CloudOff className="w-6 h-6" />}
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-slate-800 dark:text-white">{isCloudConfigured ? 'Conectado a Google Sheets' : 'Modo Local (Sin Respaldo)'}</h4>
+                                    <p className="text-xs text-slate-500">{isCloudConfigured ? 'Tus datos se guardan automáticamente.' : 'Configura la URL para activar el respaldo.'}</p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <InputField label="URL del Script (Google Apps Script)" value={formData.googleWebAppUrl || ''} onChange={(e: any) => setFormData({ ...formData, googleWebAppUrl: e.target.value })} placeholder="https://script.google.com/..." />
+                                <InputField label="Clave Secreta (Opcional)" value={formData.cloudSecret || ''} onChange={(e: any) => setFormData({ ...formData, cloudSecret: e.target.value })} type="password" />
+                            </div>
+
+                            <div className="flex gap-3 pt-4">
+                                <button onClick={handleTestConnection} disabled={testingConnection} className="flex-1 py-3 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+                                    {testingConnection ? <Loader2 className="w-4 h-4 animate-spin"/> : <Server className="w-4 h-4"/>}
+                                    {testingConnection ? 'Verificando...' : 'Probar Conexión'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* BACKUP TAB */}
+            {activeTab === 'BACKUP' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600"><Database className="w-5 h-5"/></div>
+                            Gestión de Datos Local
+                        </h3>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center hover:border-indigo-500 transition-colors group">
+                                <Download className="w-10 h-10 text-indigo-500 mb-3 group-hover:scale-110 transition-transform" />
+                                <h4 className="font-bold text-slate-800 dark:text-white">Exportar Copia</h4>
+                                <p className="text-xs text-slate-500 mb-4 px-4">Descarga un archivo .json con toda tu información actual.</p>
+                                <button onClick={handleExportBackup} className="w-full py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-600">Descargar</button>
+                            </div>
+
+                            <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center hover:border-emerald-500 transition-colors group relative">
+                                <UploadCloud className="w-10 h-10 text-emerald-500 mb-3 group-hover:scale-110 transition-transform" />
+                                <h4 className="font-bold text-slate-800 dark:text-white">Restaurar Copia</h4>
+                                <p className="text-xs text-slate-500 mb-4 px-4">Carga un archivo de respaldo para recuperar datos.</p>
+                                <button className="w-full py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-600">Seleccionar Archivo</button>
+                                <input type="file" accept=".json" onChange={handleImportBackup} className="absolute inset-0 opacity-0 cursor-pointer" />
+                            </div>
+                        </div>
+
+                        <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800">
+                            <h4 className="text-sm font-bold text-red-600 mb-2 flex items-center gap-2"><AlertTriangle className="w-4 h-4"/> Zona de Peligro</h4>
+                            <p className="text-xs text-slate-500 mb-4">Estas acciones son irreversibles. Ten cuidado.</p>
+                            <button 
+                                onClick={() => { if(window.confirm("¿SEGURO? Se borrarán TODOS los datos locales y se reiniciará la app.")) hardReset(); }} 
+                                className="px-6 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl font-bold text-sm hover:bg-red-100 dark:hover:bg-red-900/40 flex items-center gap-2"
+                            >
+                                <Trash2 className="w-4 h-4"/> Borrar Todo y Reiniciar
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
