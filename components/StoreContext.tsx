@@ -88,6 +88,7 @@ interface StoreContextType {
     addOrder: (order: Order) => void;
     updateOrder: (order: Order) => void;
     updateOrderStatus: (id: string, status: string) => void;
+    completeOrder: (id: string) => void; // New method
     convertOrderToSale: (order: Order) => void; 
     deleteOrder: (id: string) => void;
     sendOrderToPOS: (order: Order) => void;
@@ -444,37 +445,29 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setHasPendingChanges(true);
     };
     
-    // --- FIX: Update Order Status with Immediate Sync ---
+    // --- FIX: Secure Update without direct Push Call causing Race Conditions ---
     const updateOrderStatus = (id: string, status: string) => {
-        setOrders(prev => {
-            const updatedOrders = prev.map(o => o.id === id ? { ...o, status: status as any } : o);
-            if (settings.enableCloudSync && settings.googleWebAppUrl) {
-                const payload = { ...storeRef.current, orders: updatedOrders };
-                pushFullDataToCloud(settings.googleWebAppUrl, settings.cloudSecret, payload)
-                    .then(() => setHasPendingChanges(false))
-                    .catch(console.error);
-            }
-            return updatedOrders;
-        });
+        setOrders(prev => prev.map(o => o.id === id ? { ...o, status: status as any } : o));
         setHasPendingChanges(true);
+        // Trigger safe push (using context lock) with slight delay to allow state settle
+        if(settings.enableCloudSync) setTimeout(() => pushToCloud(), 200); 
     };
 
-    // --- FIX: Delete Order with Immediate Sync to prevent Bounce Back ---
+    // --- NEW: Complete Order Method ---
+    const completeOrder = (id: string) => {
+        setOrders(prev => prev.map(o => o.id === id ? { ...o, status: 'COMPLETED' } : o));
+        setHasPendingChanges(true);
+        logActivity('ORDER', `Pedido completado y entregado #${id}`);
+        // Trigger safe push immediately
+        if(settings.enableCloudSync) setTimeout(() => pushToCloud(), 200);
+    };
+
     const deleteOrder = (id: string) => {
-        setOrders(prev => {
-            const updatedOrders = prev.filter(o => o.id !== id);
-            
-            // CRITICAL: Push deletion immediately to cloud
-            if (settings.enableCloudSync && settings.googleWebAppUrl) {
-                const payload = { ...storeRef.current, orders: updatedOrders };
-                pushFullDataToCloud(settings.googleWebAppUrl, settings.cloudSecret, payload)
-                    .then(() => setHasPendingChanges(false))
-                    .catch(console.error);
-            }
-            return updatedOrders;
-        });
+        setOrders(prev => prev.filter(o => o.id !== id));
         setHasPendingChanges(true);
         logActivity('ORDER', `Pedido eliminado #${id}`);
+        // Trigger safe push immediately
+        if(settings.enableCloudSync) setTimeout(() => pushToCloud(), 200);
     };
 
     const convertOrderToSale = (o: Order) => { };
@@ -673,6 +666,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const pushToCloud = async (overrideData?: any) => {
         if (!settings.enableCloudSync) return false;
+        if (isSyncing) return false; // Prevent overlap
+
         setIsSyncing(true);
         try {
             const dataToPush = overrideData || storeRef.current;
@@ -771,7 +766,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment,
             addSupplier, updateSupplier, deleteSupplier, addPurchase,
             addCashMovement, deleteCashMovement,
-            addOrder, updateOrder, updateOrderStatus, convertOrderToSale, deleteOrder, sendOrderToPOS, clearIncomingOrder,
+            addOrder, updateOrder, updateOrderStatus, completeOrder, convertOrderToSale, deleteOrder, sendOrderToPOS, clearIncomingOrder,
             updateSettings, importData, login, logout, unlockApp, manualLockApp,
             addUser, updateUser, deleteUser, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
             generateInvite, registerWithInvite, deleteInvite,

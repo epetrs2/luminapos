@@ -6,7 +6,7 @@ import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartph
 import { printThermalTicket, printInvoice } from '../utils/printService';
 
 export const POS: React.FC = () => {
-    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice, incomingOrder, clearIncomingOrder } = useStore();
+    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice, incomingOrder, clearIncomingOrder, completeOrder } = useStore();
     
     // State
     const [searchTerm, setSearchTerm] = useState('');
@@ -47,6 +47,9 @@ export const POS: React.FC = () => {
     const [isPendingPayment, setIsPendingPayment] = useState(false); // New: Allow marking any sale as pending
     const [lastTransaction, setLastTransaction] = useState<Transaction | null>(null);
     const [showCopyBtn, setShowCopyBtn] = useState(false);
+    
+    // Track Order Source for auto-completion
+    const [sourceOrderId, setSourceOrderId] = useState<string | null>(null);
 
     // Computed
     const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -78,6 +81,7 @@ export const POS: React.FC = () => {
         if (incomingOrder) {
             setCart(incomingOrder.items);
             setSelectedCustomerId(incomingOrder.customerId || '');
+            setSourceOrderId(incomingOrder.id); // TRACK SOURCE ID
             setShowCheckoutModal(true); // Auto open checkout
             setMobileTab('CART'); // Switch to cart view on mobile
             clearIncomingOrder(); // Clear from context
@@ -331,6 +335,12 @@ export const POS: React.FC = () => {
 
         addTransaction(transaction);
         updateStockAfterSale(cart);
+        
+        // --- COMPLETE SOURCE ORDER IF EXISTS ---
+        if (sourceOrderId) {
+            completeOrder(sourceOrderId);
+        }
+
         setLastTransaction(transaction);
         setCheckoutStep('SUCCESS');
     };
@@ -364,6 +374,7 @@ export const POS: React.FC = () => {
         setCart([]);
         setAmountPaid('');
         setSelectedCustomerId('');
+        setSourceOrderId(null); // Reset source order tracking
         setShowCheckoutModal(false);
         setCheckoutStep('SELECT');
         setDiscountValue('0');
