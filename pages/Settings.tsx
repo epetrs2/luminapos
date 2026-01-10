@@ -1,15 +1,14 @@
 
-// ... existing imports
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList, Database, Download, UploadCloud, Lock, Shield, FileCheck, Copy, Calendar, Timer } from 'lucide-react';
+import { Save, Upload, Store, FileText, Sun, Moon, CheckCircle, Cloud, CloudOff, Hash, PieChart, Printer, Trash2, Server, AlertTriangle, Loader2, X, Move, ZoomIn, ZoomOut, Grid3X3, Image as ImageIcon, Briefcase, Minus, Plus as PlusIcon, Ticket, Users, Receipt, Bluetooth, Power, Search, Bell, Volume2, Play, ClipboardList, Database, Download, UploadCloud, Lock, Shield, FileCheck, Copy } from 'lucide-react';
 import { fetchFullDataFromCloud } from '../services/syncService';
 import { generateTestTicket } from '../utils/escPosHelper';
 import { optimizeForThermal } from '../utils/imageHelper';
 import { SoundType } from '../types';
 import { playSystemSound } from '../utils/sound';
 
-// ... ImageCropper code remains unchanged ...
+// --- IMAGE CROPPER COMPONENT ---
 interface ImageCropperProps {
     imageSrc: string;
     onCancel: () => void;
@@ -206,7 +205,7 @@ const ImageCropper: React.FC<ImageCropperProps> = ({ imageSrc, onCancel, onSave,
     );
 };
 
-// ... InputField component ...
+// --- REUSABLE COMPONENTS ---
 const InputField = ({ label, value, onChange, type = "text", placeholder = "", icon: Icon }: any) => (
     <div className="space-y-1.5">
         <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1">{label}</label>
@@ -223,7 +222,6 @@ const InputField = ({ label, value, onChange, type = "text", placeholder = "", i
     </div>
 );
 
-// ... Main Settings Component ...
 export const Settings: React.FC = () => {
   const { settings, updateSettings, hardReset, pushToCloud, pullFromCloud, notify, btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, importData } = useStore();
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA' | 'BLUETOOTH' | 'NOTIFICATIONS' | 'SECURITY' | 'BACKUP'>('GENERAL');
@@ -274,7 +272,7 @@ export const Settings: React.FC = () => {
     notify("Configuración Guardada", "Los cambios se han guardado y sincronizado.", "success");
   };
 
-  // ... (Existing handlers: logo, test connection, BT, backup) ...
+  // ... (Keep existing handlers for logo upload, cropping, BT, etc.) ...
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>, target: 'MAIN' | 'RECEIPT') => {
       const file = e.target.files?.[0];
       if (file) {
@@ -305,7 +303,9 @@ export const Settings: React.FC = () => {
       }
       setTestingConnection(true);
       try {
+          // FORCE DOWNLOAD to populate device
           const success = await pullFromCloud(formData.googleWebAppUrl, formData.cloudSecret, false, true);
+          
           if (success) {
               notify("¡Sincronizado!", "Conexión exitosa. Se han descargado tus datos.", "success");
           } else {
@@ -346,17 +346,20 @@ export const Settings: React.FC = () => {
       }
   };
 
+  // --- BACKUP LOGIC ---
   const handleExportBackup = () => {
       const backupData = {
           products, transactions, customers, suppliers, cashMovements,
           orders, purchases, users, userInvites, categories, activityLogs,
-          settings: formData,
+          settings: formData, // Use current form settings
           timestamp: new Date().toISOString(),
           version: '1.0'
       };
+
       const jsonString = JSON.stringify(backupData, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
+      
       const a = document.createElement('a');
       a.href = url;
       a.download = `Lumina_Backup_${new Date().toISOString().slice(0,10)}.json`;
@@ -364,16 +367,19 @@ export const Settings: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      
       notify("Copia Creada", "El archivo de respaldo se ha descargado.", "success");
   };
 
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
+
       if (!window.confirm("¡ADVERTENCIA! Al restaurar, se SOBRESCRIBIRÁN todos los datos actuales con los del archivo. ¿Estás seguro?")) {
           e.target.value = ''; 
           return;
       }
+
       const reader = new FileReader();
       reader.onload = async (evt) => {
           try {
@@ -381,6 +387,7 @@ export const Settings: React.FC = () => {
               const success = await importData(json);
               if (success) {
                   notify("Restauración Completa", "Los datos han sido recuperados.", "success");
+                  // Optional: Refresh page to ensure clean state
                   setTimeout(() => window.location.reload(), 1500);
               } else {
                   notify("Error", "El archivo parece estar dañado o inválido.", "error");
@@ -409,7 +416,6 @@ export const Settings: React.FC = () => {
           </button>
         </div>
 
-        {/* ... Tab Menu (unchanged) ... */}
         <div className="flex flex-wrap gap-2 mb-8 bg-white dark:bg-slate-900 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 w-full md:w-fit overflow-x-auto">
             {[
                 { id: 'GENERAL', label: 'Identidad', icon: Store },
@@ -434,7 +440,7 @@ export const Settings: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-            {/* GENERAL TAB (Unchanged) */}
+            {/* GENERAL TAB - RESTORED */}
             {activeTab === 'GENERAL' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-[fadeIn_0.3s_ease-out]">
                     <div className="lg:col-span-2 space-y-6">
@@ -472,65 +478,9 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* OPERATIONS TAB - UPDATED WITH CYCLE START DATE */}
+            {/* OPERATIONS TAB - RESTORED */}
             {activeTab === 'OPERATIONS' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
-                    
-                    {/* NEW: Fiscal Cycle Settings */}
-                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
-                            <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg text-purple-600"><Calendar className="w-5 h-5"/></div>
-                            Ciclo Fiscal y Presupuesto
-                        </h3>
-                        
-                        <div className="space-y-5">
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide block mb-1">Inicio de Operaciones</label>
-                                <input 
-                                    type="date"
-                                    value={formData.budgetConfig?.fiscalStartDate || new Date().toISOString().split('T')[0]}
-                                    onChange={(e) => setFormData({...formData, budgetConfig: {...formData.budgetConfig, fiscalStartDate: e.target.value}})}
-                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500/50"
-                                />
-                                <p className="text-[10px] text-slate-400 mt-1">Fecha base para calcular los periodos (Ej. Si pones 11 de Dic, tu mes es del 11 al 10).</p>
-                            </div>
-
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide block mb-1">Tipo de Ciclo</label>
-                                <div className="flex gap-2">
-                                    <button 
-                                        onClick={() => setFormData({...formData, budgetConfig: {...formData.budgetConfig, cycleType: 'MONTHLY'}})}
-                                        className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all ${formData.budgetConfig?.cycleType === 'MONTHLY' ? 'bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/20 dark:border-purple-800 dark:text-purple-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}
-                                    >
-                                        📅 Mensual
-                                    </button>
-                                    <button 
-                                        onClick={() => setFormData({...formData, budgetConfig: {...formData.budgetConfig, cycleType: 'FIXED_DAYS'}})}
-                                        className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all ${formData.budgetConfig?.cycleType === 'FIXED_DAYS' ? 'bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/20 dark:border-purple-800 dark:text-purple-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}
-                                    >
-                                        🔢 Días Fijos
-                                    </button>
-                                </div>
-                            </div>
-
-                            {formData.budgetConfig?.cycleType === 'FIXED_DAYS' && (
-                                <div className="animate-[fadeIn_0.3s]">
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide block mb-1">Duración del Ciclo (Días)</label>
-                                    <div className="relative">
-                                        <Timer className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4"/>
-                                        <input 
-                                            type="number"
-                                            min="1"
-                                            value={formData.budgetConfig?.cycleLength || 30}
-                                            onChange={(e) => setFormData({...formData, budgetConfig: {...formData.budgetConfig, cycleLength: parseInt(e.target.value)}})}
-                                            className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500/50"
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
                     <div className={`bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border transition-colors ${budgetTotal > 100 ? 'border-red-300 dark:border-red-900' : 'border-slate-100 dark:border-slate-800'}`}>
                         <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-2">
                             <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><PieChart className="w-5 h-5"/></div>
@@ -613,16 +563,15 @@ export const Settings: React.FC = () => {
                 </div>
             )}
 
-            {/* ... Rest of tabs (TICKETS, NOTIFICATIONS, SECURITY, DATA, BACKUP, BLUETOOTH) remain unchanged ... */}
+            {/* NOTIFICATIONS TAB - RESTORED */}
             {activeTab === 'NOTIFICATIONS' && (
                 <div className="animate-[fadeIn_0.3s_ease-out]">
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        {/* ... Notification Settings UI (unchanged) ... */}
                         <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
                             <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg text-pink-600"><Bell className="w-5 h-5"/></div>
                             Preferencias de Alertas y Sonido
                         </h3>
-                        {/* ... rest of the existing notification code ... */}
+                        
                         <div className="space-y-8 max-w-2xl">
                             <div className="flex items-center justify-between p-3 md:p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 gap-3 md:gap-4">
                                 <div className="flex-1 min-w-0">
@@ -636,51 +585,545 @@ export const Settings: React.FC = () => {
                                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.soundConfig?.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
                                 </button>
                             </div>
-                            
-                            {/* ... Volume sliders and select boxes (unchanged) ... */}
+
                             <div className={`transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                 <div className="flex items-center gap-4 mb-2">
                                     <Volume2 className="w-5 h-5 text-slate-400" />
                                     <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Volumen General</span>
                                 </div>
                                 <input 
-                                    type="range" min="0" max="1" step="0.1" 
+                                    type="range" 
+                                    min="0" 
+                                    max="1" 
+                                    step="0.1" 
                                     value={formData.soundConfig?.volume || 0.5} 
-                                    onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, volume: parseFloat(e.target.value)}})}
+                                    onChange={(e) => {
+                                        const vol = parseFloat(e.target.value);
+                                        setFormData({...formData, soundConfig: {...formData.soundConfig, volume: vol}});
+                                    }}
                                     className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                                 />
                             </div>
-                            
-                            {/* Simple mapping for select boxes */}
-                            {['saleSound', 'errorSound', 'clickSound', 'notificationSound'].map((key) => (
-                                <div key={key} className={`space-y-2 transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase">{key.replace('Sound', '')}</label>
+
+                            <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity ${formData.soundConfig?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Venta Exitosa</label>
                                     <div className="flex gap-2">
                                         <select 
-                                            value={(formData.soundConfig as any)[key]}
-                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, [key]: e.target.value}})}
+                                            value={formData.soundConfig?.saleSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, saleSound: e.target.value as SoundType}})}
                                             className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
                                         >
-                                            <option value="SUCCESS">Éxito</option>
-                                            <option value="ERROR">Error</option>
-                                            <option value="POP">Pop</option>
-                                            <option value="NOTE">Nota</option>
+                                            <option value="SUCCESS">Éxito (Cash)</option>
+                                            <option value="GLASS">Cristal (Apple)</option>
+                                            <option value="GAMING">Gaming (Arcade)</option>
+                                            <option value="CHORD">Acorde Suave</option>
                                             <option value="NONE">Silencio</option>
                                         </select>
-                                        <button onClick={() => playSystemSound((formData.soundConfig as any)[key], formData.soundConfig.volume)} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100"><Play className="w-4 h-4"/></button>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.saleSound, formData.soundConfig.volume)} className="p-2.5 bg-indigo-5 dark:bg-indigo-900/30 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
                                     </div>
                                 </div>
-                            ))}
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Error / Alerta</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.errorSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, errorSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="ERROR">Error (Bonk)</option>
+                                            <option value="ALERT">Alerta (Doble)</option>
+                                            <option value="RETRO">Retro (8-bit)</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.errorSound, formData.soundConfig.volume)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-100 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Interacción / Clics</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.clickSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, clickSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="POP">Pop Suave</option>
+                                            <option value="NOTE">Nota Simple</option>
+                                            <option value="BEEP">Beep Digital</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.clickSound, formData.soundConfig.volume)} className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Notificación General</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={formData.soundConfig?.notificationSound}
+                                            onChange={(e) => setFormData({...formData, soundConfig: {...formData.soundConfig, notificationSound: e.target.value as SoundType}})}
+                                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium outline-none focus:border-indigo-500"
+                                        >
+                                            <option value="GLASS">Cristal (Apple)</option>
+                                            <option value="BELL">Campana Suave</option>
+                                            <option value="CHORD">Acorde</option>
+                                            <option value="NONE">Silencio</option>
+                                        </select>
+                                        <button onClick={() => playSystemSound(formData.soundConfig.notificationSound, formData.soundConfig.volume)} className="p-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors">
+                                            <Play className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Other tabs remain identical to existing implementation to save space in this response */}
-            {/* Just ensuring the component closes properly */}
-            {(activeTab === 'TICKETS' || activeTab === 'SECURITY' || activeTab === 'DATA' || activeTab === 'BACKUP' || activeTab === 'BLUETOOTH') && (
-                <div className="text-center py-20 text-slate-400">
-                    <p>Contenido de pestaña {activeTab} (Sin cambios en esta actualización).</p>
+            {/* TICKETS TAB - UPDATED WITH PRINT CONFIG */}
+            {activeTab === 'TICKETS' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-[fadeIn_0.3s_ease-out]">
+                    <div className="space-y-6">
+                        {/* PRINT BEHAVIOR CONFIG */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Copy className="w-5 h-5"/></div>
+                                Copia de Cliente
+                            </h3>
+                            <p className="text-xs text-slate-500 mb-4">Define qué sucede con la copia del cliente al finalizar una venta.</p>
+                            
+                            <div className="grid grid-cols-3 gap-2">
+                                <button 
+                                    onClick={() => setFormData({...formData, printConfig: { customerCopyBehavior: 'NEVER' }})}
+                                    className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${formData.printConfig?.customerCopyBehavior === 'NEVER' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                                >
+                                    <FileText className="w-5 h-5 mb-1" />
+                                    <span className="text-[10px] font-bold text-center">Solo Original</span>
+                                </button>
+                                <button 
+                                    onClick={() => setFormData({...formData, printConfig: { customerCopyBehavior: 'ASK' }})}
+                                    className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${formData.printConfig?.customerCopyBehavior === 'ASK' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                                >
+                                    <FileCheck className="w-5 h-5 mb-1" />
+                                    <span className="text-[10px] font-bold text-center">Preguntar</span>
+                                </button>
+                                <button 
+                                    onClick={() => setFormData({...formData, printConfig: { customerCopyBehavior: 'ALWAYS' }})}
+                                    className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${formData.printConfig?.customerCopyBehavior === 'ALWAYS' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                                >
+                                    <div className="flex gap-0.5"><FileText className="w-4 h-4"/><FileText className="w-4 h-4"/></div>
+                                    <span className="text-[10px] font-bold text-center mt-1">Automático</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Existing Ticket Config */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><FileText className="w-5 h-5"/></div>
+                                Nota de Venta (Carta / PDF)
+                            </h3>
+                            <div className="mb-6 border-b border-slate-100 dark:border-slate-800 pb-6">
+                                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Logo para Nota de Venta</p>
+                                <div className="flex items-center gap-4">
+                                    <div className="relative group w-24 h-24 bg-white rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 hover:border-slate-900 transition-colors shadow-sm shrink-0">
+                                        {formData.logo ? <img src={formData.logo} className="w-full h-full object-contain p-2" /> : <ImageIcon className="w-8 h-8 text-slate-300" />}
+                                        <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
+                                            <Upload className="w-5 h-5" />
+                                            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'MAIN')} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-sm text-slate-800 dark:text-white">Logo Principal</p>
+                                        <p className="text-[10px] text-slate-500 mt-1 max-w-[200px]">Se usará en la App y en documentos PDF a color.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Márgenes de Impresión</label>
+                                    <span className="text-xs font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-slate-600 dark:text-slate-300">{formData.invoicePadding || 10}px</span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="50" 
+                                    step="1" 
+                                    value={formData.invoicePadding || 10} 
+                                    onChange={(e) => setFormData({...formData, invoicePadding: parseInt(e.target.value)})}
+                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg text-purple-600"><ClipboardList className="w-5 h-5"/></div>
+                                Hoja de Producción
+                            </h3>
+                            <div className="space-y-4">
+                                <InputField label="Título del Documento" value={formData.productionDoc?.title || ''} onChange={(e: any) => setFormData({...formData, productionDoc: {...formData.productionDoc, title: e.target.value}})} placeholder="EJ. ORDEN DE TRABAJO" />
+                                <div className="flex gap-4">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={formData.productionDoc?.showCustomerContact} onChange={e => setFormData({...formData, productionDoc: {...formData.productionDoc, showCustomerContact: e.target.checked}})} className="w-4 h-4 text-indigo-600 rounded" />
+                                        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Mostrar Cliente</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={formData.productionDoc?.showPrices} onChange={e => setFormData({...formData, productionDoc: {...formData.productionDoc, showPrices: e.target.checked}})} className="w-4 h-4 text-indigo-600 rounded" />
+                                        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Mostrar Precios</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Printer className="w-5 h-5"/></div>
+                                Ticket Térmico
+                            </h3>
+                            <div className="mb-6 border-b border-slate-100 dark:border-slate-800 pb-6">
+                                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Logo para Impresora Térmica</p>
+                                <div className="flex items-center gap-4">
+                                    <div className="relative group w-24 h-24 bg-white rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-slate-300 hover:border-slate-900 transition-colors shadow-sm shrink-0">
+                                        {formData.receiptLogo ? <img src={formData.receiptLogo} className="w-full h-full object-contain p-2 grayscale contrast-125" style={{imageRendering: 'pixelated'}} /> : <Printer className="w-8 h-8 text-slate-300" />}
+                                        <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer">
+                                            <Upload className="w-5 h-5" />
+                                            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={(e) => handleLogoUpload(e, 'RECEIPT')} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-sm text-slate-800 dark:text-white">Logo Ticket (B/N)</p>
+                                        <p className="text-[10px] text-slate-500 mt-1 max-w-[200px]">Optimizado para impresora térmica. Se convierte a blanco y negro con tramado (dithering).</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1 mb-2 block">Ancho de Papel</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button 
+                                            onClick={() => setFormData({...formData, ticketPaperWidth: '58mm'})}
+                                            className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${formData.ticketPaperWidth === '58mm' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500'}`}
+                                        >
+                                            <Receipt className="w-6 h-6" />
+                                            <span className="font-bold text-sm">58 mm</span>
+                                        </button>
+                                        <button 
+                                            onClick={() => setFormData({...formData, ticketPaperWidth: '80mm'})}
+                                            className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${formData.ticketPaperWidth === '80mm' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500'}`}
+                                        >
+                                            <Receipt className="w-8 h-8" />
+                                            <span className="font-bold text-sm">80 mm</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <InputField label="Encabezado / Slogan" value={formData.receiptHeader || ''} onChange={(e: any) => setFormData({ ...formData, receiptHeader: e.target.value })} placeholder="Ej. ¡Bienvenido!" />
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Pie de Página</label>
+                                    <textarea 
+                                        className="w-full px-4 pt-3 pb-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none text-center text-xs font-mono focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none shadow-sm" 
+                                        rows={3} 
+                                        value={formData.receiptFooter} 
+                                        onChange={e => setFormData({ ...formData, receiptFooter: e.target.value })} 
+                                        placeholder="Ej. Gracias por su compra"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Live Preview Column */}
+                    <div className="bg-slate-100 dark:bg-black/20 rounded-3xl p-8 flex items-start justify-center overflow-hidden border border-slate-200/50 dark:border-slate-800">
+                        <div 
+                            className="bg-white text-black shadow-2xl transition-all duration-300 flex flex-col"
+                            style={{ 
+                                width: formData.ticketPaperWidth === '58mm' ? '200px' : '300px', 
+                                minHeight: '400px',
+                                padding: '10px',
+                                fontFamily: "'Courier New', monospace",
+                                fontSize: '11px'
+                            }}
+                        >
+                            {/* Thermal Header */}
+                            <div className="text-center mb-4 pb-2 border-b border-dashed border-black">
+                                {formData.receiptLogo ? (
+                                    <img src={formData.receiptLogo} className="max-w-[60%] h-auto mx-auto mb-2 block grayscale" alt="Logo Ticket" />
+                                ) : (
+                                    <div className="text-xs font-bold mb-1">[LOGO TICKET]</div>
+                                )}
+                                {formData.receiptHeader && <div className="font-bold text-[10px] mb-1 whitespace-pre-wrap">{formData.receiptHeader}</div>}
+                                <div className="font-bold text-sm uppercase">{formData.name}</div>
+                                <div className="text-[10px]">{formData.address}</div>
+                                <div className="text-[10px]">{formData.phone}</div>
+                            </div>
+
+                            <div className="flex justify-between mb-1">
+                                <span>Ticket #12345</span>
+                                <span>{new Date().toLocaleDateString()}</span>
+                            </div>
+                            <div className="border-b border-dashed border-black my-2"></div>
+                            
+                            <div className="space-y-1 mb-4 font-mono text-[10px]">
+                                {formData.ticketPaperWidth === '58mm' ? (
+                                    <>
+                                        <div className="whitespace-pre">1   Producto A       $50.00</div>
+                                        <div className="whitespace-pre">2   Producto B      $120.00</div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="whitespace-pre">1    Producto A                     $50.00</div>
+                                        <div className="whitespace-pre">2    Producto B                    $120.00</div>
+                                    </>
+                                )}
+                            </div>
+
+                            <div className="border-t border-dashed border-black pt-2 mt-auto">
+                                <div className="flex justify-between font-bold text-sm">
+                                    <span>TOTAL</span>
+                                    <span>$170.00</span>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 pt-2 border-t border-dashed border-black text-center text-[10px] whitespace-pre-wrap">
+                                {formData.receiptFooter}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* BACKUP TAB - RESTORED */}
+            {activeTab === 'BACKUP' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Download className="w-5 h-5"/></div>
+                            Crear Respaldo Local
+                        </h3>
+                        <p className="text-sm text-slate-500 mb-6">
+                            Descarga una copia completa de tu base de datos (ventas, productos, clientes, etc.) a tu computadora.
+                            <br/><br/>
+                            <span className="font-bold text-slate-700 dark:text-slate-300">Recomendación:</span> Haz esto antes de sincronizar con la nube o actualizar.
+                        </p>
+                        <button 
+                            onClick={handleExportBackup}
+                            className="w-full py-4 bg-slate-900 dark:bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-lg"
+                        >
+                            <Download className="w-5 h-5" /> Descargar Copia de Seguridad
+                        </button>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><UploadCloud className="w-5 h-5"/></div>
+                            Restaurar desde Archivo
+                        </h3>
+                        <p className="text-sm text-slate-500 mb-6">
+                            Carga un archivo de respaldo (.json) para recuperar tus datos. 
+                            <span className="text-red-500 font-bold block mt-2">¡Atención! Esto sobrescribirá los datos actuales.</span>
+                        </p>
+                        
+                        <label className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer">
+                            <Upload className="w-5 h-5" /> Seleccionar Archivo...
+                            <input 
+                                type="file" 
+                                accept=".json" 
+                                className="hidden" 
+                                onChange={handleImportBackup}
+                            />
+                        </label>
+                    </div>
+                </div>
+            )}
+
+            {/* SECURITY TAB (Preserved) */}
+            {activeTab === 'SECURITY' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 max-w-2xl">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600"><Lock className="w-5 h-5"/></div>
+                            Protección Activa de Sesión
+                        </h3>
+                        
+                        <div className="space-y-8">
+                            <div className="flex flex-col gap-2">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Bloqueo Automático (Inactividad)</label>
+                                    <span className="text-sm font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 dark:text-indigo-400 px-3 py-1 rounded-lg">
+                                        {formData.securityConfig?.autoLockMinutes === 0 ? 'Desactivado' : `${formData.securityConfig?.autoLockMinutes} min`}
+                                    </span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="60" 
+                                    step="1" 
+                                    value={formData.securityConfig?.autoLockMinutes || 0} 
+                                    onChange={(e) => setFormData({ ...formData, securityConfig: { ...formData.securityConfig, autoLockMinutes: parseInt(e.target.value) } })}
+                                    className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                                />
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Si no se detecta actividad (mouse/teclado) por este tiempo, la pantalla se bloqueará pidiendo contraseña para continuar. 
+                                    <br/><strong>0 = Nunca bloquear.</strong>
+                                </p>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                                <div>
+                                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">Ocultar contenido en 2do plano</h4>
+                                    <p className="text-xs text-slate-500 mt-1">Desenfoca la app si cambias de pestaña o minimizas.</p>
+                                </div>
+                                <button 
+                                    onClick={() => setFormData({ ...formData, securityConfig: { ...formData.securityConfig, blurAppOnBackground: !formData.securityConfig?.blurAppOnBackground } })}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${formData.securityConfig?.blurAppOnBackground ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.securityConfig?.blurAppOnBackground ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {activeTab === 'DATA' && (
+                <div className="grid grid-cols-1 gap-6 animate-[fadeIn_0.3s_ease-out]">
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3">
+                                    <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Server className="w-5 h-5"/></div>
+                                    Conexión a la Nube
+                                </h3>
+                                <p className="text-sm text-slate-500 mt-1">Vincula tu sistema con Google Sheets para respaldo en tiempo real.</p>
+                            </div>
+                            <div className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 border ${isCloudConfigured ? 'bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400' : 'bg-red-100 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-400'}`}>
+                                {isCloudConfigured ? <CheckCircle className="w-4 h-4"/> : <CloudOff className="w-4 h-4"/>}
+                                {isCloudConfigured ? 'CONECTADO A LA NUBE' : 'DESCONECTADO (OFFLINE)'}
+                            </div>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">URL del Script (Google Apps Script)</label>
+                                <div className="relative">
+                                    <textarea 
+                                        rows={2}
+                                        className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 font-mono text-xs outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none" 
+                                        placeholder="https://script.google.com/macros/s/..."
+                                        value={formData.googleWebAppUrl || ''} 
+                                        onChange={e => setFormData({ ...formData, googleWebAppUrl: e.target.value })} 
+                                    />
+                                    <div className="absolute right-3 bottom-3">
+                                        <button 
+                                            onClick={handleTestConnection}
+                                            disabled={testingConnection || !formData.googleWebAppUrl}
+                                            className="px-4 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold shadow-sm border border-slate-200 dark:border-slate-700 flex items-center gap-2 transition-all disabled:opacity-50"
+                                        >
+                                            {testingConnection ? <Loader2 className="w-3 h-3 animate-spin"/> : <Server className="w-3 h-3"/>}
+                                            {testingConnection ? 'Probando...' : 'Probar Conexión'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <InputField label="Clave Secreta (API Secret)" value={formData.cloudSecret || ''} onChange={(e: any) => setFormData({ ...formData, cloudSecret: e.target.value })} type="password" placeholder="Opcional: Solo si configuraste seguridad" />
+
+                            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                                <button 
+                                    onClick={() => setFormData({ ...formData, enableCloudSync: !formData.enableCloudSync })}
+                                    className={`px-6 py-3 rounded-xl font-bold text-sm transition-all border ${formData.enableCloudSync ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100' : 'border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                                >
+                                    {formData.enableCloudSync ? 'Desactivar Sincronización' : 'Activar Sincronización'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 md:p-8 shadow-sm border border-red-100 dark:border-red-900/30">
+                        <h3 className="font-bold text-lg text-red-700 dark:text-red-400 flex items-center gap-3 mb-2">
+                            <AlertTriangle className="w-5 h-5"/> Zona de Peligro
+                        </h3>
+                        <p className="text-sm text-slate-500 mb-6">Acciones destructivas. Úsalas solo si tienes problemas graves de datos.</p>
+                        
+                        <div className="flex flex-col md:flex-row gap-4">
+                            <button onClick={hardReset} className="flex-1 px-6 py-4 bg-red-50 hover:bg-red-100 dark:bg-red-900/10 dark:hover:bg-red-900/20 text-red-700 dark:text-red-400 rounded-2xl font-bold border border-red-200 dark:border-red-900/50 flex items-center justify-center gap-3 transition-colors group">
+                                <div className="p-2 bg-white dark:bg-slate-900 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <Trash2 className="w-4 h-4" />
+                                </div>
+                                <span>Restablecer y Bajar de Nube</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'BLUETOOTH' && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Connection Panel */}
+                        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><Bluetooth className="w-5 h-5"/></div>
+                                Vincular Impresora Portátil
+                            </h3>
+                            <p className="text-sm text-slate-500 mb-6">Conecta tu impresora térmica directamente desde la app sin instalar drivers.</p>
+
+                            <div className="space-y-6">
+                                {btError && (
+                                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl text-xs text-red-600 dark:text-red-300 font-medium flex items-start gap-2">
+                                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                                        {btError}
+                                    </div>
+                                )}
+
+                                {!btDevice ? (
+                                    <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-800/50">
+                                        <div className="w-16 h-16 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                                            <Printer className="w-8 h-8" />
+                                        </div>
+                                        <p className="font-bold text-slate-600 dark:text-slate-300 mb-4">No hay impresora conectada</p>
+                                        <button 
+                                            onClick={handleBtScan}
+                                            disabled={isScanningBt}
+                                            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg flex items-center gap-2 transition-all disabled:opacity-50"
+                                        >
+                                            {isScanningBt ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>}
+                                            {isScanningBt ? 'Buscando...' : 'Buscar Dispositivo'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center p-8 border-2 border-emerald-500/30 rounded-2xl bg-emerald-50 dark:bg-emerald-900/10">
+                                        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-4 text-emerald-600 dark:text-emerald-400 animate-pulse">
+                                            <CheckCircle className="w-8 h-8" />
+                                        </div>
+                                        <h3 className="text-xl font-black text-slate-800 dark:text-white mb-1">{btDevice.name || 'Impresora Genérica'}</h3>
+                                        <p className="text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-6">Conectado</p>
+                                        
+                                        <div className="grid grid-cols-2 gap-3 w-full">
+                                            <button 
+                                                onClick={printBtTest}
+                                                disabled={!btCharacteristic}
+                                                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                                            >
+                                                <Printer className="w-4 h-4" /> Prueba
+                                            </button>
+                                            <button 
+                                                onClick={disconnectBtPrinter}
+                                                className="flex-1 py-3 bg-white border border-red-200 text-red-500 hover:bg-red-50 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
+                                            >
+                                                <Power className="w-4 h-4" /> Desconectar
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

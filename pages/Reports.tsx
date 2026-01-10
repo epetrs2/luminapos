@@ -37,7 +37,7 @@ export const Reports: React.FC = () => {
   // --- INVENTORY ANALYSIS STATE ---
   const [invSort, setInvSort] = useState<'URGENT' | 'VALUE' | 'SLOW'>('URGENT');
 
-  // ... (DATA PREPARATION & FILTERING MEMO - Identical to before) ...
+  // --- DATA PREPARATION & FILTERING ---
   const { 
       filteredTransactions, 
       filteredMovements, 
@@ -49,15 +49,21 @@ export const Reports: React.FC = () => {
       thirdPartyMetrics,
       zReportHistory
   } = useMemo(() => {
-      // ... (Existing aggregation logic kept exactly the same for brevity) ...
       const now = new Date();
+      // Normalize "now" to end of day for comparisons
       const endOfToday = new Date();
       endOfToday.setHours(23, 59, 59, 999);
+
       let startDate = new Date();
-      startDate.setHours(0, 0, 0, 0); 
+      startDate.setHours(0, 0, 0, 0); // Default to start of today local time
+      
       let endDate = endOfToday;
 
-      if (dateRange === 'WEEK') {
+      // 1. Calculate Date Range (Robust Local Time Logic)
+      if (dateRange === 'TODAY') {
+          // Start date is already set to 00:00 today
+          // End date is already set to 23:59 today
+      } else if (dateRange === 'WEEK') {
           startDate = new Date();
           startDate.setDate(now.getDate() - 6);
           startDate.setHours(0, 0, 0, 0);
@@ -67,20 +73,26 @@ export const Reports: React.FC = () => {
           startDate.setHours(0, 0, 0, 0);
       } else if (dateRange === 'CUSTOM') {
           if (customStart) {
+              // Create date from string YYYY-MM-DD and set to local 00:00
               const [y, m, d] = customStart.split('-').map(Number);
               startDate = new Date(y, m - 1, d, 0, 0, 0, 0);
-          } else { startDate = new Date(0); }
+          } else {
+              startDate = new Date(0); // Beginning of time
+          }
+          
           if (customEnd) {
               const [y, m, d] = customEnd.split('-').map(Number);
               endDate = new Date(y, m - 1, d, 23, 59, 59, 999);
           }
       }
 
+      // Helper to check date range safely
       const isInRange = (dateStr: string) => {
           const d = new Date(dateStr);
           return d.getTime() >= startDate.getTime() && d.getTime() <= endDate.getTime();
       };
 
+      // 2. Filter Transactions
       const validTx = transactions.filter(t => {
           const isDateInRange = isInRange(t.date);
           const isNotCancelled = t.status !== 'cancelled';
@@ -88,55 +100,104 @@ export const Reports: React.FC = () => {
           return isDateInRange && isNotCancelled && matchesPayment;
       });
 
-      const validMovs = cashMovements.filter(m => isInRange(m.date));
-      const zHistory = cashMovements.filter(m => m.isZCut).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      // 3. Filter Cash Movements
+      const validMovs = cashMovements.filter(m => {
+          return isInRange(m.date);
+      });
 
-      // ... (Chart data aggregation logic simplified for brevity - assumes logic works) ...
+      // 4. Filter Z History (Cortes) - Independent of Date Range Filter unless specific needed
+      const zHistory = cashMovements
+          .filter(m => m.isZCut)
+          .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      // --- AGGREGATION ---
+      
+      // A. Sales & Expenses Trend Data (Group by Day)
       const daysMap = new Map<string, { date: string, rawDate: number, sales: number, expenses: number }>();
+      
+      // Initialize map for continuity only if range is reasonable
       const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
       
       if (diffDays <= 60) {
           const iterDate = new Date(startDate);
           while (iterDate <= endDate) {
               const label = iterDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+              // Use simplified date string key to avoid timezone offset issues during lookup
               const key = `${iterDate.getFullYear()}-${iterDate.getMonth()}-${iterDate.getDate()}`; 
               daysMap.set(key, { date: label, rawDate: iterDate.getTime(), sales: 0, expenses: 0 });
               iterDate.setDate(iterDate.getDate() + 1);
           }
       }
 
+      // Fill Sales
       validTx.forEach(t => {
           const d = new Date(t.date);
           const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-          if (daysMap.has(key)) daysMap.get(key)!.sales += t.total;
+          const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+          
+          if (!daysMap.has(key)) {
+              daysMap.set(key, { date: label, rawDate: d.getTime(), sales: 0, expenses: 0 });
+          }
+          
+          const entry = daysMap.get(key)!;
+          entry.sales += t.total;
       });
 
+      // Fill Expenses
       validMovs.forEach(m => {
           if (m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')) {
               const d = new Date(m.date);
               const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-              if (daysMap.has(key)) daysMap.get(key)!.expenses += m.amount;
+              const label = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+
+              if (!daysMap.has(key)) {
+                  daysMap.set(key, { date: label, rawDate: d.getTime(), sales: 0, expenses: 0 });
+              }
+
+              const entry = daysMap.get(key)!;
+              entry.expenses += m.amount;
           }
       });
 
       const chartDataArray = Array.from(daysMap.values()).sort((a, b) => a.rawDate - b.rawDate);
-      
+
+      // B. Third Party Sales Calculation
       let thirdPartySales = 0;
       let ownSales = 0;
+
       validTx.forEach(t => {
-          t.items.forEach(item => {
-              if (item.isConsignment === true) thirdPartySales += (item.price * item.quantity);
-              else ownSales += (item.price * item.quantity);
-          });
+          // If transaction has items, loop through them
+          if (t.items && t.items.length > 0) {
+              t.items.forEach(item => {
+                  // Explicit check for true
+                  if (item.isConsignment === true) {
+                      thirdPartySales += (item.price * item.quantity);
+                  } else {
+                      ownSales += (item.price * item.quantity);
+                  }
+              });
+          } else {
+              // Fallback for very old data structure without items (unlikely)
+              ownSales += t.total;
+          }
       });
 
       const totalSales = validTx.reduce((sum, t) => sum + t.total, 0);
-      const totalMoneyOut = validMovs.filter(m => m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')).reduce((sum, m) => sum + m.amount, 0);
+      
+      // Total Money Out (Operational + Third Party Payouts)
+      const totalMoneyOut = validMovs
+        .filter(m => m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY'))
+        .reduce((sum, m) => sum + m.amount, 0);
+
       const transactionCount = validTx.length;
       const avgTicket = transactionCount > 0 ? totalSales / transactionCount : 0;
+      
+      // Operational Expenses Only (for Net Profit)
       const operationalExpenses = validMovs.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + m.amount, 0);
+      
       const netEstimate = ownSales - operationalExpenses; 
 
+      // C. Top Products
       const productMap = new Map<string, { name: string, qty: number, total: number }>();
       validTx.forEach(t => {
           t.items.forEach(item => {
@@ -147,8 +208,11 @@ export const Reports: React.FC = () => {
               productMap.set(key, current);
           });
       });
-      const topProductsArray = Array.from(productMap.values()).sort((a, b) => b.total - a.total).slice(0, 5);
+      const topProductsArray = Array.from(productMap.values())
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 5);
 
+      // D. Product Categories
       const catMap = new Map<string, number>();
       validTx.forEach(t => {
           t.items.forEach(item => {
@@ -158,76 +222,59 @@ export const Reports: React.FC = () => {
       });
       const categoryArray = Array.from(catMap.entries()).map(([name, value]) => ({ name, value }));
 
+      // E. Expenses Breakdown
       const expMap = new Map<string, number>();
       validMovs.filter(m => m.type === 'EXPENSE').forEach(m => {
           const cat = m.subCategory || 'Gastos Generales';
           expMap.set(cat, (expMap.get(cat) || 0) + m.amount);
       });
+      // Add payouts as a distinct slice if relevant
       const payouts = validMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s, m) => s + m.amount, 0);
       if (payouts > 0) expMap.set('Pagos a Terceros', payouts);
+
       const expenseCategoryArray = Array.from(expMap.entries()).map(([name, value]) => ({ name, value }));
 
-      return { filteredTransactions: validTx, filteredMovements: validMovs, chartData: chartDataArray, summaryMetrics: { totalSales, totalMoneyOut, avgTicket, transactionCount, netEstimate }, thirdPartyMetrics: { total: thirdPartySales, own: ownSales }, topProducts: topProductsArray, categoryData: categoryArray, expenseCategoryData: expenseCategoryArray, zReportHistory: zHistory };
+      return {
+          filteredTransactions: validTx,
+          filteredMovements: validMovs,
+          chartData: chartDataArray,
+          summaryMetrics: { totalSales, totalMoneyOut, avgTicket, transactionCount, netEstimate },
+          thirdPartyMetrics: { total: thirdPartySales, own: ownSales },
+          topProducts: topProductsArray,
+          categoryData: categoryArray,
+          expenseCategoryData: expenseCategoryArray,
+          zReportHistory: zHistory
+      };
+
   }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
-  // --- UPDATED: DISTRIBUTION METRICS (FISCAL PERIOD LOGIC) ---
+  // --- DISTRIBUTION METRICS (FISCAL PERIOD LOGIC) ---
   const getPeriodDates = (offset: number) => {
-      const config = settings.budgetConfig;
-      
-      // Fallback if not configured: use today
-      const startDateStr = config.fiscalStartDate || new Date().toISOString().split('T')[0];
-      const cycleType = config.cycleType || 'MONTHLY';
-      
-      const fiscalStart = new Date(startDateStr);
-      // Ensure fiscalStart is at 00:00 local time
-      fiscalStart.setHours(0,0,0,0);
-      
+      const startDay = settings.budgetConfig?.cycleStartDay || 1;
       const now = new Date();
-      now.setHours(0,0,0,0);
-
-      let start: Date;
-      let end: Date;
-
-      if (cycleType === 'FIXED_DAYS') {
-          const daysPerCycle = config.cycleLength || 30;
-          const msPerDay = 1000 * 60 * 60 * 24;
-          const cycleDurationMs = daysPerCycle * msPerDay;
-          
-          // Calculate how many cycles have passed since start
-          const timeSinceStart = now.getTime() - fiscalStart.getTime();
-          let currentCycleIndex = Math.floor(timeSinceStart / cycleDurationMs);
-          
-          // If we are before start date, handle negative index
-          if (timeSinceStart < 0) currentCycleIndex = Math.floor(timeSinceStart / cycleDurationMs);
-
-          // Apply offset (offset 0 = current, 1 = previous)
-          const targetIndex = currentCycleIndex - offset;
-          
-          start = new Date(fiscalStart.getTime() + (targetIndex * cycleDurationMs));
-          end = new Date(start.getTime() + cycleDurationMs - 1); // -1ms to be just before next cycle
-      } else {
-          // MONTHLY Logic (Day of month anchor)
-          const startDay = fiscalStart.getDate(); // e.g. 11
-          
-          // Determine current anchor based on 'now'
-          // If today is 5th and start is 11th, we are in previous month's cycle
-          let anchorMonth = new Date(now.getFullYear(), now.getMonth(), startDay);
-          if (now.getDate() < startDay) {
-              anchorMonth.setMonth(anchorMonth.getMonth() - 1);
-          }
-          
-          // Apply offset
-          anchorMonth.setMonth(anchorMonth.getMonth() - offset);
-          
-          start = new Date(anchorMonth);
-          start.setHours(0,0,0,0);
-          
-          // End date is start date + 1 month - 1 day
-          end = new Date(start);
-          end.setMonth(end.getMonth() + 1);
-          end.setDate(end.getDate() - 1);
-          end.setHours(23, 59, 59, 999);
+      
+      // Calculate anchor date based on offset
+      // If today is Feb 15 and startDay is 1:
+      // Offset 0: Feb 1 - Feb 28
+      // Offset 1: Jan 1 - Jan 31
+      
+      // We target the "start month". 
+      // If we are currently BEFORE the start day (e.g. today is Feb 5, startDay is 10), then we are in the "Jan 10 - Feb 9" cycle.
+      // If we are AFTER, we are in "Feb 10 - Mar 9".
+      
+      let targetMonth = new Date(); 
+      if (now.getDate() < startDay) {
+          targetMonth.setMonth(targetMonth.getMonth() - 1);
       }
+      
+      // Apply offset (go back X months)
+      targetMonth.setMonth(targetMonth.getMonth() - offset);
+      
+      const start = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), startDay);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 1);
+      end.setDate(end.getDate() - 1); // Last day of period
+      end.setHours(23, 59, 59, 999);
       
       return { start, end };
   };
@@ -289,99 +336,117 @@ export const Reports: React.FC = () => {
       };
   }, [selectedPeriodOffset, transactions, cashMovements, settings.budgetConfig]);
 
-  // --- ADDED: INVENTORY METRICS CALCULATION ---
+  // --- INVENTORY ANALYTICS MEMO (FIXED FOR PRODUCTION ADVICE) ---
   const inventoryMetrics = useMemo(() => {
-    let totalStockValue = 0;
-    let totalPotentialRevenue = 0;
-    let criticalCount = 0;
-    let deadStockCount = 0;
-    const sortedItems: any[] = [];
-    const messages: {title: string, desc: string, type: 'good'|'bad'|'info'}[] = [];
+      const now = new Date();
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(now.getDate() - 30);
 
-    const now = new Date();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(now.getDate() - 30);
+      // Filter sales last 30 days
+      const recentSales = transactions
+          .filter(t => t.status !== 'cancelled' && new Date(t.date) >= thirtyDaysAgo)
+          .flatMap(t => t.items);
 
-    products.forEach(p => {
-        if (!p.isActive) return;
+      const salesByProduct: Record<string, number> = {};
+      recentSales.forEach(i => {
+          salesByProduct[i.id] = (salesByProduct[i.id] || 0) + i.quantity;
+      });
 
-        let stock = p.stock;
-        let value = p.cost ? p.cost * stock : 0;
-        let revenue = p.price * stock;
+      let totalStockValue = 0;
+      let totalPotentialRevenue = 0;
+      const analysisItems: any[] = [];
 
-        if (p.hasVariants && p.variants) {
-            stock = p.variants.reduce((acc, v) => acc + v.stock, 0);
-            value = (p.cost || 0) * stock;
-            revenue = 0;
-            p.variants.forEach(v => {
-                revenue += v.price * v.stock;
-            });
-        }
+      products.forEach(p => {
+          if (!p.isActive) return;
+          const cost = p.cost || 0;
+          const price = p.price || 0;
+          const stock = p.stock || 0;
+          
+          totalStockValue += stock * cost;
+          totalPotentialRevenue += stock * price;
 
-        totalStockValue += value;
-        totalPotentialRevenue += revenue;
+          const sold30Days = salesByProduct[p.id] || 0;
+          const dailyRate = sold30Days / 30; // Avg sales per day
+          
+          // Estimate days remaining
+          const daysRemaining = dailyRate > 0 ? stock / dailyRate : (stock > 0 ? 999 : 0);
 
-        // Sales velocity
-        let sold30Days = 0;
-        transactions.forEach(t => {
-            if (t.status === 'cancelled') return;
-            const txDate = new Date(t.date);
-            if (txDate >= thirtyDaysAgo) {
-                t.items.forEach(i => {
-                    if (i.id === p.id) sold30Days += i.quantity;
-                });
-            }
-        });
+          analysisItems.push({
+              ...p,
+              sold30Days,
+              dailyRate,
+              daysRemaining,
+              stockValue: stock * cost,
+              stockPotential: stock * price
+          });
+      });
 
-        let daysRemaining = sold30Days > 0 ? (stock / (sold30Days / 30)) : 999;
-        
-        if (stock <= 0) {
-             // Out of stock
-        } else if (daysRemaining < 7) {
-            criticalCount++;
-        }
+      // Analyze & Generate Recommendations
+      const msgs: {title: string, desc: string, type: 'good'|'bad'|'info'}[] = [];
+      let status: 'ok'|'warning'|'critical' = 'ok';
 
-        if (stock > 0 && sold30Days === 0) {
-            deadStockCount++;
-        }
+      // 1. High Velocity Production Alert (Stock < 10 days coverage)
+      const highVelocity = analysisItems.filter(i => i.dailyRate > 0.5 && i.daysRemaining < 10);
+      if (highVelocity.length > 0) {
+          status = 'critical';
+          const names = highVelocity.slice(0,3).map((i:any) => i.name).join(', ');
+          msgs.push({
+              title: `Producción Urgente (${highVelocity.length} items)`,
+              desc: `Alta rotación detectada en: ${names}... Aumenta la producción inmediatamente para evitar perder ventas.`,
+              type: 'bad'
+          });
+      }
 
-        sortedItems.push({
-            id: p.id,
-            name: p.name,
-            category: p.category,
-            stock,
-            sold30Days,
-            daysRemaining,
-            stockPotential: revenue
-        });
-    });
+      // 2. Slow Movers (Dead Stock)
+      const deadStock = analysisItems.filter(i => i.stockPotential > 500 && i.sold30Days === 0);
+      if (deadStock.length > 0) {
+          if (status !== 'critical') status = 'warning';
+          msgs.push({
+              title: 'Inventario Estancado',
+              desc: `${deadStock.length} productos de alto valor no han tenido ventas en 30 días. Sugerimos lanzar promociones o liquidación.`,
+              type: 'info'
+          });
+      }
 
-    // Sort based on invSort state which is available in component
-    if (invSort === 'URGENT') {
-        sortedItems.sort((a, b) => a.daysRemaining - b.daysRemaining);
-    } else if (invSort === 'VALUE') {
-        sortedItems.sort((a, b) => b.stockPotential - a.stockPotential);
-    } else { // SLOW
-        sortedItems.sort((a, b) => a.sold30Days - b.sold30Days);
-    }
+      // 3. Balanced Check
+      if (highVelocity.length === 0 && deadStock.length === 0) {
+          msgs.push({
+              title: 'Producción Balanceada',
+              desc: 'Tu ritmo de producción parece estar alineado con la demanda actual. ¡Buen trabajo!',
+              type: 'good'
+          });
+      }
 
-    // Generate messages
-    if (criticalCount > 5) messages.push({title: 'Riesgo de Abastecimiento', desc: `${criticalCount} productos están por agotarse en menos de una semana.`, type: 'bad'});
-    if (deadStockCount > 10) messages.push({title: 'Capital Estancado', desc: `${deadStockCount} productos no han tenido ventas en 30 días. Considera ofertas.`, type: 'info'});
-    
-    return {
-        totalStockValue,
-        totalPotentialRevenue,
-        criticalCount,
-        deadStockCount,
-        sortedItems,
-        messages
-    };
+      // Sort items based on user selection
+      const sortedItems = [...analysisItems].sort((a, b) => {
+          if (invSort === 'URGENT') return a.daysRemaining - b.daysRemaining; 
+          if (invSort === 'VALUE') return b.stockPotential - a.stockPotential; // Sort by POTENTIAL revenue now
+          if (invSort === 'SLOW') return a.sold30Days - b.sold30Days;
+          return 0;
+      });
+
+      return {
+          totalStockValue,
+          totalPotentialRevenue,
+          sortedItems,
+          status,
+          messages: msgs,
+          criticalCount: highVelocity.length,
+          deadStockCount: deadStock.length
+      };
   }, [products, transactions, invSort]);
 
+  // --- AI HANDLER ---
+  const handleGenerateInsight = async () => {
+    setLoadingAi(true);
+    const result = await generateBusinessInsight(products, filteredTransactions, filteredMovements);
+    setInsight(result.text);
+    setLoadingAi(false);
+  };
+
+  // --- ALGORITHMIC ANALYSIS HANDLER (NON-AI) ---
   const handleSmartAnalysis = () => {
-      // ... Logic same as before ...
-      const { income, actual, config } = distMetrics;
+      const { income, actual, target, config } = distMetrics;
       const msgs: {title: string, desc: string, type: 'good'|'bad'|'info'}[] = [];
       let status: 'ok' | 'warning' | 'critical' = 'ok';
 
@@ -392,42 +457,88 @@ export const Reports: React.FC = () => {
           });
           return;
       }
-      
+
+      // 1. Analyze OpEx
       const opExRatio = (actual.opEx / income) * 100;
       const opExDiff = opExRatio - config.expensesPercentage;
 
       if (opExDiff > 10) {
           status = 'critical';
-          msgs.push({title: 'Gastos Críticos', desc: `Tus gastos operativos (${opExRatio.toFixed(1)}%) superan por mucho el objetivo (${config.expensesPercentage}%). Revisa fugas o renegocia con proveedores.`, type: 'bad'});
+          msgs.push({
+              title: 'Gastos Críticos',
+              desc: `Tus gastos operativos (${opExRatio.toFixed(1)}%) superan por mucho el objetivo (${config.expensesPercentage}%). Revisa fugas o renegocia con proveedores.`,
+              type: 'bad'
+          });
       } else if (opExDiff > 0) {
           status = status === 'ok' ? 'warning' : status;
-          msgs.push({title: 'Gastos Elevados', desc: `Estás gastando un ${opExDiff.toFixed(1)}% más de lo planeado. Intenta optimizar consumo de insumos.`, type: 'bad'});
+          msgs.push({
+              title: 'Gastos Elevados',
+              desc: `Estás gastando un ${opExDiff.toFixed(1)}% más de lo planeado. Intenta optimizar consumo de insumos.`,
+              type: 'bad'
+          });
       } else if (opExDiff < -15) {
-          msgs.push({title: 'Alta Eficiencia Operativa', desc: `Tus gastos son muy bajos. Considera aumentar el % de Inversión en la configuración para crecer más rápido.`, type: 'good'});
+          msgs.push({
+              title: 'Alta Eficiencia Operativa',
+              desc: `Tus gastos son muy bajos. Considera aumentar el % de Inversión en la configuración para crecer más rápido.`,
+              type: 'good'
+          });
       }
 
+      // 2. Analyze Profit Withdrawals
       const profitRatio = (actual.profit / income) * 100;
       if (profitRatio > config.profitPercentage) {
           status = status === 'ok' ? 'warning' : status;
-          msgs.push({title: 'Exceso de Retiros', desc: `Has retirado más ganancias (${profitRatio.toFixed(1)}%) de las estipuladas. Esto puede descapitalizar el negocio.`, type: 'bad'});
+          msgs.push({
+              title: 'Exceso de Retiros',
+              desc: `Has retirado más ganancias (${profitRatio.toFixed(1)}%) de las estipuladas. Esto puede descapitalizar el negocio.`,
+              type: 'bad'
+          });
       } else {
-          msgs.push({title: 'Retiros Saludables', desc: 'Tus retiros personales están dentro del presupuesto. ¡Excelente disciplina!', type: 'good'});
+          msgs.push({
+              title: 'Retiros Saludables',
+              desc: 'Tus retiros personales están dentro del presupuesto. ¡Excelente disciplina!',
+              type: 'good'
+          });
+      }
+
+      // 3. Analyze Investment (Retained)
+      const investRatio = (actual.investment / income) * 100;
+      if (investRatio < 5 && config.investmentPercentage > 10) {
+          msgs.push({
+              title: 'Poca Reinversión',
+              desc: 'Casi no está quedando dinero para invertir. Revisa si los gastos o retiros están consumiendo el flujo.',
+              type: 'info'
+          });
+      } else if (investRatio > config.investmentPercentage + 5) {
+          msgs.push({
+              title: 'Excedente de Flujo',
+              desc: 'Tienes más dinero disponible para invertir del planeado. Considera comprar nuevo inventario o mejorar el local.',
+              type: 'good'
+          });
       }
 
       setAnalysisResult({ status, messages: msgs });
   };
 
+  // --- PRINT HANDLER ---
   const handlePrintFinancialReport = () => {
-      // Logic same as before
+      // Prepare data for printing
+      const financialCategories = [
+          { name: 'Ventas', value: summaryMetrics.totalSales },
+          ...expenseCategoryData // Includes Expenses and Third Party Payouts
+      ];
+      
+      // Calculate true operational expenses for the report summary
       const opExp = filteredMovements.filter(m => m.type === 'EXPENSE').reduce((s,m) => s + m.amount, 0);
       const tpPayouts = filteredMovements.filter(m => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s,m) => s + m.amount, 0);
+
       const startDateObj = dateRange === 'CUSTOM' && customStart ? new Date(customStart) : new Date();
       if(dateRange !== 'CUSTOM') startDateObj.setDate(startDateObj.getDate() - (dateRange === 'WEEK' ? 7 : dateRange === 'MONTH' ? 30 : 0));
 
       printFinancialReport(
           startDateObj,
           new Date(),
-          [{ name: 'Ventas', value: summaryMetrics.totalSales }, ...expenseCategoryData],
+          financialCategories,
           {
               totalSales: summaryMetrics.totalSales,
               totalExpenses: opExp + tpPayouts,
@@ -436,14 +547,6 @@ export const Reports: React.FC = () => {
           },
           settings
       );
-  };
-
-  // ... AI GENERATE INSIGHT ...
-  const handleGenerateInsight = async () => {
-    setLoadingAi(true);
-    const result = await generateBusinessInsight(products, filteredTransactions, filteredMovements);
-    setInsight(result.text);
-    setLoadingAi(false);
   };
 
   const isDark = settings.theme === 'dark';
@@ -456,25 +559,53 @@ export const Reports: React.FC = () => {
         
         {/* HEADER & NAVIGATION */}
         <div className="flex flex-col gap-6 mb-8">
-          {/* ... Header and Tab Buttons (Same as existing) ... */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
                 <h2 className="text-3xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 <Activity className="w-8 h-8 text-indigo-500" /> Reportes
                 </h2>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">Análisis detallado y registros financieros.</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">
+                    Análisis detallado y registros financieros.
+                </p>
             </div>
+            
             <div className="flex flex-wrap items-center gap-2">
+                {/* Print Report Button */}
                 {activeTab === 'GENERAL' && (
-                    <button onClick={handlePrintFinancialReport} className="bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-all mr-2">
+                    <button 
+                        onClick={handlePrintFinancialReport}
+                        className="bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-all mr-2"
+                        title="Imprimir Estado Financiero del periodo actual"
+                    >
                         <FileText className="w-4 h-4" /> Estado Financiero
                     </button>
                 )}
+
                 <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 flex-wrap">
-                    <button onClick={() => setActiveTab('GENERAL')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'GENERAL' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>General</button>
-                    <button onClick={() => setActiveTab('INVENTORY')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'INVENTORY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>Inventario Detallado</button>
-                    <button onClick={() => setActiveTab('DISTRIBUTION')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'DISTRIBUTION' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>Distribución y Presupuesto</button>
-                    <button onClick={() => setActiveTab('Z_HISTORY')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'Z_HISTORY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>Historial de Cortes</button>
+                    <button 
+                        onClick={() => setActiveTab('GENERAL')}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'GENERAL' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    >
+                        General
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('INVENTORY')}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'INVENTORY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    >
+                        Inventario Detallado
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('DISTRIBUTION')}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'DISTRIBUTION' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    >
+                        Distribución y Presupuesto
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('Z_HISTORY')}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'Z_HISTORY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    >
+                        Historial de Cortes
+                    </button>
                 </div>
             </div>
           </div>
@@ -483,19 +614,83 @@ export const Reports: React.FC = () => {
           {activeTab === 'GENERAL' && (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                    <button onClick={() => { setDateRange('TODAY'); setShowFilters(false); }} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${dateRange === 'TODAY' ? 'bg-white dark:bg-slate-800 border-indigo-500 text-indigo-600 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}>Hoy</button>
-                    <button onClick={() => { setDateRange('WEEK'); setShowFilters(false); }} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${dateRange === 'WEEK' ? 'bg-white dark:bg-slate-800 border-indigo-500 text-indigo-600 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}>7 Días</button>
-                    <button onClick={() => { setDateRange('MONTH'); setShowFilters(false); }} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${dateRange === 'MONTH' ? 'bg-white dark:bg-slate-800 border-indigo-500 text-indigo-600 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}>Mes</button>
-                    <button onClick={() => setShowFilters(!showFilters)} className={`p-2 rounded-full transition-all border ${showFilters || dateRange === 'CUSTOM' ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}><Filter className="w-4 h-4" /></button>
+                    <button 
+                        onClick={() => { setDateRange('TODAY'); setShowFilters(false); }}
+                        className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${dateRange === 'TODAY' ? 'bg-white dark:bg-slate-800 border-indigo-500 text-indigo-600 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}
+                    >
+                        Hoy
+                    </button>
+                    <button 
+                        onClick={() => { setDateRange('WEEK'); setShowFilters(false); }}
+                        className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${dateRange === 'WEEK' ? 'bg-white dark:bg-slate-800 border-indigo-500 text-indigo-600 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}
+                    >
+                        7 Días
+                    </button>
+                    <button 
+                        onClick={() => { setDateRange('MONTH'); setShowFilters(false); }}
+                        className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${dateRange === 'MONTH' ? 'bg-white dark:bg-slate-800 border-indigo-500 text-indigo-600 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}
+                    >
+                        Mes
+                    </button>
+                    <button 
+                        onClick={() => setShowFilters(!showFilters)}
+                        className={`p-2 rounded-full transition-all border ${showFilters || dateRange === 'CUSTOM' ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                    >
+                        <Filter className="w-4 h-4" />
+                    </button>
                 </div>
-                {/* Advanced Filters Drawer (Keep existing) */}
+
+                {/* ADVANCED FILTERS DRAWER */}
                 {(showFilters || dateRange === 'CUSTOM') && (
                     <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 animate-[slideUp_0.2s_ease-out]">
-                        <div className="flex justify-between items-center mb-4"><h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2"><Filter className="w-4 h-4" /> Filtros Avanzados</h3>{dateRange === 'CUSTOM' && (<button onClick={() => { setDateRange('WEEK'); setShowFilters(false); setPaymentMethodFilter('ALL'); }} className="text-xs text-red-500 hover:underline flex items-center gap-1"><X className="w-3 h-3" /> Limpiar Filtros</button>)}</div>
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                                <Filter className="w-4 h-4" /> Filtros Avanzados
+                            </h3>
+                            {dateRange === 'CUSTOM' && (
+                                <button onClick={() => { setDateRange('WEEK'); setShowFilters(false); setPaymentMethodFilter('ALL'); }} className="text-xs text-red-500 hover:underline flex items-center gap-1">
+                                    <X className="w-3 h-3" /> Limpiar Filtros
+                                </button>
+                            )}
+                        </div>
+                        
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Desde</label><input type="date" value={customStart} onChange={(e) => { setCustomStart(e.target.value); setDateRange('CUSTOM'); }} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"/></div>
-                            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hasta</label><input type="date" value={customEnd} onChange={(e) => { setCustomEnd(e.target.value); setDateRange('CUSTOM'); }} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"/></div>
-                            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Método de Pago</label><select value={paymentMethodFilter} onChange={(e) => setPaymentMethodFilter(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white appearance-none"><option value="ALL">Todos</option><option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="transfer">Transferencia</option><option value="credit">Crédito</option><option value="split">Pago Dividido</option></select></div>
+                            {/* Date Inputs */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Desde</label>
+                                <input 
+                                    type="date" 
+                                    value={customStart} 
+                                    onChange={(e) => { setCustomStart(e.target.value); setDateRange('CUSTOM'); }}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                                <input 
+                                    type="date" 
+                                    value={customEnd} 
+                                    onChange={(e) => { setCustomEnd(e.target.value); setDateRange('CUSTOM'); }}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+                                />
+                            </div>
+
+                            {/* Payment Method */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Método de Pago</label>
+                                <select 
+                                    value={paymentMethodFilter}
+                                    onChange={(e) => setPaymentMethodFilter(e.target.value)}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white appearance-none"
+                                >
+                                    <option value="ALL">Todos</option>
+                                    <option value="cash">Efectivo</option>
+                                    <option value="card">Tarjeta</option>
+                                    <option value="transfer">Transferencia</option>
+                                    <option value="credit">Crédito</option>
+                                    <option value="split">Pago Dividido</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -503,86 +698,236 @@ export const Reports: React.FC = () => {
           )}
         </div>
 
-        {/* ... (GENERAL TAB CONTENT - Keep exactly as existing) ... */}
-        {activeTab === 'GENERAL' && (
+        {/* --- MAIN CONTENT SWITCH --- */}
+        {activeTab === 'GENERAL' ? (
             <>
+                {/* KPI CARDS */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 animate-[fadeIn_0.3s_ease-out]">
+                    {/* Sales */}
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden group">
-                        <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><TrendingUp className="w-20 h-20 text-indigo-600" /></div>
-                        <div className="flex items-center gap-3 mb-4"><div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl"><DollarSign className="w-6 h-6" /></div><div><p className="text-sm font-bold text-slate-500 dark:text-slate-400">Ventas Totales</p><p className="text-[10px] text-slate-400">Propias + Terceros</p></div></div>
-                        <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">${summaryMetrics.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h3>
+                        <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                            <TrendingUp className="w-20 h-20 text-indigo-600" />
+                        </div>
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                                <DollarSign className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Ventas Totales</p>
+                                <p className="text-[10px] text-slate-400">Propias + Terceros</p>
+                            </div>
+                        </div>
+                        <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">
+                            ${summaryMetrics.totalSales.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </h3>
                         <p className="text-xs text-slate-400">{summaryMetrics.transactionCount} transacciones</p>
                     </div>
-                    {/* ... other cards ... */}
+
+                    {/* Expenses (Including Third Party Payouts) */}
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
-                        <div className="flex items-center gap-3 mb-4"><div className="p-3 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-xl"><ArrowDownRight className="w-6 h-6" /></div><div><p className="text-sm font-bold text-slate-500 dark:text-slate-400">Salidas Totales</p><p className="text-[10px] text-slate-400">Gastos + Liq. Terceros</p></div></div>
-                        <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">${summaryMetrics.totalMoneyOut.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h3>
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-3 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-xl">
+                                <ArrowDownRight className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Salidas Totales</p>
+                                <p className="text-[10px] text-slate-400">Gastos + Liq. Terceros</p>
+                            </div>
+                        </div>
+                        <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">
+                            ${summaryMetrics.totalMoneyOut.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </h3>
                         <p className="text-xs text-slate-400">Flujo Saliente</p>
                     </div>
+
+                    {/* Net Estimate */}
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
-                        <div className="flex items-center gap-3 mb-4"><div className="p-3 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-xl"><ArrowUpRight className="w-6 h-6" /></div><div><p className="text-sm font-bold text-slate-500 dark:text-slate-400">Utilidad Real</p><p className="text-[10px] text-slate-400">Ventas Propias - Gastos Op.</p></div></div>
-                        <h3 className={`text-3xl font-black mb-1 ${summaryMetrics.netEstimate >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>${summaryMetrics.netEstimate.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h3>
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-3 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                                <ArrowUpRight className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Utilidad Real</p>
+                                <p className="text-[10px] text-slate-400">Ventas Propias - Gastos Op.</p>
+                            </div>
+                        </div>
+                        <h3 className={`text-3xl font-black mb-1 ${summaryMetrics.netEstimate >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                            ${summaryMetrics.netEstimate.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </h3>
                         <p className="text-xs text-slate-400">Estimado contable</p>
                     </div>
+
+                    {/* Third Party Metrics */}
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
-                        <div className="flex items-center gap-3 mb-4"><div className="p-3 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-xl"><Handshake className="w-6 h-6" /></div><div><p className="text-sm font-bold text-slate-500 dark:text-slate-400">Venta Terceros</p><p className="text-[10px] text-slate-400">Dinero por Consignación</p></div></div>
-                        <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">${thirdPartyMetrics.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h3>
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-3 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-xl">
+                                <Handshake className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Venta Terceros</p>
+                                <p className="text-[10px] text-slate-400">Dinero por Consignación</p>
+                            </div>
+                        </div>
+                        <h3 className="text-3xl font-black text-slate-800 dark:text-white mb-1">
+                            ${thirdPartyMetrics.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </h3>
                         <p className="text-xs text-orange-500 font-medium">No es ganancia propia</p>
                     </div>
                 </div>
 
+                {/* AI INSIGHT SECTION */}
                 <div className="mb-8">
                     {!insight ? (
-                        <button onClick={handleGenerateInsight} disabled={loadingAi} className="w-full py-4 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-3">
-                            {loadingAi ? <Activity className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />} {loadingAi ? 'Analizando datos...' : 'Generar Análisis Inteligente con IA'}
+                        <button 
+                            onClick={handleGenerateInsight}
+                            disabled={loadingAi}
+                            className="w-full py-4 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-3"
+                        >
+                            {loadingAi ? <Activity className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                            {loadingAi ? 'Analizando datos...' : 'Generar Análisis Inteligente con IA'}
                         </button>
                     ) : (
                         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-indigo-100 dark:border-indigo-900 overflow-hidden animate-[fadeIn_0.5s]">
-                            <div className="bg-indigo-600 p-4 flex justify-between items-center text-white"><div className="flex items-center gap-2"><Sparkles className="w-5 h-5" /><h3 className="font-bold">Análisis de Negocio IA</h3></div><button onClick={() => setInsight(null)} className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition-colors">Cerrar</button></div>
-                            <div className="p-6 prose prose-sm prose-indigo dark:prose-invert max-w-none"><ReactMarkdown>{insight}</ReactMarkdown></div>
+                            <div className="bg-indigo-600 p-4 flex justify-between items-center text-white">
+                                <div className="flex items-center gap-2">
+                                    <Sparkles className="w-5 h-5" />
+                                    <h3 className="font-bold">Análisis de Negocio IA</h3>
+                                </div>
+                                <button onClick={() => setInsight(null)} className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition-colors">Cerrar</button>
+                            </div>
+                            <div className="p-6 prose prose-sm prose-indigo dark:prose-invert max-w-none">
+                                <ReactMarkdown>{insight}</ReactMarkdown>
+                            </div>
                         </div>
                     )}
                 </div>
 
+                {/* CHARTS ROW 1 */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8 animate-[slideUp_0.4s_ease-out]">
+                    {/* Sales Trend Chart */}
                     <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-indigo-500" /> Tendencia de Ventas</h3>
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-indigo-500" /> Tendencia de Ventas
+                        </h3>
                         <div className="h-80 w-full">
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={chartData}>
-                                    <defs><linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/><stop offset="95%" stopColor="#6366f1" stopOpacity={0}/></linearGradient></defs>
+                                    <defs>
+                                        <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                                        </linearGradient>
+                                    </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
                                     <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} dy={10} />
                                     <YAxis axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} tickFormatter={(val) => `$${val}`} width={40} />
-                                    <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px', backgroundColor: isDark ? '#1e293b' : '#fff', color: isDark ? '#fff' : '#000'}} cursor={{stroke: '#6366f1', strokeWidth: 1, strokeDasharray: '5 5'}} formatter={(val: number) => [`$${val.toFixed(2)}`, 'Ventas']} />
+                                    <Tooltip 
+                                        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px', backgroundColor: isDark ? '#1e293b' : '#fff', color: isDark ? '#fff' : '#000'}}
+                                        cursor={{stroke: '#6366f1', strokeWidth: 1, strokeDasharray: '5 5'}}
+                                        formatter={(val: number) => [`$${val.toFixed(2)}`, 'Ventas']}
+                                    />
                                     <Area type="monotone" dataKey="sales" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
                     </div>
-                    {/* ... Top Products ... */}
+
+                    {/* Top Products List */}
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col">
-                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2"><Package className="w-5 h-5 text-emerald-500" /> Top Productos</h3>
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+                            <Package className="w-5 h-5 text-emerald-500" /> Top Productos
+                        </h3>
                         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-4">
                             {topProducts.length > 0 ? topProducts.map((p, idx) => (
                                 <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
                                     <div className="flex items-center gap-3">
-                                        <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : idx === 1 ? 'bg-gray-100 text-gray-700' : idx === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}`}>{idx + 1}</span>
-                                        <div><p className="text-sm font-bold text-slate-800 dark:text-white line-clamp-1">{p.name}</p><p className="text-xs text-slate-500">{p.qty} vendidas</p></div>
+                                        <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : idx === 1 ? 'bg-gray-100 text-gray-700' : idx === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}`}>
+                                            {idx + 1}
+                                        </span>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-800 dark:text-white line-clamp-1">{p.name}</p>
+                                            <p className="text-xs text-slate-500">{p.qty} vendidas</p>
+                                        </div>
                                     </div>
-                                    <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">${p.total.toFixed(0)}</span>
+                                    <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                                        ${p.total.toFixed(0)}
+                                    </span>
                                 </div>
-                            )) : <div className="text-center py-10 text-slate-400"><AlertCircle className="w-10 h-10 mx-auto mb-2 opacity-20" /><p className="text-xs">Sin datos de venta</p></div>}
+                            )) : (
+                                <div className="text-center py-10 text-slate-400">
+                                    <AlertCircle className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                                    <p className="text-xs">Sin datos de venta</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* CHARTS ROW 2 */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 animate-[slideUp_0.5s_ease-out]">
+                    {/* Cash Flow Comparison (Sales vs Money Out) */}
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+                            <ArrowUpRight className="w-5 h-5 text-indigo-500" /> Flujo de Caja (Ventas vs Salidas)
+                        </h3>
+                        <div className="h-64 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+                                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} dy={10} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} tickFormatter={(val) => `$${val}`} width={40} />
+                                    <Tooltip 
+                                        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px', backgroundColor: isDark ? '#1e293b' : '#fff', color: isDark ? '#fff' : '#000'}}
+                                        cursor={{fill: isDark ? '#334155' : '#f1f5f9'}}
+                                    />
+                                    <Legend verticalAlign="top" height={36} iconType="circle"/>
+                                    <Bar name="Ventas" dataKey="sales" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={20} />
+                                    <Bar name="Salidas" dataKey="expenses" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={20} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Expense Categories */}
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+                            <Tag className="w-5 h-5 text-red-500" /> Desglose de Salidas
+                        </h3>
+                        <div className="h-64 w-full flex items-center justify-center">
+                            {expenseCategoryData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                            data={expenseCategoryData}
+                                            cx="50%"
+                                            cy="50%"
+                                            innerRadius={60}
+                                            outerRadius={80}
+                                            paddingAngle={5}
+                                            dataKey="value"
+                                        >
+                                            {expenseCategoryData.map((entry, index) => (
+                                                <Cell key={`cell-exp-${index}`} fill={COLORS[(index + 3) % COLORS.length]} stroke={isDark ? '#0f172a' : '#fff'} strokeWidth={2} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip formatter={(val: number) => `$${val.toFixed(2)}`} contentStyle={{borderRadius: '8px', border:'none'}} />
+                                        <Legend layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{fontSize: '11px', color: textColor}} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="text-center text-slate-400">
+                                    <ArrowDownRight className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                                    <p className="text-sm">Sin egresos registrados</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
             </>
-        )}
-
-        {activeTab === 'INVENTORY' && (
-            // ... (Inventory logic remains same) ...
+        ) : activeTab === 'INVENTORY' ? (
+            // --- INVENTORY DETAILED REPORT TAB ---
             <div className="animate-[fadeIn_0.3s_ease-out]">
-                {/* ... existing inventory rendering ... */}
+                {/* Re-rendering existing Inventory content */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
                         <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -597,26 +942,38 @@ export const Reports: React.FC = () => {
                         <button onClick={() => setInvSort('SLOW')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${invSort === 'SLOW' ? 'bg-white dark:bg-slate-700 shadow-sm text-orange-600 dark:text-orange-400' : 'text-slate-500'}`}>Sin Mov.</button>
                     </div>
                 </div>
-                {/* ... stats cards ... */}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg"><DollarSign className="w-5 h-5"/></div><p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Valor en Costo</p></div>
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg"><DollarSign className="w-5 h-5"/></div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Valor en Costo</p>
+                        </div>
                         <h3 className="text-2xl font-black text-slate-800 dark:text-white">${inventoryMetrics.totalStockValue.toLocaleString()}</h3>
                     </div>
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg"><TrendingUp className="w-5 h-5"/></div><p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Potencial Venta</p></div>
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg"><TrendingUp className="w-5 h-5"/></div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Potencial Venta</p>
+                        </div>
                         <h3 className="text-2xl font-black text-slate-800 dark:text-white">${inventoryMetrics.totalPotentialRevenue.toLocaleString()}</h3>
                     </div>
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg"><AlertTriangle className="w-5 h-5"/></div><p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Riesgo Quiebre</p></div>
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg"><AlertTriangle className="w-5 h-5"/></div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Riesgo Quiebre</p>
+                        </div>
                         <h3 className="text-2xl font-black text-red-600 dark:text-red-400">{inventoryMetrics.criticalCount}</h3>
                     </div>
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center gap-3 mb-2"><div className="p-2 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-lg"><TrendingDown className="w-5 h-5"/></div><p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Stock Muerto</p></div>
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-lg"><TrendingDown className="w-5 h-5"/></div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Stock Muerto</p>
+                        </div>
                         <h3 className="text-2xl font-black text-orange-600 dark:text-orange-400">{inventoryMetrics.deadStockCount}</h3>
                     </div>
                 </div>
-                {/* ... messages and table ... */}
+
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-1">
                         <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden h-full">
@@ -665,9 +1022,7 @@ export const Reports: React.FC = () => {
                     </div>
                 </div>
             </div>
-        )}
-
-        {activeTab === 'DISTRIBUTION' && (
+        ) : activeTab === 'DISTRIBUTION' ? (
             // --- UPDATED BUDGET & DISTRIBUTION TAB WITH PERIODS ---
             <div className="animate-[fadeIn_0.3s_ease-out]">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -676,7 +1031,7 @@ export const Reports: React.FC = () => {
                             <Target className="w-6 h-6 text-indigo-500" /> Control de Presupuesto
                         </h3>
                         <p className="text-sm text-slate-500">
-                            Ciclo {distMetrics.config.cycleType === 'FIXED_DAYS' ? `de ${distMetrics.config.cycleLength} Días` : 'Mensual'}.
+                            Ciclo Fiscal: Día {distMetrics.config.cycleStartDay || 1} al {distMetrics.periodEnd.getDate()}.
                         </p>
                     </div>
                     <div className="flex items-center gap-3 bg-white dark:bg-slate-900 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -837,10 +1192,8 @@ export const Reports: React.FC = () => {
                     </div>
                 </div>
             </div>
-        )}
-
-        {activeTab === 'Z_HISTORY' && (
-            // ... (Z HISTORY logic remains same) ...
+        ) : (
+            // --- Z HISTORY TAB ---
             <div className="animate-[fadeIn_0.3s_ease-out]">
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                     <Lock className="w-6 h-6 text-indigo-500" /> Historial de Cierres de Caja
@@ -848,6 +1201,7 @@ export const Reports: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {zReportHistory.length > 0 ? zReportHistory.map((report) => (
                         <div key={report.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col group hover:shadow-md transition-all">
+                            {/* ... Report Content ... */}
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <p className="text-xs text-slate-400 font-bold uppercase mb-1">Fecha de Corte</p>
@@ -876,7 +1230,10 @@ export const Reports: React.FC = () => {
                                 </div>
                             </div>
 
-                            <button onClick={() => printZCutTicket(report, settings, btDevice ? sendBtData : undefined)} className="w-full py-2 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl flex items-center justify-center gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                            <button 
+                                onClick={() => printZCutTicket(report, settings, btDevice ? sendBtData : undefined)}
+                                className="w-full py-2 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl flex items-center justify-center gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                            >
                                 <Printer className="w-4 h-4" /> Reimprimir Reporte
                             </button>
                         </div>
