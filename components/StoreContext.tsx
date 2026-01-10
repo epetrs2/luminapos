@@ -29,7 +29,14 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     ticketPaperWidth: '58mm',
     invoicePadding: 10,
     theme: 'light',
-    budgetConfig: { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20, cycleStartDay: 1 },
+    budgetConfig: { 
+        expensesPercentage: 50, 
+        investmentPercentage: 30, 
+        profitPercentage: 20, 
+        fiscalStartDate: new Date().toISOString().split('T')[0], // Defaults to today
+        cycleType: 'MONTHLY',
+        cycleLength: 30
+    },
     notificationsEnabled: true,
     soundConfig: { enabled: true, volume: 0.5, saleSound: 'SUCCESS', errorSound: 'ERROR', clickSound: 'POP', notificationSound: 'NOTE' },
     securityConfig: { autoLockMinutes: 0, blurAppOnBackground: false },

@@ -1,122 +1,4 @@
 
-export type ProductType = 'PRODUCT' | 'SUPPLY';
-export type MeasurementUnit = 'PIECE' | 'KG' | 'GRAM' | 'LITER' | 'METER';
-
-export interface ProductVariant {
-  id: string;
-  name: string;
-  price: number;
-  stock: number;
-  sku: string;
-}
-
-export interface Product {
-  id: string;
-  name: string;
-  price: number;
-  cost?: number;
-  stock: number;
-  category: string;
-  sku: string;
-  taxRate?: number;
-  hasVariants?: boolean;
-  type?: ProductType;
-  unit?: MeasurementUnit;
-  isActive?: boolean;
-  isConsignment?: boolean;
-  description?: string;
-  presentationValue?: number;
-  presentationUnit?: string;
-  variants?: ProductVariant[];
-}
-
-export interface CartItem extends Product {
-  quantity: number;
-  originalPrice?: number;
-  variantId?: string;
-  variantName?: string;
-  finalTax?: number;
-}
-
-export interface PurchaseItem {
-  productId: string;
-  variantId?: string;
-  variantName?: string;
-  name: string;
-  quantity: number;
-  unitCost: number;
-  total: number;
-  type?: ProductType;
-}
-
-export interface Customer {
-  id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  address?: string;
-  notes?: string;
-  creditLimit: number;
-  currentDebt: number;
-  hasUnlimitedCredit: boolean;
-  clientType: 'INDIVIDUAL' | 'BUSINESS';
-}
-
-export interface Supplier {
-  id: string;
-  name: string;
-  contactPerson?: string;
-  email?: string;
-  phone?: string;
-  address?: string;
-}
-
-export interface Transaction {
-  id: string;
-  date: string;
-  items: CartItem[];
-  subtotal: number;
-  taxAmount: number;
-  discount: number;
-  shipping: number;
-  total: number;
-  paymentMethod: 'cash' | 'card' | 'transfer' | 'credit' | 'split';
-  paymentStatus: 'paid' | 'pending' | 'partial';
-  amountPaid: number;
-  tenderedAmount?: number;
-  customerId?: string;
-  status: 'completed' | 'cancelled' | 'returned';
-  splitDetails?: { cash: number; other: number };
-  transferReference?: string;
-  originalTransactionId?: string;
-  isReturn?: boolean;
-}
-
-export interface Order {
-  id: string;
-  customerId: string;
-  customerName: string;
-  date: string;
-  deliveryDate?: string;
-  items: CartItem[];
-  total: number;
-  status: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'COMPLETED';
-  notes?: string;
-  priority: 'NORMAL' | 'HIGH';
-}
-
-export interface Purchase {
-  id: string;
-  supplierId: string;
-  supplierName: string;
-  date: string;
-  items: PurchaseItem[];
-  shippingCost?: number;
-  total: number;
-  status: 'COMPLETED';
-  notes?: string;
-}
-
 export type BudgetCategory = 'SALES' | 'OPERATIONAL' | 'EQUITY' | 'PROFIT' | 'THIRD_PARTY' | 'LOAN' | 'OTHER';
 
 export interface ZReportData {
@@ -147,11 +29,15 @@ export interface CashMovement {
   zReportData?: ZReportData;
 }
 
+export type CycleType = 'MONTHLY' | 'FIXED_DAYS';
+
 export interface BudgetConfig {
   expensesPercentage: number;
   investmentPercentage: number;
   profitPercentage: number;
-  cycleStartDay?: number; // Day of month when the budget resets (1-31)
+  fiscalStartDate?: string; // ISO Date String (e.g. '2023-12-11')
+  cycleType?: CycleType;    // 'MONTHLY' (same day next month) or 'FIXED_DAYS'
+  cycleLength?: number;     // If FIXED_DAYS, how many days (e.g. 28)
 }
 
 export interface SequenceConfig {
@@ -279,4 +165,124 @@ export enum AppView {
   REPORTS = 'REPORTS',
   SETTINGS = 'SETTINGS',
   USERS = 'USERS'
+}
+
+// --- MISSING TYPES ADDED BELOW ---
+
+export type ProductType = 'PRODUCT' | 'SUPPLY';
+export type MeasurementUnit = 'PIECE' | 'KG' | 'GRAM' | 'LITER' | 'METER';
+
+export interface ProductVariant {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+  sku: string;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  sku: string;
+  category: string;
+  price: number;
+  cost?: number;
+  stock: number;
+  taxRate?: number;
+  hasVariants?: boolean;
+  variants?: ProductVariant[];
+  type?: ProductType;
+  unit?: MeasurementUnit;
+  isActive?: boolean;
+  isConsignment?: boolean;
+  description?: string;
+  presentationValue?: number;
+  presentationUnit?: string;
+}
+
+export interface CartItem extends Product {
+  quantity: number;
+  variantId?: string;
+  variantName?: string;
+  originalPrice?: number;
+  finalTax?: number;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  notes?: string;
+  creditLimit: number;
+  currentDebt: number;
+  hasUnlimitedCredit?: boolean;
+  clientType: 'INDIVIDUAL' | 'BUSINESS';
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+}
+
+export interface Transaction {
+  id: string;
+  date: string;
+  subtotal: number;
+  taxAmount: number;
+  discount: number;
+  shipping: number;
+  total: number;
+  items: CartItem[];
+  paymentMethod: 'cash' | 'card' | 'transfer' | 'credit' | 'split';
+  paymentStatus: 'paid' | 'pending' | 'partial';
+  amountPaid: number;
+  tenderedAmount?: number;
+  customerId?: string;
+  status: 'completed' | 'cancelled' | 'returned';
+  splitDetails?: { cash: number; other: number };
+  originalTransactionId?: string;
+  isReturn?: boolean;
+  transferReference?: string;
+}
+
+export interface Order {
+  id: string;
+  customerId: string;
+  customerName: string;
+  date: string;
+  deliveryDate?: string;
+  items: CartItem[];
+  total: number;
+  status: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'COMPLETED';
+  notes?: string;
+  priority: 'NORMAL' | 'HIGH';
+}
+
+export interface PurchaseItem {
+  productId: string;
+  variantId?: string;
+  variantName?: string;
+  name: string;
+  quantity: number;
+  unitCost: number;
+  total: number;
+  type?: ProductType;
+}
+
+export interface Purchase {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  date: string;
+  items: PurchaseItem[];
+  shippingCost?: number;
+  total: number;
+  status: 'COMPLETED' | 'PENDING';
+  notes?: string;
 }
