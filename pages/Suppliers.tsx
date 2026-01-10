@@ -1,17 +1,19 @@
 
+// ... existing imports
 import React, { useState, useMemo } from 'react';
 import { Plus, Edit2, Trash2, Search, Truck, Mail, Phone, Building, ShoppingCart, Archive, DollarSign, Calendar, X, Save, ArrowRight, Package, Check, AlertCircle, PackagePlus, History, Zap, Box, Tag, Receipt, List, ArrowDownAZ, ArrowUpNarrowWide, Filter, Clock, Activity } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Supplier, Product, PurchaseItem, Purchase, ProductType } from '../types';
 
 export const Suppliers: React.FC = () => {
-  const { suppliers, addSupplier, updateSupplier, deleteSupplier, products, addProduct, categories, addPurchase, purchases } = useStore();
+  const { suppliers, addSupplier, updateSupplier, deleteSupplier, products, addProduct, categories, addPurchase, purchases, deletePurchase } = useStore();
   
   // Tabs State
   const [activeTab, setActiveTab] = useState<'DIRECTORY' | 'PURCHASES'>('DIRECTORY');
   const [subTab, setSubTab] = useState<'LIST' | 'NEW'>('LIST'); 
   const [mobilePurchaseStep, setMobilePurchaseStep] = useState<'CATALOG' | 'TICKET'>('CATALOG');
 
+  // ... (existing state for suppliers modal, search, filters) ...
   // Suppliers CRUD State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
@@ -33,7 +35,7 @@ export const Suppliers: React.FC = () => {
   const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
   const [quickProduct, setQuickProduct] = useState({ name: '', price: '', cost: '', category: 'General', sku: '', type: 'PRODUCT' as ProductType });
 
-  // --- Suppliers Logic ---
+  // ... (Supplier handlers: handleOpenModal, handleSave) ...
   const handleOpenModal = (supplier?: Supplier) => {
     if (supplier) {
       setEditingSupplier(supplier);
@@ -56,7 +58,7 @@ export const Suppliers: React.FC = () => {
     setIsModalOpen(false);
   };
 
-  // --- STATS CALCULATION ---
+  // ... (Stats Calculation Memo) ...
   const supplierStats = useMemo(() => {
       const stats: Record<string, { totalSpent: number, count: number, lastDate: number }> = {};
       
@@ -79,7 +81,7 @@ export const Suppliers: React.FC = () => {
       return stats;
   }, [suppliers, purchases]);
 
-  // --- FILTERING & SORTING ---
+  // ... (Filtering & Sorting Memos) ...
   const filteredSuppliers = useMemo(() => {
       let result = suppliers.filter(s => 
         s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -113,8 +115,7 @@ export const Suppliers: React.FC = () => {
       };
   }, [suppliers, supplierStats]);
 
-
-  // --- Purchase Logic ---
+  // ... (Purchase Logic: addToPurchaseCart, updateCartItem, removeCartItem, etc) ...
   const filteredProducts = useMemo(() => {
       if (!productSearch) return [];
       return products.filter(p => 
@@ -160,7 +161,6 @@ export const Suppliers: React.FC = () => {
       setPurchaseCart(prev => prev.filter((_, idx) => idx !== index));
   };
 
-  // Calculate Total Including Shipping
   const subtotal = purchaseCart.reduce((sum, item) => sum + item.total, 0);
   const shippingCost = parseFloat(purchaseShipping) || 0;
   const purchaseTotal = subtotal + shippingCost;
@@ -200,7 +200,13 @@ export const Suppliers: React.FC = () => {
       setMobilePurchaseStep('CATALOG');
   };
 
-  // --- Quick Create Logic ---
+  const handleDeletePurchase = (id: string) => {
+      if (window.confirm("¿Seguro que deseas eliminar esta compra? Se revertirá el stock agregado y se devolverá el dinero a caja si existe un movimiento asociado.")) {
+          deletePurchase(id);
+      }
+  };
+
+  // ... (Quick Create Logic) ...
   const initiateQuickCreate = () => {
       setQuickProduct({
           name: productSearch,
@@ -265,9 +271,11 @@ export const Suppliers: React.FC = () => {
           </div>
         </div>
 
-        {/* --- DIRECTORY TAB --- */}
+        {/* --- DIRECTORY TAB (Content remains the same) --- */}
         {activeTab === 'DIRECTORY' && (
+            // ... directory content (same as before) ...
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden animate-[fadeIn_0.3s_ease-out] flex flex-col">
+                {/* ... filters and table ... */}
                 <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row gap-4 justify-between items-center bg-slate-50/50 dark:bg-slate-800/20">
                     {/* Filters */}
                     <div className="flex p-1 bg-slate-200 dark:bg-slate-800 rounded-xl overflow-x-auto w-full lg:w-auto custom-scrollbar">
@@ -310,7 +318,6 @@ export const Suppliers: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Mobile Cards for Suppliers */}
                 <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
                     {filteredSuppliers.map(supplier => {
                         const stats = supplierStats[supplier.id] || { totalSpent: 0, count: 0 };
@@ -346,7 +353,6 @@ export const Suppliers: React.FC = () => {
                     })}
                 </div>
 
-                {/* Desktop Table */}
                 <div className="hidden md:block overflow-x-auto">
                     <table className="w-full">
                         <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm uppercase font-semibold">
@@ -414,13 +420,6 @@ export const Suppliers: React.FC = () => {
                         </tbody>
                     </table>
                 </div>
-                
-                {filteredSuppliers.length === 0 && (
-                    <div className="p-12 text-center text-slate-400 dark:text-slate-500">
-                        <Truck className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                        <p>No se encontraron proveedores con este filtro.</p>
-                    </div>
-                )}
             </div>
         )}
 
@@ -454,7 +453,10 @@ export const Suppliers: React.FC = () => {
                                             <p className="font-bold text-slate-800 dark:text-white">{purchase.supplierName}</p>
                                             <p className="text-xs text-slate-500">{new Date(purchase.date).toLocaleDateString()} - {new Date(purchase.date).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</p>
                                         </div>
-                                        <span className="font-black text-slate-800 dark:text-white">${purchase.total.toFixed(2)}</span>
+                                        <div className="text-right">
+                                            <span className="font-black text-slate-800 dark:text-white block">${purchase.total.toFixed(2)}</span>
+                                            <button onClick={() => handleDeletePurchase(purchase.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4" /></button>
+                                        </div>
                                     </div>
                                     <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded-lg text-xs text-slate-600 dark:text-slate-400 mb-2 truncate">
                                         {purchase.items.length} items: {purchase.items.map(i => i.name).join(', ')}
@@ -480,6 +482,7 @@ export const Suppliers: React.FC = () => {
                                         <th className="px-6 py-4 text-right">Envío</th>
                                         <th className="px-6 py-4 text-right">Total Compra</th>
                                         <th className="px-6 py-4 text-center">Estado</th>
+                                        <th className="px-6 py-4 text-center">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -505,6 +508,11 @@ export const Suppliers: React.FC = () => {
                                                     <Check className="w-3 h-3" /> Completado
                                                 </span>
                                             </td>
+                                            <td className="px-6 py-4 text-center">
+                                                <button onClick={() => handleDeletePurchase(purchase.id)} className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-600 rounded-lg transition-colors" title="Eliminar y Revertir Stock">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -513,9 +521,9 @@ export const Suppliers: React.FC = () => {
                     </div>
                 )}
 
+                {/* ... (New Purchase Form Content - Unchanged) ... */}
                 {subTab === 'NEW' && (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col md:flex-row min-h-[600px] relative">
-                        
                         {/* Mobile Toggle Bar */}
                         <div className="md:hidden flex border-b border-slate-200 dark:border-slate-800">
                             <button 
@@ -581,7 +589,6 @@ export const Suppliers: React.FC = () => {
                                                         onClick={() => {
                                                             if(!p.hasVariants) {
                                                                 addToPurchaseCart(p);
-                                                                // Optional: Auto switch to ticket on mobile? No, let user stay in catalog.
                                                             }
                                                         }}
                                                         className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800 last:border-0 flex justify-between items-center group"
