@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { 
     Product, Customer, Supplier, Transaction, CashMovement, Order, Purchase, 
     User, UserRole, UserInvite, ActivityLog, BusinessSettings, ToastNotification,
-    ProductType, AppView, CartItem
+    ProductType, AppView, CartItem, PeriodClosure
 } from '../types';
 import { playSystemSound } from '../utils/sound';
 import { pushFullDataToCloud, fetchFullDataFromCloud } from '../services/syncService';
@@ -57,6 +57,7 @@ interface StoreContextType {
     users: User[];
     userInvites: UserInvite[];
     activityLogs: ActivityLog[];
+    periodClosures: PeriodClosure[]; // NEW
     settings: BusinessSettings;
     currentUser: User | null;
     toasts: ToastNotification[];
@@ -96,6 +97,8 @@ interface StoreContextType {
 
     addCashMovement: (movement: CashMovement) => void;
     deleteCashMovement: (id: string) => void;
+
+    addPeriodClosure: (closure: PeriodClosure) => void; // NEW
 
     addOrder: (order: Order) => void;
     updateOrder: (order: Order) => void;
@@ -154,6 +157,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [users, setUsers] = useState<User[]>([]);
     const [userInvites, setUserInvites] = useState<UserInvite[]>([]);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+    const [periodClosures, setPeriodClosures] = useState<PeriodClosure[]>([]); // NEW STATE
     const [settings, setSettings] = useState<BusinessSettings>(DEFAULT_SETTINGS);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -173,13 +177,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // Refs (unchanged)
     const storeRef = useRef({
-        products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, settings
+        products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, periodClosures, settings
     });
     const pendingChangesRef = useRef(false);
 
     useEffect(() => {
-        storeRef.current = { products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, settings };
-    }, [products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, settings]);
+        storeRef.current = { products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, periodClosures, settings };
+    }, [products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, periodClosures, settings]);
 
     useEffect(() => {
         pendingChangesRef.current = hasPendingChanges;
@@ -203,6 +207,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         load('users', setUsers, []);
         load('userInvites', setUserInvites, []);
         load('activityLogs', setActivityLogs, []);
+        load('periodClosures', setPeriodClosures, []); // NEW
         load('settings', setSettings, DEFAULT_SETTINGS);
         
         // Recover session if exists
@@ -221,6 +226,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     useEffect(() => { localStorage.setItem('users', JSON.stringify(users)); }, [users]);
     useEffect(() => { localStorage.setItem('userInvites', JSON.stringify(userInvites)); }, [userInvites]);
     useEffect(() => { localStorage.setItem('activityLogs', JSON.stringify(activityLogs)); }, [activityLogs]);
+    useEffect(() => { localStorage.setItem('periodClosures', JSON.stringify(periodClosures)); }, [periodClosures]); // NEW
     useEffect(() => { localStorage.setItem('settings', JSON.stringify(settings)); }, [settings]);
     useEffect(() => { 
         if (currentUser) localStorage.setItem('currentUser', JSON.stringify(currentUser));
@@ -562,6 +568,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setHasPendingChanges(true);
     };
 
+    const addPeriodClosure = (closure: PeriodClosure) => {
+        setPeriodClosures(prev => [...prev, closure]);
+        setHasPendingChanges(true);
+        logActivity('SETTINGS', `Cierre de periodo realizado: ${closure.periodStart} - ${closure.periodEnd}`);
+    };
+
     const addOrder = (o: Order) => {
         const newO = { ...o, id: o.id || (settings.sequences.orderStart + orders.length).toString() };
         setOrders(prev => [...prev, newO]);
@@ -613,6 +625,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (data.orders) setOrders(data.orders);
             if (data.purchases) setPurchases(data.purchases);
             if (data.users) setUsers(data.users);
+            if (data.periodClosures) setPeriodClosures(data.periodClosures); // NEW
             if (data.settings) setSettings(data.settings);
             return true;
         } catch (e) {
@@ -845,7 +858,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     return (
         <StoreContext.Provider value={{
-            products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, settings, currentUser, toasts, isSyncing, hasPendingChanges,
+            products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, periodClosures, settings, currentUser, toasts, isSyncing, hasPendingChanges,
             categories, btDevice, btCharacteristic, incomingOrder, isLoggingOut, isAppLocked,
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory, removeCategory,
             addTransaction, updateTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
@@ -853,6 +866,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment,
             addSupplier, updateSupplier, deleteSupplier, addPurchase, deletePurchase,
             addCashMovement, deleteCashMovement,
+            addPeriodClosure, // NEW EXPORT
             addOrder, updateOrder, updateOrderStatus, completeOrder, convertOrderToSale, deleteOrder, sendOrderToPOS, clearIncomingOrder,
             updateSettings, importData, login, logout, unlockApp, manualLockApp,
             addUser, updateUser, deleteUser, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,

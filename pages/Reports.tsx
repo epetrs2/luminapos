@@ -6,6 +6,7 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList, Factory, ArrowLeft, ArrowRight, Wallet, Clock, Archive, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { printFinancialReport, printZCutTicket, printMonthEndTicket, printMonthEndReportPDF } from '../utils/printService';
+import { Transaction, CashMovement, PeriodClosure } from '../types';
 
 // --- COLORS FOR CHARTS ---
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#f97316'];
@@ -14,7 +15,7 @@ type DateRangeOption = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 type ReportTab = 'GENERAL' | 'Z_HISTORY' | 'DISTRIBUTION' | 'INVENTORY';
 
 export const Reports: React.FC = () => {
-  const { transactions, products, cashMovements, settings, btDevice, sendBtData, customers } = useStore();
+  const { transactions, products, cashMovements, settings, btDevice, sendBtData, customers, periodClosures, addPeriodClosure, currentUser } = useStore();
   
   // --- NAVIGATION STATE ---
   const [activeTab, setActiveTab] = useState<ReportTab>('GENERAL');
@@ -32,6 +33,7 @@ export const Reports: React.FC = () => {
 
   // --- MONTH END MODAL STATE ---
   const [isMonthEndModalOpen, setIsMonthEndModalOpen] = useState(false);
+  const [viewOnlyMode, setViewOnlyMode] = useState(false); // New: View historical report
   const [monthEndChecks, setMonthEndChecks] = useState({
       profitDistributed: false,
       savingsSetAside: false
@@ -89,15 +91,15 @@ export const Reports: React.FC = () => {
           return d.getTime() >= startDate.getTime() && d.getTime() <= endDate.getTime();
       };
 
-      const validTx = transactions.filter(t => {
+      const validTx = transactions.filter((t: Transaction) => {
           const isDateInRange = isInRange(t.date);
           const isNotCancelled = t.status !== 'cancelled';
           const matchesPayment = paymentMethodFilter === 'ALL' || t.paymentMethod === paymentMethodFilter;
           return isDateInRange && isNotCancelled && matchesPayment;
       });
 
-      const validMovs = cashMovements.filter(m => isInRange(m.date));
-      const zHistory = cashMovements.filter(m => m.isZCut).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const validMovs = cashMovements.filter((m: CashMovement) => isInRange(m.date));
+      const zHistory = cashMovements.filter((m: CashMovement) => m.isZCut).sort((a: CashMovement, b: CashMovement) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       const daysMap = new Map<string, { date: string, rawDate: number, sales: number, expenses: number }>();
       const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -112,13 +114,13 @@ export const Reports: React.FC = () => {
           }
       }
 
-      validTx.forEach(t => {
+      validTx.forEach((t: Transaction) => {
           const d = new Date(t.date);
           const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
           if (daysMap.has(key)) daysMap.get(key)!.sales += t.total;
       });
 
-      validMovs.forEach(m => {
+      validMovs.forEach((m: CashMovement) => {
           if (m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')) {
               const d = new Date(m.date);
               const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -130,23 +132,23 @@ export const Reports: React.FC = () => {
       
       let thirdPartySales = 0;
       let ownSales = 0;
-      validTx.forEach(t => {
-          t.items.forEach(item => {
+      validTx.forEach((t: Transaction) => {
+          t.items.forEach((item: any) => {
               if (item.isConsignment === true) thirdPartySales += (item.price * item.quantity);
               else ownSales += (item.price * item.quantity);
           });
       });
 
-      const totalSales = validTx.reduce((sum, t) => sum + t.total, 0);
-      const totalMoneyOut = validMovs.filter(m => m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')).reduce((sum, m) => sum + m.amount, 0);
+      const totalSales = validTx.reduce((sum: number, t: Transaction) => sum + t.total, 0);
+      const totalMoneyOut = validMovs.filter((m: CashMovement) => m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')).reduce((sum: number, m: CashMovement) => sum + m.amount, 0);
       const transactionCount = validTx.length;
       const avgTicket = transactionCount > 0 ? totalSales / transactionCount : 0;
-      const operationalExpenses = validMovs.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + m.amount, 0);
+      const operationalExpenses = validMovs.filter((m: CashMovement) => m.type === 'EXPENSE').reduce((sum: number, m: CashMovement) => sum + m.amount, 0);
       const netEstimate = ownSales - operationalExpenses; 
 
       const productMap = new Map<string, { name: string, qty: number, total: number }>();
-      validTx.forEach(t => {
-          t.items.forEach(item => {
+      validTx.forEach((t: Transaction) => {
+          t.items.forEach((item: any) => {
               const key = item.id;
               const current = productMap.get(key) || { name: item.name, qty: 0, total: 0 };
               current.qty += item.quantity;
@@ -157,8 +159,8 @@ export const Reports: React.FC = () => {
       const topProductsArray = Array.from(productMap.values()).sort((a, b) => b.total - a.total).slice(0, 5);
 
       const catMap = new Map<string, number>();
-      validTx.forEach(t => {
-          t.items.forEach(item => {
+      validTx.forEach((t: Transaction) => {
+          t.items.forEach((item: any) => {
               const cat = item.category || 'General';
               catMap.set(cat, (catMap.get(cat) || 0) + (item.price * item.quantity));
           });
@@ -166,11 +168,11 @@ export const Reports: React.FC = () => {
       const categoryArray = Array.from(catMap.entries()).map(([name, value]) => ({ name, value }));
 
       const expMap = new Map<string, number>();
-      validMovs.filter(m => m.type === 'EXPENSE').forEach(m => {
+      validMovs.filter((m: CashMovement) => m.type === 'EXPENSE').forEach((m: CashMovement) => {
           const cat = m.subCategory || 'Gastos Generales';
           expMap.set(cat, (expMap.get(cat) || 0) + m.amount);
       });
-      const payouts = validMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s, m) => s + m.amount, 0);
+      const payouts = validMovs.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       if (payouts > 0) expMap.set('Pagos a Terceros', payouts);
       const expenseCategoryArray = Array.from(expMap.entries()).map(([name, value]) => ({ name, value }));
 
@@ -219,24 +221,24 @@ export const Reports: React.FC = () => {
 
   const distMetrics = useMemo(() => {
       const { start, end } = getPeriodDates(selectedPeriodOffset);
-      const relevantTx = transactions.filter(t => {
+      const relevantTx = transactions.filter((t: Transaction) => {
           const d = new Date(t.date);
           return t.status !== 'cancelled' && t.paymentStatus === 'paid' && d >= start && d <= end;
       });
-      const relevantMovs = cashMovements.filter(m => {
+      const relevantMovs = cashMovements.filter((m: CashMovement) => {
           const d = new Date(m.date);
           return d >= start && d <= end;
       });
 
       let income = 0;
-      relevantTx.forEach(t => {
-          t.items.forEach(i => {
+      relevantTx.forEach((t: Transaction) => {
+          t.items.forEach((i: any) => {
               if (i.isConsignment !== true) income += (i.price * i.quantity);
           });
       });
       
-      const actualOpEx = relevantMovs.filter(m => m.type === 'EXPENSE').reduce((s, m) => s + m.amount, 0);
-      const actualProfitTaken = relevantMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s, m) => s + m.amount, 0);
+      const actualOpEx = relevantMovs.filter((m: CashMovement) => m.type === 'EXPENSE').reduce((s: number, m: CashMovement) => s + m.amount, 0);
+      const actualProfitTaken = relevantMovs.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       const config = settings.budgetConfig;
       const targetOpEx = income * (config.expensesPercentage / 100);
       let actualInvestment = Math.max(0, income - (actualOpEx + actualProfitTaken));
@@ -250,7 +252,7 @@ export const Reports: React.FC = () => {
 
       // TOP PRODUCTS IN PERIOD (FOR REPORT)
       const periodProducts = new Map<string, {name:string, qty:number, total:number}>();
-      relevantTx.forEach(t => t.items.forEach(i => {
+      relevantTx.forEach((t: Transaction) => t.items.forEach((i: any) => {
           const curr = periodProducts.get(i.id) || {name:i.name, qty:0, total:0};
           curr.qty += i.quantity; curr.total += i.price * i.quantity;
           periodProducts.set(i.id, curr);
@@ -259,7 +261,7 @@ export const Reports: React.FC = () => {
 
       // TOP CUSTOMERS IN PERIOD (FOR REPORT)
       const periodCustomers = new Map<string, {name:string, total:number}>();
-      relevantTx.forEach(t => {
+      relevantTx.forEach((t: Transaction) => {
           if(!t.customerId) return;
           const curr = periodCustomers.get(t.customerId) || {name: customers.find(c=>c.id===t.customerId)?.name || 'Desc.', total:0};
           curr.total += t.total;
@@ -282,6 +284,17 @@ export const Reports: React.FC = () => {
       };
   }, [selectedPeriodOffset, transactions, cashMovements, settings.budgetConfig, customers]);
 
+  // --- NEW: CHECK IF PERIOD IS CLOSED ---
+  const currentPeriodClosure = useMemo(() => {
+      const pStart = distMetrics.periodStart.toISOString().split('T')[0];
+      const pEnd = distMetrics.periodEnd.toISOString().split('T')[0];
+      return periodClosures.find(c => {
+          const cStart = new Date(c.periodStart).toISOString().split('T')[0];
+          const cEnd = new Date(c.periodEnd).toISOString().split('T')[0];
+          return cStart === pStart && cEnd === pEnd;
+      });
+  }, [periodClosures, distMetrics.periodStart, distMetrics.periodEnd]);
+
   // --- ADDED: INVENTORY METRICS CALCULATION ---
   const inventoryMetrics = useMemo(() => {
     let totalStockValue = 0;
@@ -295,7 +308,7 @@ export const Reports: React.FC = () => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(now.getDate() - 30);
 
-    products.forEach(p => {
+    products.forEach((p: any) => {
         if (!p.isActive) return;
 
         let stock = p.stock;
@@ -303,10 +316,10 @@ export const Reports: React.FC = () => {
         let revenue = p.price * stock;
 
         if (p.hasVariants && p.variants) {
-            stock = p.variants.reduce((acc, v) => acc + v.stock, 0);
+            stock = p.variants.reduce((acc: number, v: any) => acc + v.stock, 0);
             value = (p.cost || 0) * stock;
             revenue = 0;
-            p.variants.forEach(v => {
+            p.variants.forEach((v: any) => {
                 revenue += v.price * v.stock;
             });
         }
@@ -315,11 +328,11 @@ export const Reports: React.FC = () => {
         totalPotentialRevenue += revenue;
 
         let sold30Days = 0;
-        transactions.forEach(t => {
+        transactions.forEach((t: Transaction) => {
             if (t.status === 'cancelled') return;
             const txDate = new Date(t.date);
             if (txDate >= thirtyDaysAgo) {
-                t.items.forEach(i => {
+                t.items.forEach((i: any) => {
                     if (i.id === p.id) sold30Days += i.quantity;
                 });
             }
@@ -386,8 +399,8 @@ export const Reports: React.FC = () => {
   };
 
   const handlePrintFinancialReport = () => {
-      const opExp = filteredMovements.filter(m => m.type === 'EXPENSE').reduce((s,m) => s + m.amount, 0);
-      const tpPayouts = filteredMovements.filter(m => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s,m) => s + m.amount, 0);
+      const opExp = filteredMovements.filter((m: CashMovement) => m.type === 'EXPENSE').reduce((s: number, m: CashMovement) => s + m.amount, 0);
+      const tpPayouts = filteredMovements.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       const startDateObj = dateRange === 'CUSTOM' && customStart ? new Date(customStart) : new Date();
       if(dateRange !== 'CUSTOM') startDateObj.setDate(startDateObj.getDate() - (dateRange === 'WEEK' ? 7 : dateRange === 'MONTH' ? 30 : 0));
 
@@ -415,7 +428,8 @@ export const Reports: React.FC = () => {
   // --- NEW MONTH END LOGIC ---
   const handleGenerateMonthReport = async (mode: 'THERMAL' | 'PDF') => {
       setGeneratingReport(true);
-      const reportData = {
+      
+      const reportData = currentPeriodClosure?.reportData || {
           periodStart: distMetrics.periodStart.toLocaleDateString(),
           periodEnd: distMetrics.periodEnd.toLocaleDateString(),
           income: distMetrics.income,
@@ -438,6 +452,40 @@ export const Reports: React.FC = () => {
       setGeneratingReport(false);
   };
 
+  // --- FINAL CLOSE HANDLER ---
+  const handleConfirmClose = () => {
+      if (!monthEndChecks.profitDistributed || !monthEndChecks.savingsSetAside) {
+          alert("Debes confirmar las casillas de verificación primero.");
+          return;
+      }
+      
+      if (confirm("¿Estás seguro de cerrar este periodo? Una vez cerrado, no se podrán realizar cambios y el reporte será definitivo.")) {
+          const reportData = {
+              periodStart: distMetrics.periodStart.toLocaleDateString(),
+              periodEnd: distMetrics.periodEnd.toLocaleDateString(),
+              income: distMetrics.income,
+              actualOpEx: distMetrics.actual.opEx,
+              actualProfit: distMetrics.actual.profit,
+              actualInvestment: distMetrics.actual.investment,
+              config: distMetrics.config,
+              checks: monthEndChecks,
+              net: distMetrics.income - distMetrics.actual.opEx
+          };
+
+          const newClosure: PeriodClosure = {
+              id: crypto.randomUUID(),
+              periodStart: distMetrics.periodStart.toISOString(),
+              periodEnd: distMetrics.periodEnd.toISOString(),
+              closedAt: new Date().toISOString(),
+              reportData: reportData,
+              closedBy: currentUser?.username
+          };
+
+          addPeriodClosure(newClosure);
+          setIsMonthEndModalOpen(false);
+      }
+  };
+
   const isDark = settings.theme === 'dark';
   const gridColor = isDark ? '#334155' : '#e2e8f0';
   const textColor = isDark ? '#94a3b8' : '#64748b';
@@ -449,12 +497,12 @@ export const Reports: React.FC = () => {
       {isMonthEndModalOpen && (
           <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full border border-slate-100 dark:border-slate-800 overflow-hidden">
-                  <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-indigo-600 text-white flex justify-between items-center">
+                  <div className={`p-6 border-b border-slate-100 dark:border-slate-800 text-white flex justify-between items-center ${viewOnlyMode ? 'bg-slate-800' : 'bg-indigo-600'}`}>
                       <div className="flex items-center gap-3">
-                          <Archive className="w-6 h-6" />
+                          {viewOnlyMode ? <Lock className="w-6 h-6" /> : <Archive className="w-6 h-6" />}
                           <div>
-                              <h3 className="text-xl font-bold">Cierre de Mes</h3>
-                              <p className="text-xs text-indigo-200">
+                              <h3 className="text-xl font-bold">{viewOnlyMode ? 'Reporte Histórico' : 'Cierre de Mes'}</h3>
+                              <p className="text-xs opacity-80">
                                   {distMetrics.periodStart.toLocaleDateString()} - {distMetrics.periodEnd.toLocaleDateString()}
                               </p>
                           </div>
@@ -463,24 +511,45 @@ export const Reports: React.FC = () => {
                   </div>
                   
                   <div className="p-6 space-y-6">
+                      {/* Read-Only Summary if Closed */}
+                      {viewOnlyMode && (
+                          <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-xs text-yellow-800 dark:text-yellow-200 font-medium text-center">
+                              Este periodo está cerrado. Solo lectura.
+                          </div>
+                      )}
+
                       <div className="grid grid-cols-2 gap-4">
                           <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl text-center border border-slate-100 dark:border-slate-700">
                               <p className="text-xs text-slate-500 uppercase font-bold">Utilidad Bruta</p>
-                              <p className="text-xl font-black text-slate-800 dark:text-white">${(distMetrics.income - distMetrics.actual.opEx).toLocaleString()}</p>
+                              <p className="text-xl font-black text-slate-800 dark:text-white">
+                                  ${(viewOnlyMode ? currentPeriodClosure?.reportData.net : (distMetrics.income - distMetrics.actual.opEx)).toLocaleString()}
+                              </p>
                           </div>
                           <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl text-center border border-blue-100 dark:border-blue-900">
                               <p className="text-xs text-blue-600 dark:text-blue-400 uppercase font-bold">Inversión Final</p>
-                              <p className="text-xl font-black text-blue-700 dark:text-blue-300">${distMetrics.actual.investment.toLocaleString()}</p>
+                              <p className="text-xl font-black text-blue-700 dark:text-blue-300">
+                                  ${(viewOnlyMode ? currentPeriodClosure?.reportData.actualInvestment : distMetrics.actual.investment).toLocaleString()}
+                              </p>
                           </div>
                       </div>
 
                       <div className="space-y-3">
-                          <div onClick={() => setMonthEndChecks(p => ({...p, profitDistributed: !p.profitDistributed}))} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${monthEndChecks.profitDistributed ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}>
-                              <div className={`w-5 h-5 rounded border flex items-center justify-center ${monthEndChecks.profitDistributed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-400'}`}>{monthEndChecks.profitDistributed && <Check className="w-3.5 h-3.5"/>}</div>
+                          <div 
+                            onClick={() => !viewOnlyMode && setMonthEndChecks(p => ({...p, profitDistributed: !p.profitDistributed}))} 
+                            className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${viewOnlyMode ? 'cursor-default opacity-80' : 'cursor-pointer'} ${monthEndChecks.profitDistributed || viewOnlyMode ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}
+                          >
+                              <div className={`w-5 h-5 rounded border flex items-center justify-center ${monthEndChecks.profitDistributed || viewOnlyMode ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-400'}`}>
+                                  {(monthEndChecks.profitDistributed || viewOnlyMode) && <Check className="w-3.5 h-3.5"/>}
+                              </div>
                               <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Confirmo que las Ganancias fueron repartidas</span>
                           </div>
-                          <div onClick={() => setMonthEndChecks(p => ({...p, savingsSetAside: !p.savingsSetAside}))} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${monthEndChecks.savingsSetAside ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}>
-                              <div className={`w-5 h-5 rounded border flex items-center justify-center ${monthEndChecks.savingsSetAside ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-400'}`}>{monthEndChecks.savingsSetAside && <Check className="w-3.5 h-3.5"/>}</div>
+                          <div 
+                            onClick={() => !viewOnlyMode && setMonthEndChecks(p => ({...p, savingsSetAside: !p.savingsSetAside}))} 
+                            className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${viewOnlyMode ? 'cursor-default opacity-80' : 'cursor-pointer'} ${monthEndChecks.savingsSetAside || viewOnlyMode ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}
+                          >
+                              <div className={`w-5 h-5 rounded border flex items-center justify-center ${monthEndChecks.savingsSetAside || viewOnlyMode ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-400'}`}>
+                                  {(monthEndChecks.savingsSetAside || viewOnlyMode) && <Check className="w-3.5 h-3.5"/>}
+                              </div>
                               <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Confirmo que el Ahorro/Inversión está apartado</span>
                           </div>
                       </div>
@@ -502,6 +571,17 @@ export const Reports: React.FC = () => {
                               {generatingReport ? 'Analizando...' : 'Informe PDF + IA'}
                           </button>
                       </div>
+
+                      {!viewOnlyMode && (
+                          <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                              <button 
+                                onClick={handleConfirmClose}
+                                className="w-full py-3 border-2 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-red-500 hover:border-red-200 dark:hover:border-red-900 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl font-bold transition-all text-xs uppercase tracking-wider flex items-center justify-center gap-2"
+                              >
+                                  <Lock className="w-4 h-4" /> Finalizar y Bloquear Periodo
+                              </button>
+                          </div>
+                      )}
                   </div>
               </div>
           </div>
@@ -525,9 +605,21 @@ export const Reports: React.FC = () => {
                     </button>
                 )}
                 {activeTab === 'DISTRIBUTION' && (
-                    <button onClick={() => setIsMonthEndModalOpen(true)} className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all mr-2 animate-[pulse_3s_infinite]">
-                        <Archive className="w-4 h-4" /> Realizar Cierre de Mes
-                    </button>
+                    currentPeriodClosure ? (
+                        <button 
+                            onClick={() => { setViewOnlyMode(true); setIsMonthEndModalOpen(true); }} 
+                            className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all mr-2"
+                        >
+                            <Lock className="w-4 h-4" /> Ver Reporte Histórico
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={() => { setViewOnlyMode(false); setIsMonthEndModalOpen(true); }} 
+                            className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all mr-2 animate-[pulse_3s_infinite]"
+                        >
+                            <Archive className="w-4 h-4" /> Realizar Cierre de Mes
+                        </button>
+                    )
                 )}
                 <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-800 flex-wrap">
                     <button onClick={() => setActiveTab('GENERAL')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'GENERAL' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>General</button>
@@ -764,27 +856,41 @@ export const Reports: React.FC = () => {
                 </div>
 
                 {/* Period Alerts Banner */}
-                {distMetrics.isCurrentPeriod && distMetrics.daysRemaining <= 3 && (
-                    <div className="mb-6 p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-2xl flex flex-col md:flex-row gap-4 items-center animate-[pulse_3s_infinite]">
-                        <div className="p-3 bg-orange-100 dark:bg-orange-800 rounded-full text-orange-600 dark:text-orange-200 shrink-0">
-                            <Clock className="w-6 h-6" />
+                {currentPeriodClosure ? (
+                    <div className="mb-6 p-4 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex items-center gap-4">
+                        <div className="p-3 bg-slate-200 dark:bg-slate-700 rounded-full text-slate-500 shrink-0">
+                            <Lock className="w-6 h-6" />
                         </div>
-                        <div className="flex-1 text-center md:text-left">
-                            <h4 className="font-bold text-orange-800 dark:text-orange-200 text-lg">¡Cierre de Periodo Próximo!</h4>
-                            <p className="text-sm text-orange-700 dark:text-orange-300">
-                                Quedan solo <strong>{distMetrics.daysRemaining} días</strong> para terminar el ciclo. 
-                                Asegúrate de distribuir las ganancias y registrar gastos pendientes.
+                        <div>
+                            <h4 className="font-bold text-slate-700 dark:text-slate-200 text-lg">Periodo Cerrado</h4>
+                            <p className="text-sm text-slate-500">
+                                Este ciclo fiscal fue cerrado el {new Date(currentPeriodClosure.closedAt).toLocaleDateString()}.
                             </p>
                         </div>
-                        {distMetrics.expenseSurplus > 0 && (
-                            <div className="px-4 py-2 bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 rounded-xl font-bold text-sm text-center">
-                                Sobrante Gastos:<br/>${distMetrics.expenseSurplus.toFixed(0)} ➔ Ahorro
-                            </div>
-                        )}
                     </div>
+                ) : (
+                    distMetrics.isCurrentPeriod && distMetrics.daysRemaining <= 3 && (
+                        <div className="mb-6 p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-2xl flex flex-col md:flex-row gap-4 items-center animate-[pulse_3s_infinite]">
+                            <div className="p-3 bg-orange-100 dark:bg-orange-800 rounded-full text-orange-600 dark:text-orange-200 shrink-0">
+                                <Clock className="w-6 h-6" />
+                            </div>
+                            <div className="flex-1 text-center md:text-left">
+                                <h4 className="font-bold text-orange-800 dark:text-orange-200 text-lg">¡Cierre de Periodo Próximo!</h4>
+                                <p className="text-sm text-orange-700 dark:text-orange-300">
+                                    Quedan solo <strong>{distMetrics.daysRemaining} días</strong> para terminar el ciclo. 
+                                    Asegúrate de distribuir las ganancias y registrar gastos pendientes.
+                                </p>
+                            </div>
+                            {distMetrics.expenseSurplus > 0 && (
+                                <div className="px-4 py-2 bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 rounded-xl font-bold text-sm text-center">
+                                    Sobrante Gastos:<br/>${distMetrics.expenseSurplus.toFixed(0)} ➔ Ahorro
+                                </div>
+                            )}
+                        </div>
+                    )
                 )}
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className={`grid grid-cols-1 lg:grid-cols-2 gap-8 ${currentPeriodClosure ? 'opacity-75 grayscale-[0.5] pointer-events-none' : ''}`}>
                     {/* Visual Comparison Cards */}
                     <div className="space-y-6">
                         {/* OpEx Card */}
@@ -905,7 +1011,7 @@ export const Reports: React.FC = () => {
                     <Lock className="w-6 h-6 text-indigo-500" /> Historial de Cierres de Caja
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {zReportHistory.length > 0 ? zReportHistory.map((report) => (
+                    {zReportHistory.length > 0 ? zReportHistory.map((report: CashMovement) => (
                         <div key={report.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col group hover:shadow-md transition-all">
                             <div className="flex justify-between items-start mb-4">
                                 <div>

@@ -30,6 +30,16 @@ export interface CashMovement {
   channel?: 'CASH' | 'VIRTUAL'; // NEW: Distinguish between physical cash drawer and bank/digital account
 }
 
+// NEW: Stores the snapshot of a closed fiscal period
+export interface PeriodClosure {
+    id: string;
+    periodStart: string; // ISO String
+    periodEnd: string;   // ISO String
+    closedAt: string;    // ISO String
+    reportData: any;     // Snapshot of all metrics at the time of closing
+    closedBy?: string;
+}
+
 export type CycleType = 'MONTHLY' | 'FIXED_DAYS';
 
 export interface BudgetConfig {
