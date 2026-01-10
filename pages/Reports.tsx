@@ -6,6 +6,7 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList, Factory, ArrowLeft, ArrowRight, Wallet, Clock, Archive, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { printFinancialReport, printZCutTicket, printMonthEndTicket, printMonthEndReportPDF } from '../utils/printService';
+import { Transaction, CashMovement } from '../types';
 
 // --- COLORS FOR CHARTS ---
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#f97316'];
@@ -89,15 +90,15 @@ export const Reports: React.FC = () => {
           return d.getTime() >= startDate.getTime() && d.getTime() <= endDate.getTime();
       };
 
-      const validTx = transactions.filter(t => {
+      const validTx = transactions.filter((t: Transaction) => {
           const isDateInRange = isInRange(t.date);
           const isNotCancelled = t.status !== 'cancelled';
           const matchesPayment = paymentMethodFilter === 'ALL' || t.paymentMethod === paymentMethodFilter;
           return isDateInRange && isNotCancelled && matchesPayment;
       });
 
-      const validMovs = cashMovements.filter(m => isInRange(m.date));
-      const zHistory = cashMovements.filter(m => m.isZCut).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const validMovs = cashMovements.filter((m: CashMovement) => isInRange(m.date));
+      const zHistory = cashMovements.filter((m: CashMovement) => m.isZCut).sort((a: CashMovement, b: CashMovement) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       const daysMap = new Map<string, { date: string, rawDate: number, sales: number, expenses: number }>();
       const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -112,13 +113,13 @@ export const Reports: React.FC = () => {
           }
       }
 
-      validTx.forEach(t => {
+      validTx.forEach((t: Transaction) => {
           const d = new Date(t.date);
           const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
           if (daysMap.has(key)) daysMap.get(key)!.sales += t.total;
       });
 
-      validMovs.forEach(m => {
+      validMovs.forEach((m: CashMovement) => {
           if (m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')) {
               const d = new Date(m.date);
               const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -130,23 +131,23 @@ export const Reports: React.FC = () => {
       
       let thirdPartySales = 0;
       let ownSales = 0;
-      validTx.forEach(t => {
-          t.items.forEach(item => {
+      validTx.forEach((t: Transaction) => {
+          t.items.forEach((item: any) => {
               if (item.isConsignment === true) thirdPartySales += (item.price * item.quantity);
               else ownSales += (item.price * item.quantity);
           });
       });
 
-      const totalSales = validTx.reduce((sum, t) => sum + t.total, 0);
-      const totalMoneyOut = validMovs.filter(m => m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')).reduce((sum, m) => sum + m.amount, 0);
+      const totalSales = validTx.reduce((sum: number, t: Transaction) => sum + t.total, 0);
+      const totalMoneyOut = validMovs.filter((m: CashMovement) => m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')).reduce((sum: number, m: CashMovement) => sum + m.amount, 0);
       const transactionCount = validTx.length;
       const avgTicket = transactionCount > 0 ? totalSales / transactionCount : 0;
-      const operationalExpenses = validMovs.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + m.amount, 0);
+      const operationalExpenses = validMovs.filter((m: CashMovement) => m.type === 'EXPENSE').reduce((sum: number, m: CashMovement) => sum + m.amount, 0);
       const netEstimate = ownSales - operationalExpenses; 
 
       const productMap = new Map<string, { name: string, qty: number, total: number }>();
-      validTx.forEach(t => {
-          t.items.forEach(item => {
+      validTx.forEach((t: Transaction) => {
+          t.items.forEach((item: any) => {
               const key = item.id;
               const current = productMap.get(key) || { name: item.name, qty: 0, total: 0 };
               current.qty += item.quantity;
@@ -157,8 +158,8 @@ export const Reports: React.FC = () => {
       const topProductsArray = Array.from(productMap.values()).sort((a, b) => b.total - a.total).slice(0, 5);
 
       const catMap = new Map<string, number>();
-      validTx.forEach(t => {
-          t.items.forEach(item => {
+      validTx.forEach((t: Transaction) => {
+          t.items.forEach((item: any) => {
               const cat = item.category || 'General';
               catMap.set(cat, (catMap.get(cat) || 0) + (item.price * item.quantity));
           });
@@ -166,11 +167,11 @@ export const Reports: React.FC = () => {
       const categoryArray = Array.from(catMap.entries()).map(([name, value]) => ({ name, value }));
 
       const expMap = new Map<string, number>();
-      validMovs.filter(m => m.type === 'EXPENSE').forEach(m => {
+      validMovs.filter((m: CashMovement) => m.type === 'EXPENSE').forEach((m: CashMovement) => {
           const cat = m.subCategory || 'Gastos Generales';
           expMap.set(cat, (expMap.get(cat) || 0) + m.amount);
       });
-      const payouts = validMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s, m) => s + m.amount, 0);
+      const payouts = validMovs.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       if (payouts > 0) expMap.set('Pagos a Terceros', payouts);
       const expenseCategoryArray = Array.from(expMap.entries()).map(([name, value]) => ({ name, value }));
 
@@ -219,24 +220,24 @@ export const Reports: React.FC = () => {
 
   const distMetrics = useMemo(() => {
       const { start, end } = getPeriodDates(selectedPeriodOffset);
-      const relevantTx = transactions.filter(t => {
+      const relevantTx = transactions.filter((t: Transaction) => {
           const d = new Date(t.date);
           return t.status !== 'cancelled' && t.paymentStatus === 'paid' && d >= start && d <= end;
       });
-      const relevantMovs = cashMovements.filter(m => {
+      const relevantMovs = cashMovements.filter((m: CashMovement) => {
           const d = new Date(m.date);
           return d >= start && d <= end;
       });
 
       let income = 0;
-      relevantTx.forEach(t => {
-          t.items.forEach(i => {
+      relevantTx.forEach((t: Transaction) => {
+          t.items.forEach((i: any) => {
               if (i.isConsignment !== true) income += (i.price * i.quantity);
           });
       });
       
-      const actualOpEx = relevantMovs.filter(m => m.type === 'EXPENSE').reduce((s, m) => s + m.amount, 0);
-      const actualProfitTaken = relevantMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s, m) => s + m.amount, 0);
+      const actualOpEx = relevantMovs.filter((m: CashMovement) => m.type === 'EXPENSE').reduce((s: number, m: CashMovement) => s + m.amount, 0);
+      const actualProfitTaken = relevantMovs.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       const config = settings.budgetConfig;
       const targetOpEx = income * (config.expensesPercentage / 100);
       let actualInvestment = Math.max(0, income - (actualOpEx + actualProfitTaken));
@@ -250,7 +251,7 @@ export const Reports: React.FC = () => {
 
       // TOP PRODUCTS IN PERIOD (FOR REPORT)
       const periodProducts = new Map<string, {name:string, qty:number, total:number}>();
-      relevantTx.forEach(t => t.items.forEach(i => {
+      relevantTx.forEach((t: Transaction) => t.items.forEach((i: any) => {
           const curr = periodProducts.get(i.id) || {name:i.name, qty:0, total:0};
           curr.qty += i.quantity; curr.total += i.price * i.quantity;
           periodProducts.set(i.id, curr);
@@ -259,7 +260,7 @@ export const Reports: React.FC = () => {
 
       // TOP CUSTOMERS IN PERIOD (FOR REPORT)
       const periodCustomers = new Map<string, {name:string, total:number}>();
-      relevantTx.forEach(t => {
+      relevantTx.forEach((t: Transaction) => {
           if(!t.customerId) return;
           const curr = periodCustomers.get(t.customerId) || {name: customers.find(c=>c.id===t.customerId)?.name || 'Desc.', total:0};
           curr.total += t.total;
@@ -295,7 +296,7 @@ export const Reports: React.FC = () => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(now.getDate() - 30);
 
-    products.forEach(p => {
+    products.forEach((p: any) => {
         if (!p.isActive) return;
 
         let stock = p.stock;
@@ -303,10 +304,10 @@ export const Reports: React.FC = () => {
         let revenue = p.price * stock;
 
         if (p.hasVariants && p.variants) {
-            stock = p.variants.reduce((acc, v) => acc + v.stock, 0);
+            stock = p.variants.reduce((acc: number, v: any) => acc + v.stock, 0);
             value = (p.cost || 0) * stock;
             revenue = 0;
-            p.variants.forEach(v => {
+            p.variants.forEach((v: any) => {
                 revenue += v.price * v.stock;
             });
         }
@@ -315,11 +316,11 @@ export const Reports: React.FC = () => {
         totalPotentialRevenue += revenue;
 
         let sold30Days = 0;
-        transactions.forEach(t => {
+        transactions.forEach((t: Transaction) => {
             if (t.status === 'cancelled') return;
             const txDate = new Date(t.date);
             if (txDate >= thirtyDaysAgo) {
-                t.items.forEach(i => {
+                t.items.forEach((i: any) => {
                     if (i.id === p.id) sold30Days += i.quantity;
                 });
             }
@@ -386,8 +387,8 @@ export const Reports: React.FC = () => {
   };
 
   const handlePrintFinancialReport = () => {
-      const opExp = filteredMovements.filter(m => m.type === 'EXPENSE').reduce((s,m) => s + m.amount, 0);
-      const tpPayouts = filteredMovements.filter(m => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s,m) => s + m.amount, 0);
+      const opExp = filteredMovements.filter((m: CashMovement) => m.type === 'EXPENSE').reduce((s: number, m: CashMovement) => s + m.amount, 0);
+      const tpPayouts = filteredMovements.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       const startDateObj = dateRange === 'CUSTOM' && customStart ? new Date(customStart) : new Date();
       if(dateRange !== 'CUSTOM') startDateObj.setDate(startDateObj.getDate() - (dateRange === 'WEEK' ? 7 : dateRange === 'MONTH' ? 30 : 0));
 
@@ -905,7 +906,7 @@ export const Reports: React.FC = () => {
                     <Lock className="w-6 h-6 text-indigo-500" /> Historial de Cierres de Caja
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {zReportHistory.length > 0 ? zReportHistory.map((report) => (
+                    {zReportHistory.length > 0 ? zReportHistory.map((report: CashMovement) => (
                         <div key={report.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col group hover:shadow-md transition-all">
                             <div className="flex justify-between items-start mb-4">
                                 <div>

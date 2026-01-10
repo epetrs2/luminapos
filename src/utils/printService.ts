@@ -1,6 +1,7 @@
 
 import { Transaction, BusinessSettings, CashMovement, Order, CartItem, Product } from '../types';
 import { generateEscPosTicket, generateEscPosZReport, generateProductionTicket, generateConsolidatedProduction, generateMonthEndTicket } from './escPosHelper';
+import QRCode from 'qrcode';
 
 // Estilos CSS base compartidos
 const BASE_CSS = `
@@ -8,35 +9,151 @@ const BASE_CSS = `
     body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; background-color: #fff; }
 `;
 
-// ... (Rest of existing CSS and functions kept, adding new ones below) ...
+// Standard ESC/POS Commands
+const ESC = 0x1B;
+const GS = 0x1D;
 
-const PRODUCTION_CSS = `
-    ${BASE_CSS}
-    body { font-size: 12px; margin: 20px; }
-    .header { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
-    .header-left h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -1px; }
-    .header-left p { margin: 0; color: #666; font-size: 12px; font-weight: 600; text-transform: uppercase; }
-    .header-right { text-align: right; font-size: 11px; }
+const COMMANDS = {
+    INIT: [ESC, 0x40],
+    CODE_PAGE: [ESC, 0x74, 0x00], // PC437
+    ALIGN_LEFT: [ESC, 0x61, 0x00],
+    ALIGN_CENTER: [ESC, 0x61, 0x01],
+    ALIGN_RIGHT: [ESC, 0x61, 0x02],
+    BOLD_ON: [ESC, 0x45, 0x01],
+    BOLD_OFF: [ESC, 0x45, 0x00],
+    INVERT_ON: [GS, 0x42, 0x01], // Black background / White text
+    INVERT_OFF: [GS, 0x42, 0x00],
+    FEED_LINES: (n: number) => [ESC, 0x64, n],
+};
+
+const normalize = (str: string) => {
+    return str
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Remove accents
+        .replace(/[^\x20-\x7E\n]/g, "?"); // Replace non-ascii with ?
+};
+
+const encode = (str: string) => {
+    const encoder = new TextEncoder();
+    return encoder.encode(normalize(str));
+};
+
+// --- HELPER: STRICT FIXED WIDTH COLUMNS ---
+const formatRow = (col1: string, col2: string, col3: string, widthType: '58mm' | '80mm') => {
+    const is58mm = widthType === '58mm';
+    // Total Chars: 32 for 58mm, 48 for 80mm
     
-    .section-header { background: #000; color: #fff; padding: 8px 12px; font-weight: 800; margin-bottom: 15px; border-radius: 6px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
-    .section-header.secondary { background: #cbd5e1; color: #334155; margin-top: 30px; }
+    // DEFINICION DE COLUMNAS 
+    // 58mm: [Qty 4] [Desc 17] [Total 11] = 32
+    // 80mm: [Qty 6] [Desc 30] [Total 12] = 48
+
+    const wQty = is58mm ? 4 : 6;
+    const wTotal = is58mm ? 11 : 12;
+    const wDesc = is58mm ? 17 : 30; // Remainder
+
+    // 1. Normalizar (Quitar acentos)
+    const nCol1 = normalize(col1);
+    const nCol2 = normalize(col2);
+    const nCol3 = normalize(col3);
+
+    // 2. Truncar y Rellenar
+    const c1 = nCol1.substring(0, wQty - 1).padEnd(wQty, ' '); // Left align
+    const c2 = nCol2.substring(0, wDesc - 1).padEnd(wDesc, ' '); // Left align
+    const c3 = nCol3.substring(0, wTotal).padStart(wTotal, ' '); // Right align
+
+    return c1 + c2 + c3;
+};
+
+const formatTwoCols = (left: string, right: string, widthType: '58mm' | '80mm') => {
+    const totalWidth = widthType === '58mm' ? 32 : 48;
+    const wRight = Math.floor(totalWidth * 0.4); // 40% for value
+    const wLeft = totalWidth - wRight; 
     
-    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-    th { border-bottom: 2px solid #0f172a; text-align: left; padding: 8px 5px; font-weight: 800; color: #334155; text-transform: uppercase; font-size: 11px; }
-    td { border-bottom: 1px solid #e2e8f0; padding: 8px 5px; vertical-align: middle; color: #334155; }
+    const nLeft = normalize(left);
+    const nRight = normalize(right);
+
+    const l = nLeft.substring(0, wLeft - 1).padEnd(wLeft, ' ');
+    const r = nRight.substring(0, wRight).padStart(wRight, ' ');
+    return l + r;
+};
+
+// --- IMAGE PROCESSING ---
+const loadImage = (url: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Failed to load image"));
+        img.src = url;
+    });
+};
+
+const convertImageToRaster = (img: HTMLImageElement, maxWidth: number = 384): number[] => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return [];
+
+    // Resize logic
+    let width = img.width;
+    let height = img.height;
+    if (width > maxWidth) {
+        height = Math.floor(height * (maxWidth / width));
+        width = maxWidth;
+    }
+    // Width must be multiple of 8
+    const roundedWidth = Math.floor(width / 8) * 8;
     
-    .check-box { width: 18px; height: 18px; border: 2px solid #cbd5e1; border-radius: 4px; margin: 0 auto; }
-    .qty-box { display: inline-block; padding: 4px 10px; border: 2px solid #0f172a; border-radius: 6px; font-weight: 800; min-width: 20px; text-align: center; }
-    
-    .footer { display: flex; justify-content: space-between; margin-top: 60px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
-    .sig-box { border-top: 2px solid #cbd5e1; width: 30%; text-align: center; padding-top: 8px; font-size: 10px; font-weight: 700; color: #94a3b8; }
-    
-    .row-high td { background-color: #fef2f2; }
-    .priority-high { color: #dc2626; font-weight: 800; font-size: 9px; background: #fee2e2; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-top: 4px; }
-    
-    .order-items-list { margin: 0; padding-left: 0; list-style: none; }
-    .order-items-list li { margin-bottom: 3px; font-size: 11px; }
-`;
+    canvas.width = roundedWidth;
+    canvas.height = height;
+
+    // Draw white bg
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, roundedWidth, height);
+    ctx.drawImage(img, 0, 0, roundedWidth, height);
+
+    const imgData = ctx.getImageData(0, 0, roundedWidth, height);
+    const data = imgData.data;
+
+    // Convert to Grayscale & Threshold (Simple binary for printer)
+    const grayData = new Uint8Array(roundedWidth * height);
+    for (let i = 0; i < data.length; i += 4) {
+        const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        grayData[i / 4] = gray < 128 ? 0 : 1; // 0 = Black, 1 = White
+    }
+
+    // GS v 0 command
+    const rasterData: number[] = [];
+    const xL = (roundedWidth / 8) % 256;
+    const xH = Math.floor((roundedWidth / 8) / 256);
+    const yL = height % 256;
+    const yH = Math.floor(height / 256);
+
+    rasterData.push(GS, 0x76, 0x30, 0x00, xL, xH, yL, yH);
+
+    for (let i = 0; i < grayData.length; i += 8) {
+        let byte = 0;
+        for (let b = 0; b < 8; b++) {
+            if (grayData[i + b] === 0) { // If black
+                byte |= (1 << (7 - b));
+            }
+        }
+        rasterData.push(byte);
+    }
+
+    return rasterData;
+};
+
+// --- QR GENERATOR ---
+const generateQRCodeBytes = async (text: string): Promise<number[]> => {
+    try {
+        const dataUrl = await QRCode.toDataURL(text, { margin: 1, width: 250, errorCorrectionLevel: 'M' });
+        const img = await loadImage(dataUrl);
+        return convertImageToRaster(img, 250);
+    } catch (e) {
+        console.error("QR Gen Error", e);
+        return [];
+    }
+};
 
 const generateInvoiceCss = (settings: BusinessSettings) => `
     ${BASE_CSS}
@@ -301,7 +418,6 @@ const openPrintWindow = (content: string) => {
     }
 };
 
-// ... (Keep existing generateInvoiceHalf, printInvoice, printOrderInvoice, etc.) ...
 const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: BusinessSettings) => {
     const minRows = 12; 
     const emptyRows = Math.max(0, minRows - t.items.length);
@@ -472,7 +588,7 @@ export const printOrderInvoice = (order: Order, customer: any, settings: Busines
                                 </tr>
                             </thead>
                             <tbody>
-                                ${order.items.map(item => `
+                                ${order.items.map((item: CartItem) => `
                                     <tr>
                                         <td class="col-qty" style="font-size:16px;">${item.quantity}</td>
                                         <td style="font-size:13px; font-weight:600;">${item.name}</td>
@@ -555,7 +671,7 @@ export const printProductionSummary = (
                     </tr>
                 </thead>
                 <tbody>
-                    ${sortedItems.map(item => `
+                    ${sortedItems.map((item: any) => `
                         <tr>
                             <td class="check-col"><div class="box"></div></td>
                             <td class="qty-col">${item.quantity}</td>
@@ -758,48 +874,6 @@ export const printThermalTicket = async (
         </html>
     `;
     openPrintWindow(html);
-};
-
-// --- Z REPORT GENERATOR ---
-export const generateEscPosZReport = async (movement: CashMovement, settings: BusinessSettings, btSendFn?: (data: Uint8Array) => Promise<void>): Promise<Uint8Array | void> => {
-    const z = movement.zReportData;
-    if (!z) return new Uint8Array([]);
-
-    if (btSendFn) {
-        try {
-            const data = await generateEscPosZReport(movement, settings);
-            // This recursion is wrong if the imported generateEscPosZReport is THIS function.
-            // But usually the import is from escPosHelper. Let's fix the logic.
-            // The imported one from './escPosHelper' returns Uint8Array.
-            // This function wraps it.
-            // Wait, I am calling generateEscPosZReport recursively here? No, I imported it with the same name?
-            // The import is: import { generateEscPosZReport, ... } from './escPosHelper';
-            // So `generateEscPosZReport` refers to the imported one, unless shadowed.
-            // This function is exported as `generateEscPosZReport` too? No, wait.
-            // In `utils/printService.ts`, the export is `printZCutTicket`.
-            // Ah, I see `generateEscPosZReport` is ALSO exported here? No.
-            // Let's check the function name being defined.
-            // It says `export const generateEscPosZReport = ...`.
-            // This conflicts with the import!
-            // I should rename the imported one or this one.
-            // Actually, `printZCutTicket` calls `generateEscPosZReport`.
-            // Let's fix this below.
-            // I will rename the exported function here to avoid conflict or fix the usage.
-            // But wait, `printZCutTicket` is defined below.
-            // The function above named `generateEscPosZReport` is likely a copy-paste error in my thought process or the user's code.
-            // I will remove this conflicting export and integrate it into `printZCutTicket`.
-            // Actually, `printZCutTicket` is what the app calls.
-            // Let's look at `printZCutTicket` implementation below.
-            
-            // I will just remove this function if it's not used externally, or rename it.
-            // But looking at previous code, `printZCutTicket` calls `generateEscPosZReport` from imports.
-            // So I don't need to redefine it here.
-            return;
-        } catch (e) {
-             console.error(e);
-        }
-    }
-    // ...
 };
 
 export const printZCutTicket = async (
@@ -1131,7 +1205,7 @@ export const printMonthEndReportPDF = (
                     <tr><th>Producto</th><th style="text-align:center;">Unidades</th><th style="text-align:right;">Total Ventas</th></tr>
                 </thead>
                 <tbody>
-                    ${topProducts.map(p => `
+                    ${topProducts.map((p: any) => `
                         <tr>
                             <td><strong>${p.name}</strong></td>
                             <td style="text-align:center;">${p.qty}</td>
