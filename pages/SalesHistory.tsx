@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown, Edit2, Save, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown, Edit2, Save, ToggleLeft, ToggleRight, RefreshCw } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
 import { printInvoice, printThermalTicket } from '../utils/printService';
@@ -525,7 +526,7 @@ const TransactionDetailModal: React.FC<{
   getCustomer: (id?: string) => any;
 }> = ({ transaction, onClose, onDelete, onPay, onConfirmTransfer, onReturn, onUpdate, getCustomerName, getCustomer }) => {
   // ... same as before ...
-  const { settings, sendBtData, btDevice, updateTransaction, notify } = useStore();
+  const { settings, sendBtData, btDevice, updateTransaction, notify, rectifyTransactionChannel } = useStore();
   const [deleteStep, setDeleteStep] = useState<'initial' | 'confirm' | 'processing' | 'success'>('initial');
   const [showReturnModal, setShowReturnModal] = useState(false);
   
@@ -726,10 +727,21 @@ const TransactionDetailModal: React.FC<{
             </div>
 
             <div className={`p-5 rounded-xl border border-slate-100 dark:border-slate-800 transition-all ${isEditing ? 'bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800 ring-2 ring-indigo-500/20' : 'bg-slate-50 dark:bg-slate-800/50'}`}>
-              <h4 className="text-xs font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <PaymentIcon method={isEditing ? tempMethod : transaction.paymentMethod} />
-                Estado Financiero
-              </h4>
+              <div className="flex justify-between items-start mb-3">
+                  <h4 className="text-xs font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                    <PaymentIcon method={isEditing ? tempMethod : transaction.paymentMethod} />
+                    Estado Financiero
+                  </h4>
+                  {!isEditing && !isReturnTx && (
+                      <button 
+                        onClick={() => rectifyTransactionChannel(transaction.id)}
+                        className="text-[10px] font-bold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-1 rounded flex items-center gap-1 hover:bg-blue-100 transition-colors"
+                        title="Corregir si el dinero está en la cuenta equivocada"
+                      >
+                          <RefreshCw className="w-3 h-3" /> Sincronizar Fondos
+                      </button>
+                  )}
+              </div>
               
               {isEditing ? (
                   <div className="mb-2">

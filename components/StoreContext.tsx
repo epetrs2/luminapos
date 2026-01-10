@@ -81,6 +81,7 @@ interface StoreContextType {
     deleteTransaction: (id: string, items: any[]) => void;
     registerTransactionPayment: (id: string, amount: number, method: 'cash' | 'card' | 'transfer') => void;
     updateStockAfterSale: (items: any[]) => void;
+    rectifyTransactionChannel: (transactionId: string) => void; // NEW METHOD
 
     addCustomer: (customer: Customer) => void;
     updateCustomer: (customer: Customer) => void;
@@ -296,7 +297,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const addCategory = (c: string) => { };
     const removeCategory = (c: string) => { };
 
-    // --- UPDATED ADD TRANSACTION TO HANDLE VIRTUAL ACCOUNTS ---
+    // --- ADD TRANSACTION ---
     const addTransaction = (t: Transaction, options?: { shouldAffectCash?: boolean }) => {
         setTransactions(prev => [t, ...prev]);
         
@@ -366,6 +367,36 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         notify("Venta Exitosa", `Ticket #${t.id} guardado.`);
     };
 
+    // --- RECTIFY TRANSACTION (FIX PAST SALES) ---
+    const rectifyTransactionChannel = (transactionId: string) => {
+        const tx = transactions.find(t => t.id === transactionId);
+        if (!tx) return;
+
+        let targetChannel: 'CASH' | 'VIRTUAL' = 'CASH';
+        if (tx.paymentMethod === 'card' || tx.paymentMethod === 'transfer') targetChannel = 'VIRTUAL';
+        
+        // Find associated movements and update them
+        // We match by description containing the ticket ID and being a DEPOSIT
+        let found = false;
+        setCashMovements(prev => prev.map(m => {
+            if (m.type === 'DEPOSIT' && m.description.includes(tx.id)) {
+                found = true;
+                // Only update if different to avoid noise
+                if (m.channel !== targetChannel) {
+                    return { ...m, channel: targetChannel };
+                }
+            }
+            return m;
+        }));
+
+        if (found) {
+            setHasPendingChanges(true);
+            notify("Contabilidad Actualizada", `Venta #${tx.id} movida a cuenta ${targetChannel === 'VIRTUAL' ? 'VIRTUAL' : 'EFECTIVO'}.`, "success");
+        } else {
+            notify("Aviso", "No se encontró el movimiento original en caja.", "warning");
+        }
+    };
+
     const updateStockAfterSale = (items: any[]) => {
         setProducts(prev => prev.map(p => {
             const soldItem = items.find((i: any) => i.id === p.id);
@@ -395,7 +426,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         logActivity('SALE', `Venta anulada #${id}`);
     };
 
-    // --- UPDATED REGISTER PAYMENT TO HANDLE VIRTUAL ---
+    // --- REGISTER PAYMENT ---
     const registerTransactionPayment = (id: string, amount: number, method: 'cash' | 'card' | 'transfer') => {
         const tx = transactions.find(t => t.id === id);
         if (!tx) return;
@@ -794,6 +825,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             categories, btDevice, btCharacteristic, incomingOrder, isLoggingOut, isAppLocked,
             addProduct, updateProduct, deleteProduct, adjustStock, addCategory, removeCategory,
             addTransaction, updateTransaction, deleteTransaction, registerTransactionPayment, updateStockAfterSale,
+            rectifyTransactionChannel, // NEW EXPORT
             addCustomer, updateCustomer, deleteCustomer, processCustomerPayment,
             addSupplier, updateSupplier, deleteSupplier, addPurchase, deletePurchase,
             addCashMovement, deleteCashMovement,
