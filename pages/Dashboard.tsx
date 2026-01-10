@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { DollarSign, ShoppingCart, Package, Users, TrendingUp, AlertTriangle, ArrowRight, Clock, Box, Wallet } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -18,11 +18,23 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
   const totalProducts = products.length;
   const totalCustomers = customers.length;
   
-  const currentBalance = cashMovements.reduce((acc, curr) => {
-    if (curr.type === 'OPEN' || curr.type === 'DEPOSIT') return acc + curr.amount;
-    if (curr.type === 'CLOSE' || curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
-    return acc;
-  }, 0);
+  // --- FIX: Calculate Balance based on Current Session (Like CashRegister.tsx) ---
+  const currentBalance = useMemo(() => {
+      const sortedMovements = [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const lastCloseIndex = sortedMovements.findIndex(m => m.type === 'CLOSE');
+      
+      // If we found a close, take only movements AFTER that close (slice 0 to index)
+      // If no close found (-1), take all movements
+      const activeMovements = lastCloseIndex === -1 
+          ? sortedMovements 
+          : sortedMovements.slice(0, lastCloseIndex);
+
+      return activeMovements.reduce((acc, curr) => {
+          if (curr.type === 'OPEN' || curr.type === 'DEPOSIT') return acc + curr.amount;
+          if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
+          return acc;
+      }, 0);
+  }, [cashMovements]);
 
   // Chart Data (Last 7 days)
   const last7Days = Array.from({ length: 7 }, (_, i) => {
