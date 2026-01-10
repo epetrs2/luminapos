@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { generateBusinessInsight } from '../services/geminiService';
+import { generateBusinessInsight, generateMonthEndAnalysis } from '../services/geminiService';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ReferenceLine } from 'recharts';
 import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList, Factory, ArrowLeft, ArrowRight, Wallet, Clock, Archive, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -425,7 +425,7 @@ export const Reports: React.FC = () => {
     setLoadingAi(false);
   };
 
-  // --- NEW MONTH END LOGIC (LOCAL & FAST) ---
+  // --- NEW MONTH END LOGIC ---
   const handleGenerateMonthReport = async (mode: 'THERMAL' | 'PDF') => {
       setGeneratingReport(true);
       
@@ -445,41 +445,8 @@ export const Reports: React.FC = () => {
           if (!btDevice) { alert("Conecta impresora Bluetooth."); setGeneratingReport(false); return; }
           await printMonthEndTicket(reportData, settings, sendBtData);
       } else {
-          // GENERATE PDF WITH LOCAL ANALYSIS (NO AI - FAST & RELIABLE)
-          const income = reportData.income || 1; // Avoid div by zero
-          const opExPct = (reportData.actualOpEx / income) * 100;
-          const targetOpEx = reportData.config.expensesPercentage;
-          
-          let financialSummary = `El periodo cerró con un ingreso total de **$${reportData.income.toLocaleString()}**. `;
-          if (opExPct > targetOpEx) {
-              financialSummary += `Los gastos operativos (${opExPct.toFixed(1)}%) superaron el presupuesto del ${targetOpEx}%. Se recomienda revisar costos fijos y variables.`;
-          } else {
-              financialSummary += `Control de gastos óptimo: ${opExPct.toFixed(1)}% (Meta: ${targetOpEx}%). Esto permitió maximizar la utilidad y la inversión.`;
-          }
-
-          let salesAnalysis = "";
-          const topP = distMetrics.topPeriodProducts;
-          if (topP.length > 0) {
-              const top = topP[0];
-              const topPct = (top.total / income) * 100;
-              salesAnalysis = `El producto líder en ventas fue **${top.name}**, generando $${top.total.toLocaleString()} (${topPct.toFixed(1)}% del ingreso total). `;
-              if (topP.length >= 3) {
-                  salesAnalysis += `Junto con ${topP[1].name} y ${topP[2].name}, forman la base principal de ingresos del negocio.`;
-              }
-          } else {
-              salesAnalysis = "No hay datos de ventas suficientes en este periodo para determinar productos estrella.";
-          }
-
-          let recommendations = "";
-          const investPct = (reportData.actualInvestment / income) * 100;
-          if (investPct < reportData.config.investmentPercentage) {
-              recommendations = `La inversión retenida (${investPct.toFixed(1)}%) estuvo por debajo del objetivo (${reportData.config.investmentPercentage}%). Para el próximo mes, intente reducir los retiros personales si es posible.`;
-          } else {
-              recommendations = `Excelente nivel de capitalización (${investPct.toFixed(1)}%). El negocio está creciendo saludablemente y cumple con sus metas de ahorro.`;
-          }
-
-          const analysisText = `# Resumen Financiero\n${financialSummary}\n\n# Ventas Destacadas\n${salesAnalysis}\n\n# Conclusión y Metas\n${recommendations}`;
-          
+          // GENERATE PDF WITH AI ANALYSIS
+          const analysisText = await generateMonthEndAnalysis(reportData, distMetrics.topPeriodProducts, distMetrics.topPeriodCustomers);
           printMonthEndReportPDF(reportData, analysisText, distMetrics.topPeriodProducts, settings);
       }
       setGeneratingReport(false);
@@ -601,7 +568,7 @@ export const Reports: React.FC = () => {
                             className="flex-[1.5] py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50"
                           >
                               {generatingReport ? <RefreshCw className="w-4 h-4 animate-spin"/> : <FileText className="w-4 h-4"/>}
-                              {generatingReport ? 'Generando...' : 'Informe PDF'}
+                              {generatingReport ? 'Analizando...' : 'Informe PDF + IA'}
                           </button>
                       </div>
 

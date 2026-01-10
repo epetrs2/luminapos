@@ -1,319 +1,603 @@
+
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
+import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle, Tag, List, Repeat, CreditCard, Wallet } from 'lucide-react';
 import { CashMovement, BudgetCategory, ZReportData } from '../types';
-import { DollarSign, ArrowUpCircle, ArrowDownCircle, Archive, Printer, Trash2, Calendar, AlertCircle, CreditCard, Banknote, History, Wallet, Lock, Coins, TrendingDown, TrendingUp } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { printZCutTicket } from '../utils/printService';
 
+// Consistent colors for financial categories
+const CAT_COLORS: Record<string, string> = {
+    'SALES': '#10b981', // Emerald
+    'OPERATIONAL': '#ef4444', // Red
+    'EQUITY': '#3b82f6', // Blue
+    'PROFIT': '#ec4899', // Pink
+    'THIRD_PARTY': '#f97316', // Orange
+    'LOAN': '#8b5cf6', // Violet
+    'OTHER': '#64748b' // Slate
+};
+
+const CAT_LABELS: Record<string, string> = {
+    'SALES': 'Ventas',
+    'OPERATIONAL': 'Gastos Op.',
+    'EQUITY': 'Aporte Dueño',
+    'PROFIT': 'Retiro Ganancia',
+    'THIRD_PARTY': 'Liq. Terceros',
+    'LOAN': 'Reembolso/Préstamo',
+    'OTHER': 'Otros'
+};
+
 export const CashRegister: React.FC = () => {
-  const { cashMovements, addCashMovement, deleteCashMovement, settings, btDevice, sendBtData, notify } = useStore();
-  
-  // Form State
+  const { cashMovements, addCashMovement, deleteCashMovement, settings, transactions, btDevice, sendBtData } = useStore();
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
-  const [type, setType] = useState<CashMovement['type']>('DEPOSIT');
-  const [category, setCategory] = useState<BudgetCategory>('SALES');
-  const [subCategory, setSubCategory] = useState('');
+  const [subCategory, setSubCategory] = useState(''); 
+  const [type, setType] = useState<CashMovement['type']>('EXPENSE');
+  const [category, setCategory] = useState<BudgetCategory>('OPERATIONAL'); 
+  const [paymentChannel, setPaymentChannel] = useState<'CASH' | 'VIRTUAL'>('CASH');
   
-  // Z-Report State
-  const [isZModalOpen, setIsZModalOpen] = useState(false);
-  const [declaredCash, setDeclaredCash] = useState('');
+  // Open Register State
+  const [openRegisterModalOpen, setOpenRegisterModalOpen] = useState(false);
+  const [initialFund, setInitialFund] = useState('');
 
-  // Calculate Balance since last CLOSE
-  const activeMovements = useMemo(() => {
-      const sorted = [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      const lastCloseIndex = sorted.findIndex(m => m.type === 'CLOSE');
-      return lastCloseIndex === -1 ? sorted : sorted.slice(0, lastCloseIndex);
+  // Z-Cut State
+  const [zCutModalOpen, setZCutModalOpen] = useState(false);
+  const [declaredCash, setDeclaredCash] = useState('');
+  const [savingZCut, setSavingZCut] = useState(false);
+
+  // Delete Confirmation State
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // Get unique used subcategories for suggestions
+  const suggestedSubCategories = useMemo(() => {
+      const unique = new Set<string>();
+      cashMovements.forEach(m => {
+          if (m.subCategory) unique.add(m.subCategory);
+      });
+      return Array.from(unique);
   }, [cashMovements]);
 
-  const balance = useMemo(() => {
-      return activeMovements.reduce((acc, m) => {
-          // Only count CASH movements for the drawer balance
-          if (m.channel === 'VIRTUAL') return acc;
+  // --- LOGIC TO FIND CURRENT SHIFT BALANCE ---
+  const sortedMovements = [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const lastCloseIndex = sortedMovements.findIndex(m => m.type === 'CLOSE');
+  
+  let currentSessionMovements: CashMovement[] = [];
+  let isRegisterOpen = false;
+
+  if (lastCloseIndex === -1) {
+      currentSessionMovements = sortedMovements;
+      isRegisterOpen = sortedMovements.some(m => m.type === 'OPEN');
+  } else {
+      currentSessionMovements = sortedMovements.slice(0, lastCloseIndex);
+      isRegisterOpen = currentSessionMovements.some(m => m.type === 'OPEN');
+  }
+
+  // Calculate Cash Balance (Physical) - Only things in CASH channel
+  const cashBalance = currentSessionMovements
+    .filter(m => m.channel !== 'VIRTUAL') // Default or CASH
+    .reduce((acc, curr) => {
+        if (curr.type === 'OPEN' || curr.type === 'DEPOSIT') return acc + curr.amount;
+        if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
+        return acc;
+    }, 0);
+
+  // Calculate Virtual Balance (Global) - VIRTUAL funds don't reset on "Close Register", they persist
+  // We calculate from ALL time history because bank accounts don't "close" daily in this system
+  const virtualBalance = cashMovements
+    .filter(m => m.channel === 'VIRTUAL')
+    .reduce((acc, curr) => {
+        if (curr.type === 'DEPOSIT') return acc + curr.amount;
+        if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
+        return acc;
+    }, 0);
+
+  // Filter movements for today
+  const today = new Date().toDateString();
+  const todaysMovements = cashMovements.filter(m => new Date(m.date).toDateString() === today && !m.isZCut);
+
+  // Totals for today (Cash Flow)
+  const incomeToday = todaysMovements.filter(m => m.type === 'OPEN' || m.type === 'DEPOSIT').reduce((a, b) => a + b.amount, 0);
+  const expenseToday = todaysMovements.filter(m => m.type === 'EXPENSE' || m.type === 'WITHDRAWAL').reduce((a, b) => a + b.amount, 0);
+
+  // --- DETAILED CHART DATA (By Category) ---
+  const categoryData = useMemo(() => {
+      const grouped: Record<string, number> = {};
+      
+      todaysMovements.forEach(m => {
+          // Skip opening fund to see pure movement distribution
+          if (m.type === 'OPEN') return;
           
-          if (m.type === 'OPEN' || m.type === 'DEPOSIT') return acc + m.amount;
-          if (m.type === 'EXPENSE' || m.type === 'WITHDRAWAL') return acc - m.amount;
-          return acc;
-      }, 0);
-  }, [activeMovements]);
+          const catKey = m.category || 'OTHER';
+          grouped[catKey] = (grouped[catKey] || 0) + m.amount;
+      });
 
-  const handleTransaction = (txType: CashMovement['type'], txCategory: BudgetCategory, subCat: string = '') => {
-      if (!amount || parseFloat(amount) <= 0) {
-          notify("Error", "Ingresa un monto válido", "error");
-          return;
-      }
-      if (!description) {
-          notify("Error", "Ingresa una descripción", "error");
-          return;
-      }
+      return Object.keys(grouped).map(key => ({
+          name: CAT_LABELS[key] || key,
+          value: grouped[key],
+          color: CAT_COLORS[key] || '#94a3b8'
+      }));
+  }, [todaysMovements]);
 
-      const movement: CashMovement = {
+  const handleTypeChange = (newType: CashMovement['type'], specificCategory?: BudgetCategory) => {
+      setType(newType);
+      if (specificCategory) {
+          setCategory(specificCategory);
+      } else {
+          if (newType === 'EXPENSE') setCategory('OPERATIONAL');
+          else if (newType === 'WITHDRAWAL') setCategory('PROFIT');
+          else if (newType === 'DEPOSIT') setCategory('SALES');
+          else setCategory('OTHER');
+      }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!amount) return;
+    
+    if (type === 'OPEN' && isRegisterOpen) {
+        alert("La caja ya está abierta.");
+        return;
+    }
+
+    // Default to Cash if not specified, but keep VIRTUAL if selected
+    const finalChannel = paymentChannel;
+
+    addCashMovement({
+      id: crypto.randomUUID(),
+      type,
+      amount: parseFloat(amount),
+      description,
+      date: new Date().toISOString(),
+      category,
+      subCategory: subCategory.trim() || undefined,
+      channel: finalChannel
+    });
+    setAmount('');
+    setDescription('');
+    setSubCategory('');
+  };
+
+  const handleOpenRegister = () => {
+      const fund = parseFloat(initialFund) || 0;
+      addCashMovement({
           id: crypto.randomUUID(),
-          type: txType,
-          amount: parseFloat(amount),
-          description,
+          type: 'OPEN',
+          amount: fund,
+          description: 'Apertura de Caja (Fondo Inicial)',
           date: new Date().toISOString(),
-          category: txCategory,
-          subCategory: subCat || subCategory,
-          channel: 'CASH' // Default to CASH for manual register movements
-      };
-
-      addCashMovement(movement);
-      setAmount('');
-      setDescription('');
-      setSubCategory('');
-      notify("Registrado", "Movimiento guardado en caja", "success");
+          category: 'OPERATIONAL',
+          channel: 'CASH'
+      });
+      setOpenRegisterModalOpen(false);
+      setInitialFund('');
   };
 
-  const handleZCut = () => {
-      if (balance < 0) {
-          notify("Error", "El balance no puede ser negativo.", "error");
-          return;
-      }
-      setDeclaredCash('');
-      setIsZModalOpen(true);
-  };
+  const handlePerformZCut = () => {
+      const systemExpected = cashBalance; // Expected PHYSICAL cash
+      const counted = parseFloat(declaredCash) || 0;
+      const diff = counted - systemExpected;
 
-  const confirmZCut = async () => {
-      const declared = parseFloat(declaredCash) || 0;
-      const systemCash = balance;
-      const diff = declared - systemCash;
-
-      const cashSales = activeMovements.filter(m => m.type === 'DEPOSIT' && m.category === 'SALES' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0);
-      const expenses = activeMovements.filter(m => m.type === 'EXPENSE' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0);
-      const withdrawals = activeMovements.filter(m => m.type === 'WITHDRAWAL' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0);
-      const opening = activeMovements.find(m => m.type === 'OPEN')?.amount || 0;
-
+      setSavingZCut(true);
+      
+      const lastOpen = currentSessionMovements.find(m => m.type === 'OPEN');
+      const sessionStartDate = lastOpen ? new Date(lastOpen.date) : new Date(new Date().setHours(0,0,0,0));
+      const sessionTx = transactions.filter(t => new Date(t.date) >= sessionStartDate && t.status !== 'cancelled');
+      
       const zData: ZReportData = {
-          openingFund: opening,
-          grossSales: cashSales,
-          cashSales: cashSales,
-          cardSales: 0,
-          transferSales: 0,
-          creditSales: 0,
-          expenses,
-          withdrawals,
-          expectedCash: systemCash,
-          declaredCash: declared,
+          openingFund: lastOpen?.amount || 0,
+          grossSales: sessionTx.reduce((sum, t) => sum + t.total, 0),
+          cashSales: sessionTx.filter(t => t.paymentMethod === 'cash').reduce((sum, t) => sum + t.amountPaid, 0) + 
+                     (sessionTx.filter(t => t.paymentMethod === 'split').reduce((sum, t) => sum + (t.splitDetails?.cash || 0), 0)),
+          cardSales: sessionTx.filter(t => t.paymentMethod === 'card').reduce((sum, t) => sum + t.amountPaid, 0),
+          transferSales: sessionTx.filter(t => t.paymentMethod === 'transfer').reduce((sum, t) => sum + t.amountPaid, 0),
+          creditSales: sessionTx.filter(t => t.paymentMethod === 'credit').reduce((sum, t) => sum + t.total, 0), 
+          expenses: currentSessionMovements.filter(m => m.type === 'EXPENSE' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0),
+          withdrawals: currentSessionMovements.filter(m => m.type === 'WITHDRAWAL' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0),
+          expectedCash: systemExpected,
+          declaredCash: counted,
           difference: diff,
           timestamp: new Date().toISOString()
       };
 
-      const closeMovement: CashMovement = {
+      const zCutMovement: CashMovement = {
           id: crypto.randomUUID(),
           type: 'CLOSE',
-          amount: declared,
-          description: `Corte Z - ${new Date().toLocaleDateString()}`,
+          amount: 0, 
+          description: `Cierre Z - Declarado: $${counted.toFixed(2)} | Dif: $${diff.toFixed(2)}`,
           date: new Date().toISOString(),
-          category: 'OPERATIONAL',
+          category: 'OTHER',
           isZCut: true,
           zReportData: zData,
           channel: 'CASH'
       };
 
-      addCashMovement(closeMovement);
-      
-      if (btDevice) {
-          await printZCutTicket(closeMovement, settings, sendBtData);
-      } else {
-          printZCutTicket(closeMovement, settings);
-      }
+      addCashMovement(zCutMovement);
 
-      setIsZModalOpen(false);
-      notify("Corte Realizado", "La caja se ha reiniciado correctamente.", "success");
+      setTimeout(() => {
+          setSavingZCut(false);
+          setZCutModalOpen(false);
+          setDeclaredCash('');
+          printZCutTicket(zCutMovement, settings, btDevice ? sendBtData : undefined);
+      }, 1000);
+  };
+
+  const confirmDelete = () => {
+      if (deleteId) {
+          deleteCashMovement(deleteId);
+          setDeleteId(null);
+      }
+  };
+
+  const reprintZReport = (movement: CashMovement) => {
+      printZCutTicket(movement, settings, btDevice ? sendBtData : undefined);
   };
 
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-          <div>
-            <h2 className="text-3xl font-bold text-slate-800 dark:text-white">Caja Chica</h2>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">Control de efectivo diario.</p>
-          </div>
-          <div className="bg-white dark:bg-slate-900 px-6 py-3 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col items-end">
-             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Efectivo en Caja</span>
-             <span className="text-3xl font-black text-slate-800 dark:text-white">${balance.toFixed(2)}</span>
-          </div>
+      <div className="max-w-7xl mx-auto">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-slate-800 dark:text-white mb-2">Caja Chica</h2>
+                <div className="flex items-center gap-2">
+                    <p className="text-slate-500 dark:text-slate-400">Control financiero diario</p>
+                    {isRegisterOpen ? (
+                        <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded-full font-bold">CAJA ABIERTA</span>
+                    ) : (
+                        <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-bold">CAJA CERRADA</span>
+                    )}
+                </div>
+            </div>
+            
+            <div className="flex gap-3">
+                {!isRegisterOpen && (
+                    <button 
+                        onClick={() => setOpenRegisterModalOpen(true)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg flex items-center gap-2 animate-[pulse_2s_infinite]"
+                    >
+                        <KeyRound className="w-5 h-5" /> Abrir Caja
+                    </button>
+                )}
+                {isRegisterOpen && (
+                    <button 
+                        onClick={() => setZCutModalOpen(true)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none flex items-center gap-2"
+                    >
+                        <Lock className="w-5 h-5" /> Realizar Cierre Z
+                    </button>
+                )}
+            </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* LEFT: CONTROLS */}
-            <div className="lg:col-span-1 space-y-6">
-                <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6">
-                    <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-                        <Wallet className="w-5 h-5 text-indigo-500" /> Nuevo Movimiento
-                    </h3>
-                    
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Monto</label>
-                            <div className="relative">
-                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                                <input 
-                                    type="number" 
-                                    step="0.01" 
-                                    value={amount} 
-                                    onChange={e => setAmount(e.target.value)} 
-                                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-lg outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-                                    placeholder="0.00"
-                                />
-                            </div>
-                        </div>
+        {/* Top Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div className={`col-span-2 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden transition-colors ${isRegisterOpen ? 'bg-gradient-to-br from-indigo-600 to-violet-700' : 'bg-slate-700'}`}>
+                <div className="absolute right-0 top-0 p-6 opacity-10">
+                    <DollarSign className="w-24 h-24" />
+                </div>
+                <div className="relative z-10">
+                    <p className="text-indigo-100 font-medium mb-1 flex items-center gap-2"><Lock className="w-4 h-4"/> Efectivo en Caja</p>
+                    <h3 className="text-4xl font-bold tracking-tight">${cashBalance.toFixed(2)}</h3>
+                    {!isRegisterOpen && <p className="text-xs text-orange-300 mt-1">Caja cerrada. Balance reiniciado.</p>}
+                </div>
+            </div>
 
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Concepto</label>
-                            <input 
-                                type="text" 
-                                value={description} 
-                                onChange={e => setDescription(e.target.value)} 
-                                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm transition-all"
-                                placeholder="Descripción del movimiento..."
-                            />
-                        </div>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col justify-between relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-5"><CreditCard className="w-16 h-16 text-blue-500" /></div>
+                <div>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm font-bold mb-1 flex items-center gap-2"><CreditCard className="w-4 h-4 text-blue-500"/> Banco / Virtual</p>
+                    <h3 className="text-2xl font-bold text-slate-800 dark:text-white">${virtualBalance.toFixed(2)}</h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">Saldo acumulado en cuentas digitales.</p>
+            </div>
 
-                        <div className="pt-2 grid grid-cols-1 gap-3">
-                             <div className="grid grid-cols-2 gap-3">
-                                <button onClick={() => handleTransaction('DEPOSIT', 'SALES')} className="flex flex-col items-center justify-center p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800 rounded-xl hover:bg-emerald-100 transition-colors">
-                                    <ArrowUpCircle className="w-6 h-6 mb-1"/>
-                                    <span className="text-xs font-bold">Ingreso Venta</span>
-                                </button>
-                                <button onClick={() => handleTransaction('EXPENSE', 'OPERATIONAL')} className="flex flex-col items-center justify-center p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border border-red-100 dark:border-red-800 rounded-xl hover:bg-red-100 transition-colors">
-                                    <ArrowDownCircle className="w-6 h-6 mb-1"/>
-                                    <span className="text-xs font-bold">Gasto Operativo</span>
-                                </button>
-                             </div>
-                             
-                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center mt-2">Otros Movimientos</p>
-                             
-                             <div className="grid grid-cols-2 gap-2">
-                                <button onClick={() => handleTransaction('WITHDRAWAL', 'PROFIT')} className="py-2 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-indigo-500 hover:text-indigo-500 transition-colors">
-                                    Retiro Ganancia
-                                </button>
-                                <button onClick={() => handleTransaction('WITHDRAWAL', 'OTHER', 'Inversión/Ahorro')} className="py-2 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-blue-500 hover:text-blue-500 transition-colors">
-                                    Retiro Inversión
-                                </button>
-                                <button onClick={() => handleTransaction('DEPOSIT', 'EQUITY')} className="py-2 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-500 transition-colors">
-                                    Ingreso Capital
-                                </button>
-                                <button onClick={() => handleTransaction('WITHDRAWAL', 'THIRD_PARTY')} className="py-2 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-orange-500 hover:text-orange-500 transition-colors">
-                                    Pago Tercero
-                                </button>
-                             </div>
-                        </div>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
+                <div>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">Flujo Hoy (Global)</p>
+                    <div className="flex justify-between items-center mt-2">
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1"><ArrowUpCircle className="w-4 h-4"/> ${incomeToday.toFixed(0)}</span>
+                        <span className="text-red-600 dark:text-red-400 font-bold flex items-center gap-1"><ArrowDownCircle className="w-4 h-4"/> ${expenseToday.toFixed(0)}</span>
                     </div>
                 </div>
+            </div>
+        </div>
 
-                <button 
-                    onClick={handleZCut}
-                    className="w-full py-4 bg-slate-800 hover:bg-slate-700 dark:bg-indigo-600 dark:hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-3 transition-all active:scale-95"
-                >
-                    <Lock className="w-5 h-5"/> Realizar Corte Z (Cierre)
-                </button>
+        {/* Improved Visualizations & Form Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+            <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-6 min-w-0 flex flex-col">
+                 <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+                    <PieChartIcon className="w-5 h-5 text-indigo-500" />
+                    Distribución de Movimientos (Hoy)
+                 </h3>
+                 <div className="flex-1 flex flex-col md:flex-row items-center gap-8 justify-center">
+                     {categoryData.length > 0 ? (
+                         <>
+                            <div className="w-full md:w-1/2 h-64 relative">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie 
+                                            data={categoryData} 
+                                            cx="50%" 
+                                            cy="50%" 
+                                            innerRadius={60} 
+                                            outerRadius={80} 
+                                            paddingAngle={5} 
+                                            dataKey="value" 
+                                            stroke="none"
+                                        >
+                                            {categoryData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                                        </Pie>
+                                        <RechartsTooltip formatter={(value: number) => `$${value.toFixed(2)}`} contentStyle={{borderRadius:'8px', border:'none'}} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                                {/* Center Text */}
+                                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                    <span className="text-xs text-slate-400 font-medium">Movimiento</span>
+                                    <span className="text-lg font-bold text-slate-800 dark:text-white">${(incomeToday + expenseToday).toFixed(0)}</span>
+                                </div>
+                            </div>
+                            
+                            <div className="w-full md:w-1/2 grid grid-cols-1 gap-3">
+                                {categoryData.map((cat, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-3 h-3 rounded-full" style={{backgroundColor: cat.color}}></div>
+                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{cat.name}</span>
+                                        </div>
+                                        <span className="text-sm font-bold dark:text-white">${cat.value.toFixed(2)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                         </>
+                     ) : (
+                         <div className="text-center py-12 text-slate-400">
+                             <PieChartIcon className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                             <p>Sin movimientos hoy.</p>
+                         </div>
+                     )}
+                 </div>
             </div>
 
-            {/* RIGHT: HISTORY LIST */}
-            <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col h-[600px] lg:h-auto">
-                <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-700 dark:text-white flex items-center gap-2">
-                        <History className="w-5 h-5 text-slate-400" /> Historial (Sesión Actual)
-                    </h3>
-                </div>
-                <div className="flex-1 overflow-y-auto p-0">
-                    <table className="w-full text-sm">
-                        <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase text-xs sticky top-0 z-10 shadow-sm">
-                            <tr>
-                                <th className="px-6 py-3 text-left">Hora</th>
-                                <th className="px-6 py-3 text-left">Descripción</th>
-                                <th className="px-6 py-3 text-right">Monto</th>
-                                <th className="px-4 py-3 text-center"></th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                            {activeMovements.map(m => {
-                                const isPositive = m.type === 'OPEN' || m.type === 'DEPOSIT';
-                                return (
-                                    <tr key={m.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
-                                        <td className="px-6 py-4 text-slate-500 font-mono text-xs whitespace-nowrap">
-                                            {new Date(m.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <p className="font-bold text-slate-700 dark:text-slate-200">{m.description}</p>
-                                            <div className="flex items-center gap-2 mt-0.5">
-                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${isPositive ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
-                                                    {m.category === 'OTHER' && m.subCategory ? m.subCategory : m.category}
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td className={`px-6 py-4 text-right font-bold text-base ${isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
-                                            {isPositive ? '+' : '-'}${m.amount.toFixed(2)}
-                                        </td>
-                                        <td className="px-4 py-4 text-center">
-                                            <button onClick={() => deleteCashMovement(m.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
-                                                <Trash2 className="w-4 h-4"/>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                            {activeMovements.length === 0 && (
-                                <tr>
-                                    <td colSpan={4} className="py-16 text-center text-slate-400">
-                                        <Coins className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                                        <p>No hay movimientos en esta sesión.</p>
-                                    </td>
-                                </tr>
+            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-6 border border-slate-200 dark:border-slate-800">
+                 <h3 className="font-bold text-slate-800 dark:text-white mb-4">Registrar Movimiento</h3>
+                 {!isRegisterOpen && (
+                     <div className="mb-4 p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg text-sm text-orange-800 dark:text-orange-300 flex items-start gap-2">
+                         <KeyRound className="w-4 h-4 mt-0.5 shrink-0" />
+                         <p>La caja está cerrada. Debes hacer una "Apertura" primero.</p>
+                     </div>
+                 )}
+                 <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-2">
+                         {/* BASIC INCOME */}
+                         <button type="button" onClick={() => handleTypeChange('DEPOSIT', 'SALES')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'DEPOSIT' && category === 'SALES' ? 'bg-emerald-100 border-emerald-300 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Ingreso Venta</button>
+                         {/* BASIC EXPENSE */}
+                         <button type="button" onClick={() => handleTypeChange('EXPENSE', 'OPERATIONAL')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'EXPENSE' ? 'bg-red-100 border-red-300 text-red-800 dark:bg-red-900/40 dark:text-red-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Gasto Op.</button>
+                         {/* OWNER EQUITY (NEW) */}
+                         <button type="button" onClick={() => handleTypeChange('DEPOSIT', 'EQUITY')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'DEPOSIT' && category === 'EQUITY' ? 'bg-blue-100 border-blue-300 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Aporte Dueño</button>
+                         {/* PROFIT WITHDRAWAL */}
+                         <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'PROFIT')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'PROFIT' ? 'bg-pink-100 border-pink-300 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Retiro Ganancia</button>
+                         {/* REEMBOLSO */}
+                         <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'LOAN')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'LOAN' ? 'bg-violet-100 border-violet-300 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Reembolso Dueño</button>
+                         {/* THIRD PARTY PAYOUT */}
+                         <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'THIRD_PARTY')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'THIRD_PARTY' ? 'bg-orange-100 border-orange-300 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Liq. Tercero</button>
+                    </div>
+                    
+                    {/* CHANNEL SELECTOR */}
+                    <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <button type="button" onClick={() => setPaymentChannel('CASH')} className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-all ${paymentChannel === 'CASH' ? 'bg-emerald-100 text-emerald-800' : 'text-slate-500'}`}>
+                            <DollarSign className="w-3 h-3"/> Efectivo
+                        </button>
+                        <button type="button" onClick={() => setPaymentChannel('VIRTUAL')} className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-all ${paymentChannel === 'VIRTUAL' ? 'bg-blue-100 text-blue-800' : 'text-slate-500'}`}>
+                            <CreditCard className="w-3 h-3"/> Virtual/Banco
+                        </button>
+                    </div>
+
+                    <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold outline-none" disabled={!isRegisterOpen} />
+                    </div>
+                    
+                    {/* Category Input (Autocomplete) */}
+                    {(type === 'EXPENSE' || category === 'THIRD_PARTY' || category === 'LOAN') && (
+                        <div className="relative">
+                            <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                            <input 
+                                list="categories-list"
+                                type="text"
+                                value={subCategory}
+                                onChange={(e) => setSubCategory(e.target.value)}
+                                placeholder={category === 'THIRD_PARTY' ? "Nombre del Proveedor / Dueño..." : category === 'LOAN' ? "Motivo del reembolso (Ej. Pago Luz)" : "Categoría (Luz, Renta, Limpieza...)"}
+                                className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm outline-none font-medium"
+                                disabled={!isRegisterOpen}
+                            />
+                            <datalist id="categories-list">
+                                {suggestedSubCategories.map((sc, idx) => (
+                                    <option key={idx} value={sc} />
+                                ))}
+                            </datalist>
+                        </div>
+                    )}
+
+                    <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descripción detallada..." className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm outline-none" disabled={!isRegisterOpen} />
+                    
+                    <button type="submit" className="w-full bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled={!isRegisterOpen}>Guardar Movimiento</button>
+                 </form>
+            </div>
+        </div>
+
+        {/* History Table */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs uppercase font-semibold">
+                <tr>
+                  <th className="px-6 py-3 text-left">Fecha</th>
+                  <th className="px-6 py-3 text-left">Tipo</th>
+                  <th className="px-6 py-3 text-left">Origen</th>
+                  <th className="px-6 py-3 text-left">Categoría</th>
+                  <th className="px-6 py-3 text-left">Descripción</th>
+                  <th className="px-6 py-3 text-right">Monto</th>
+                  <th className="px-6 py-3 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {cashMovements.map((movement) => {
+                    const isEquity = movement.category === 'EQUITY';
+                    const isThirdParty = movement.category === 'THIRD_PARTY';
+                    const isLoan = movement.category === 'LOAN';
+                    const isExpense = movement.type === 'EXPENSE';
+                    
+                    return (
+                      <tr key={movement.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 group">
+                        <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">{new Date(movement.date).toLocaleDateString()} {new Date(movement.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${movement.isZCut ? 'bg-indigo-100 text-indigo-700' : isExpense ? 'bg-red-100 text-red-700' : isLoan ? 'bg-violet-100 text-violet-700' : isThirdParty ? 'bg-orange-100 text-orange-700' : isEquity ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {movement.isZCut ? 'CORTE Z' : isEquity ? 'APORTE' : isLoan ? 'REEMBOLSO' : isThirdParty ? 'LIQ. 3RO' : movement.type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                            {movement.channel === 'VIRTUAL' ? (
+                                <span className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100"><CreditCard className="w-3 h-3"/> Virtual</span>
+                            ) : (
+                                <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100"><DollarSign className="w-3 h-3"/> Caja</span>
                             )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-slate-500">
+                            {movement.subCategory || (movement.category === 'OPERATIONAL' ? 'General' : '-')}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-800 dark:text-slate-200 font-medium truncate max-w-[200px]">{movement.description}</td>
+                        <td className={`px-6 py-4 text-right font-bold text-sm ${movement.isZCut ? 'text-indigo-600' : (isExpense || movement.type === 'WITHDRAWAL' ? 'text-red-600' : 'text-emerald-600')}`}>
+                            {movement.isZCut ? '---' : `$${movement.amount.toFixed(2)}`}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                            {movement.isZCut ? (
+                                <button onClick={() => reprintZReport(movement)} className="text-indigo-500 hover:text-indigo-700 transition-colors" title="Reimprimir Reporte"><Printer className="w-4 h-4" /></button>
+                            ) : (
+                                <button onClick={() => setDeleteId(movement.id)} className="text-slate-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                            )}
+                        </td>
+                      </tr>
+                    );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      {/* Z CUT MODAL */}
-      {isZModalOpen && (
-          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
-              <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-sm w-full border border-slate-100 dark:border-slate-800 overflow-hidden">
-                  <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-center">
-                      <div className="w-14 h-14 bg-slate-900 text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-xl shadow-slate-200 dark:shadow-none">
-                          <Lock className="w-7 h-7" />
+      {/* Delete Confirmation Modal (Same as before) */}
+      {deleteId && (
+          <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800">
+                  <div className="text-center mb-6">
+                      <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Trash2 className="w-8 h-8" />
                       </div>
-                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">Corte de Caja Z</h3>
-                      <p className="text-sm text-slate-500">Cuenta el dinero físico y confirma.</p>
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">¿Eliminar Movimiento?</h3>
+                      <p className="text-sm text-slate-500 mt-2">
+                          Si eliminas una venta, también se anulará en el historial y el inventario será devuelto.
+                      </p>
+                  </div>
+                  <div className="flex gap-3">
+                      <button onClick={() => setDeleteId(null)} className="flex-1 py-3 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium">Cancelar</button>
+                      <button onClick={confirmDelete} className="flex-[2] py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg">Sí, Eliminar</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Open Register Modal (Same as before) */}
+      {openRegisterModalOpen && (
+          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800">
+                  <div className="text-center mb-6">
+                      <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <KeyRound className="w-8 h-8" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">Apertura de Caja</h3>
+                      <p className="text-sm text-slate-500">Inicia el turno ingresando el fondo inicial.</p>
                   </div>
                   
-                  <div className="p-6 space-y-6">
-                      <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl text-center border border-blue-100 dark:border-blue-900">
-                          <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase mb-1">Sistema Espera</p>
-                          <p className="text-3xl font-black text-slate-800 dark:text-white">${balance.toFixed(2)}</p>
+                  <div className="mb-6">
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Fondo / Base en Efectivo</label>
+                      <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                          <input 
+                            type="number" 
+                            autoFocus
+                            value={initialFund} 
+                            onChange={(e) => setInitialFund(e.target.value)} 
+                            className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-lg font-bold outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white"
+                            placeholder="0.00"
+                          />
                       </div>
+                  </div>
 
-                      <div>
-                          <label className="block text-sm font-bold text-slate-600 dark:text-slate-300 mb-2 text-center">Efectivo Real (Contado)</label>
-                          <div className="relative">
-                              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
-                              <input 
-                                  type="number" 
-                                  step="0.01"
-                                  autoFocus
-                                  value={declaredCash}
-                                  onChange={(e) => setDeclaredCash(e.target.value)}
-                                  className="w-full pl-8 pr-4 py-3 rounded-xl border-2 border-indigo-100 dark:border-slate-700 bg-white dark:bg-slate-950 text-center font-bold text-xl outline-none focus:border-indigo-500 dark:text-white transition-all"
-                                  placeholder="0.00"
-                              />
-                          </div>
+                  <div className="flex gap-3">
+                      <button onClick={() => setOpenRegisterModalOpen(false)} className="flex-1 py-3 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium">Cancelar</button>
+                      <button 
+                        onClick={handleOpenRegister}
+                        className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg"
+                      >
+                          Iniciar Turno
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Z-Cut Modal (Same as before) */}
+      {zCutModalOpen && (
+          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800">
+                  <div className="text-center mb-6">
+                      <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Lock className="w-8 h-8" />
                       </div>
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">Cierre de Caja (Corte Z)</h3>
+                      <p className="text-sm text-slate-500">Genera reporte detallado y concilia el efectivo.</p>
+                  </div>
 
-                      {declaredCash && (
-                          <div className={`text-center text-sm font-bold p-2 rounded-lg ${Math.abs(parseFloat(declaredCash) - balance) < 0.5 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                              Diferencia: ${(parseFloat(declaredCash) - balance).toFixed(2)}
-                          </div>
-                      )}
-
-                      <div className="flex gap-3 pt-2">
-                          <button onClick={() => setIsZModalOpen(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors">Cancelar</button>
-                          <button onClick={confirmZCut} className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-colors">Confirmar</button>
+                  <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl mb-6">
+                      <div className="flex justify-between text-sm mb-2">
+                          <span className="text-slate-500">Saldo Esperado (Físico):</span>
+                          <span className="font-bold dark:text-white">${cashBalance.toFixed(2)}</span>
                       </div>
+                      <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">Efectivo Declarado:</span>
+                          <span className="font-bold text-indigo-600 dark:text-indigo-400">${(parseFloat(declaredCash)||0).toFixed(2)}</span>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between text-sm font-bold">
+                          <span>Diferencia:</span>
+                          <span className={`${((parseFloat(declaredCash)||0) - cashBalance) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                              ${((parseFloat(declaredCash)||0) - cashBalance).toFixed(2)}
+                          </span>
+                      </div>
+                  </div>
+
+                  <div className="mb-6">
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Dinero en Caja (Contado)</label>
+                      <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                          <input 
+                            type="number" 
+                            autoFocus
+                            value={declaredCash} 
+                            onChange={(e) => setDeclaredCash(e.target.value)} 
+                            className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-lg font-bold outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+                          />
+                      </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                      <button onClick={() => setZCutModalOpen(false)} className="flex-1 py-3 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium">Cancelar</button>
+                      <button 
+                        onClick={handlePerformZCut}
+                        disabled={!declaredCash || savingZCut}
+                        className="flex-[2] py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2"
+                      >
+                          {savingZCut ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                          {savingZCut ? 'Guardando...' : 'Finalizar Cierre'}
+                      </button>
                   </div>
               </div>
           </div>
