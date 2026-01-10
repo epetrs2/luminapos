@@ -38,7 +38,7 @@ const ManualEntryModal: React.FC<{
     const [customTicketId, setCustomTicketId] = useState('');
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer' | 'credit'>('cash');
     const [deductStock, setDeductStock] = useState(false);
-    const [affectCash, setAffectCash] = useState(true); // NEW: Affect Cash Toggle
+    const [affectCash, setAffectCash] = useState(true); 
     
     // Debt / Status Logic
     const [paidAmount, setPaidAmount] = useState<string>('');
@@ -895,7 +895,7 @@ const TransactionDetailModal: React.FC<{
 };
 
 export const SalesHistory: React.FC = () => {
-  const { transactions, customers, deleteTransaction, registerTransactionPayment, addTransaction, updateStockAfterSale, settings, notify, products, sendBtData, btDevice, addCashMovement } = useStore();
+  const { transactions, customers, deleteTransaction, registerTransactionPayment, addTransaction, updateStockAfterSale, updateTransaction, settings, notify, products, sendBtData, btDevice, addCashMovement } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -905,8 +905,8 @@ export const SalesHistory: React.FC = () => {
 
   // New Filters
   const [filterType, setFilterType] = useState<'ALL' | 'PAID' | 'PENDING' | 'CANCELLED'>('ALL');
-  const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT' | 'ID'>('ID'); // Default sort by Folio (ID)
-  const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('DESC'); // Default Descending (Newest first)
+  const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT' | 'ID'>('ID'); 
+  const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('DESC'); 
 
   // ... (rest of helper functions) ...
   const getCustomerName = (id?: string) => {
@@ -931,81 +931,93 @@ export const SalesHistory: React.FC = () => {
       setSelectedTransaction(null);
   };
 
-  // --- UPDATED: HANDLE RETURN WITH TYPES ---
+  // --- REWRITTEN: HANDLE RETURN ITEMS (MODIFY EXISTING) ---
   const handleReturnItems = (itemsToReturn: { item: CartItem, action: 'BOTH' | 'MONEY' | 'STOCK' }[]) => {
       if (!selectedTransaction) return;
 
       // 1. Calculate Refund (Financial) - Only for MONEY or BOTH
       const refundItems = itemsToReturn.filter(r => r.action === 'MONEY' || r.action === 'BOTH').map(r => r.item);
       const refundTotal = refundItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      const taxRefund = refundItems.reduce((sum, item) => sum + (item.finalTax ? (item.finalTax / item.quantity) * item.quantity : 0), 0);
-
+      
       // 2. Prepare Stock Return - Only for STOCK or BOTH
       const stockItems = itemsToReturn.filter(r => r.action === 'STOCK' || r.action === 'BOTH').map(r => ({
           id: r.item.id.split('-')[0], 
-          quantity: -r.item.quantity, // Negative quantity for 'IN' logic in helper? No, helper expects sold items to reverse.
-          // Wait, updateStockAfterSale logic:
-          // return prev.map(p => ... stock - soldItem.quantity)
-          // To ADD stock, we pass NEGATIVE quantity to updateStockAfterSale?
-          // Let's check updateStockAfterSale in StoreContext:
-          // return { ...p, stock: p.stock - soldItem.quantity };
-          // So passing NEGATIVE quantity effectively ADDS stock ( - (-qty) = +qty )
-          // YES.
+          quantity: -r.item.quantity, // Negative quantity adds stock
           variantId: r.item.variantId
       }));
 
-      // 3. Create Refund Transaction (If there is money involved)
-      if (refundTotal > 0) {
-          // Generate ID for Refund Transaction
-          const currentMaxId = transactions.reduce((max, curr) => {
-              const idNum = parseInt(curr.id);
-              return !isNaN(idNum) && idNum > max ? idNum : max;
-          }, settings.sequences.ticketStart - 1);
-          const nextId = (currentMaxId + 1).toString();
-
-          const refundTx: Transaction = {
-              id: nextId, 
-              date: new Date().toISOString(),
-              items: refundItems, 
-              paymentMethod: selectedTransaction.paymentMethod,
-              status: 'returned',
-              customerId: selectedTransaction.customerId,
-              subtotal: -refundTotal,
-              taxAmount: -taxRefund,
-              discount: 0,
-              shipping: 0,
-              total: -refundTotal, 
-              paymentStatus: 'paid', 
-              amountPaid: -refundTotal,
-              originalTransactionId: selectedTransaction.id,
-              isReturn: true
-          };
-          addTransaction(refundTx, { shouldAffectCash: false });
-
-          // Register Refund in Cash Register manually (as Withdrawal) to fix cash balance
-          if (selectedTransaction.paymentStatus === 'paid' || selectedTransaction.paymentStatus === 'partial') {
-               const channel = selectedTransaction.paymentMethod === 'cash' ? 'CASH' : 'VIRTUAL';
-               addCashMovement({
-                  id: crypto.randomUUID(),
-                  type: 'WITHDRAWAL',
-                  amount: refundTotal,
-                  description: `Devolución Venta #${selectedTransaction.id}`,
-                  date: new Date().toISOString(),
-                  category: 'SALES', 
-                  channel: channel,
-                  customerId: selectedTransaction.customerId
-               });
+      // 3. Update Existing Transaction (Subtract Items)
+      const newItems = selectedTransaction.items.map(originalItem => {
+          const returnedItem = itemsToReturn.find(r => r.item.id === originalItem.id && r.item.variantId === originalItem.variantId);
+          if (returnedItem) {
+              const newQty = originalItem.quantity - returnedItem.item.quantity;
+              return { ...originalItem, quantity: Math.max(0, newQty) };
           }
+          return originalItem;
+      }).filter(i => i.quantity > 0); // Remove items that became 0 qty
+
+      // Recalculate totals
+      const newSubtotal = newItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+      const newTax = settings.enableTax ? newItems.reduce((acc, item) => {
+          const rate = item.taxRate !== undefined ? item.taxRate : settings.taxRate;
+          return acc + ((item.price * item.quantity) * (rate / 100));
+      }, 0) : 0;
+      
+      // Keep discount proportional or remove? Let's assume proportional reduction if percentage based, but here simple substraction of refund
+      // Actually simpler: re-sum total based on remaining items.
+      const newTotal = Math.max(0, newSubtotal + newTax + (selectedTransaction.shipping || 0) - (selectedTransaction.discount || 0));
+      
+      // If refunded money, reduce amount paid
+      let newAmountPaid = selectedTransaction.amountPaid || 0;
+      if (refundTotal > 0) {
+          newAmountPaid = Math.max(0, newAmountPaid - refundTotal);
       }
 
-      // 4. Update Stock (If stock involved)
+      // Determine Status
+      let newStatus = selectedTransaction.status;
+      if (newItems.length === 0) newStatus = 'returned'; // Fully returned
+      
+      // 4. Execute Update
+      updateTransaction(selectedTransaction.id, {
+          items: newItems,
+          subtotal: newSubtotal,
+          taxAmount: newTax,
+          total: newTotal,
+          amountPaid: newAmountPaid,
+          status: newStatus
+      });
+
+      // 5. Register Withdrawal if Money Returned
+      if (refundTotal > 0) {
+           const channel = selectedTransaction.paymentMethod === 'cash' ? 'CASH' : 'VIRTUAL';
+           addCashMovement({
+              id: crypto.randomUUID(),
+              type: 'WITHDRAWAL',
+              amount: refundTotal,
+              description: `Devolución s/ Venta #${selectedTransaction.id}`,
+              date: new Date().toISOString(),
+              category: 'SALES', 
+              channel: channel,
+              customerId: selectedTransaction.customerId
+           });
+      }
+
+      // 6. Return Stock
       if (stockItems.length > 0) {
-          // We pass negative quantities to "updateStockAfterSale" to increase stock
           const itemsToRestock = stockItems.map(i => ({...i, quantity: -Math.abs(i.quantity)}));
           updateStockAfterSale(itemsToRestock);
       }
       
-      notify("Devolución Procesada", `Se procesó la devolución (${refundTotal > 0 ? '$' + refundTotal.toFixed(2) : 'Sin Reembolso'}).`, "success");
+      // Update local view
+      setSelectedTransaction(prev => prev ? ({
+          ...prev,
+          items: newItems,
+          total: newTotal,
+          amountPaid: newAmountPaid,
+          status: newStatus as any
+      }) : null);
+
+      notify("Venta Actualizada", `Devolución procesada. Total ajustado a $${newTotal.toFixed(2)}`, "success");
   };
 
   const handleOpenPayment = (transaction: Transaction) => {
@@ -1193,7 +1205,7 @@ export const SalesHistory: React.FC = () => {
                           ) : t.paymentStatus === 'paid' ? (
                               <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-0.5 rounded">PAGADO</span>
                           ) : (
-                              <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 px-2 py-0.5 rounded">PENDIENTE</span>
+                              <span className="text-[10px] font-bold bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 px-2 py-0.5 rounded">PENDIENTE</span>
                           )}
                       </div>
                       
