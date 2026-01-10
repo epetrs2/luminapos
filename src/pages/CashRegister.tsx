@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { useStore } from '../components/StoreContext';
-import { CashMovement, BudgetCategory, ZReportData } from '../types';
+import { useStore } from '../../components/StoreContext';
+import { CashMovement, BudgetCategory, ZReportData } from '../../types';
 import { DollarSign, ArrowUpCircle, ArrowDownCircle, Archive, Printer, Trash2, Calendar, AlertCircle, CreditCard, Banknote, History, Wallet, Lock, Coins } from 'lucide-react';
-import { printZCutTicket } from '../utils/printService';
+import { printZCutTicket } from '../../utils/printService';
 
 export const CashRegister: React.FC = () => {
   const { cashMovements, addCashMovement, deleteCashMovement, settings, btDevice, sendBtData, notify, currentUser } = useStore();
