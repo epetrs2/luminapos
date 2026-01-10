@@ -156,32 +156,38 @@ export const generateBudgetAdvice = async (
     }
 };
 
-// --- NEW: MONTH END ANALYSIS ---
+// --- NEW MONTH END ANALYSIS ---
 export const generateMonthEndAnalysis = async (
     financialData: any,
     topProducts: any[],
     topCustomers: any[]
 ): Promise<string> => {
-    if (!process.env.API_KEY) return "Sin conexión a IA para análisis profundo.";
+    if (!process.env.API_KEY) return "Sin API Key para análisis.";
 
     const prompt = `
-    Genera un INFORME EJECUTIVO DE CIERRE DE MES para un negocio minorista.
-    
-    DATOS FINANCIEROS:
-    - Ingresos Totales: $${financialData.income.toFixed(2)}
-    - Gastos Operativos: $${financialData.expenses.toFixed(2)}
-    - Utilidad Neta (Aprox): $${financialData.net.toFixed(2)}
-    - % Gasto vs Ingreso: ${((financialData.expenses/financialData.income)*100).toFixed(1)}%
-    
-    TOP PRODUCTOS: ${JSON.stringify(topProducts.slice(0,5))}
-    TOP CLIENTES: ${JSON.stringify(topCustomers.slice(0,3))}
+        Actúa como director financiero (CFO). Genera un reporte de cierre de mes.
+        
+        Datos Financieros:
+        - Ingresos Totales: $${financialData.income}
+        - Gastos Operativos: $${financialData.actualOpEx} (Presupuesto: ${financialData.config.expensesPercentage}%)
+        - Retiros/Ganancias: $${financialData.actualProfit} (Presupuesto: ${financialData.config.profitPercentage}%)
+        - Inversión Neta Guardada: $${financialData.actualInvestment} (Objetivo: ${financialData.config.investmentPercentage}%)
+        
+        Top 5 Productos: ${topProducts.map((p:any) => `${p.name} ($${p.total})`).join(', ')}
+        Top Clientes: ${topCustomers.map((c:any) => `${c.name} ($${c.total})`).join(', ')}
 
-    Tu tarea:
-    1. Escribe un párrafo breve de "Observaciones Generales" sobre la salud del mes.
-    2. Proporciona "Recomendaciones de Presupuesto" para el próximo mes (ej: reducir gastos, reinvertir más).
-    3. Calcula y sugiere "Puntos de Equilibrio" aproximados para los productos top (ej: "Para el Producto X, intenta vender al menos N unidades").
-    
-    Formato: Markdown limpio con subtítulos en negrita. Sé profesional, analítico y directo.
+        Escribe un reporte en formato Markdown con estas secciones exactas:
+        # Observaciones Generales
+        (Un párrafo sobre la salud financiera del mes)
+        
+        # Análisis de Ventas
+        (Comentarios sobre los productos estrella y clientes principales)
+        
+        # Recomendaciones de Presupuesto
+        (Sugerencias concretas para ajustar gastos o inversión el próximo mes)
+        
+        # Puntos de Equilibrio (Estimación)
+        (Calcula 3 productos clave y sugiere cuántos vender el próximo mes para crecer un 10%)
     `;
 
     try {
@@ -192,7 +198,6 @@ export const generateMonthEndAnalysis = async (
         });
         return response.text || "Análisis no disponible.";
     } catch (error) {
-        console.error(error);
-        return "Error al generar análisis de cierre.";
+        return "Error generando análisis.";
     }
 };

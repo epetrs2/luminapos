@@ -362,7 +362,7 @@ const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: Bus
                     </tr>
                 </thead>
                 <tbody>
-                    ${t.items.map((item: CartItem) => `
+                    ${t.items.map(item => `
                         <tr>
                             <td style="text-align:center; font-family:monospace; font-weight:600;">${item.sku || '---'}</td>
                             <td>${item.name} ${item.variantName ? `(${item.variantName})` : ''}</td>
@@ -472,7 +472,7 @@ export const printOrderInvoice = (order: Order, customer: any, settings: Busines
                                 </tr>
                             </thead>
                             <tbody>
-                                ${order.items.map((item: CartItem) => `
+                                ${order.items.map(item => `
                                     <tr>
                                         <td class="col-qty" style="font-size:16px;">${item.quantity}</td>
                                         <td style="font-size:13px; font-weight:600;">${item.name}</td>
@@ -555,7 +555,7 @@ export const printProductionSummary = (
                     </tr>
                 </thead>
                 <tbody>
-                    ${sortedItems.map((item: any) => `
+                    ${sortedItems.map(item => `
                         <tr>
                             <td class="check-col"><div class="box"></div></td>
                             <td class="qty-col">${item.quantity}</td>
@@ -720,7 +720,7 @@ export const printThermalTicket = async (
                 </tr>
             </thead>
             <tbody>
-                ${transaction.items.map((item: CartItem) => `
+                ${transaction.items.map(item => `
                     <tr>
                         <td class="col-qty">${item.quantity}</td>
                         <td class="col-desc">${item.name}</td>
@@ -765,12 +765,10 @@ export const printZCutTicket = async (
     settings: BusinessSettings,
     btSendFn?: (data: Uint8Array) => Promise<void>
 ) => {
-    const z = movement.zReportData;
-    if (!z) return;
+    if (!movement.zReportData) return;
 
     if (btSendFn) {
         try {
-            // Use the imported helper from escPosHelper
             const data = await generateEscPosZReport(movement, settings);
             await btSendFn(data);
             return; 
@@ -779,6 +777,7 @@ export const printZCutTicket = async (
         }
     }
 
+    const z = movement.zReportData;
     const TICKET_CSS = `
         body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 5px; width: ${settings.ticketPaperWidth}; }
         .header { text-align: center; margin-bottom: 10px; }
@@ -908,7 +907,7 @@ export const printFinancialReport = (
                     </tr>
                 </thead>
                 <tbody>
-                    ${categories.map((cat: { name: string, value: number }) => {
+                    ${categories.map(cat => {
                         const percent = metrics.totalSales > 0 ? (cat.value / metrics.totalSales) * 100 : 0;
                         return `
                             <tr>
@@ -1089,7 +1088,7 @@ export const printMonthEndReportPDF = (
                     <tr><th>Producto</th><th style="text-align:center;">Unidades</th><th style="text-align:right;">Total Ventas</th></tr>
                 </thead>
                 <tbody>
-                    ${topProducts.map((p: any) => `
+                    ${topProducts.map(p => `
                         <tr>
                             <td><strong>${p.name}</strong></td>
                             <td style="text-align:center;">${p.qty}</td>
