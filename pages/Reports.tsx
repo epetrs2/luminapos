@@ -235,10 +235,12 @@ export const Reports: React.FC = () => {
   const distMetrics = useMemo(() => {
       const { start, end } = getPeriodDates(selectedPeriodOffset);
       
-      // Filter strictly by date range
+      // Filter strictly by date range AND ONLY LIQUIDATED (PAID) SALES
       const relevantTx = transactions.filter(t => {
           const d = new Date(t.date);
-          return t.status !== 'cancelled' && d >= start && d <= end;
+          return t.status !== 'cancelled' && 
+                 t.paymentStatus === 'paid' && // <--- SOLO VENTAS LIQUIDADAS
+                 d >= start && d <= end;
       });
       
       const relevantMovs = cashMovements.filter(m => {
