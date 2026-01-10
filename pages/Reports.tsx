@@ -1,8 +1,9 @@
+
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { generateBusinessInsight } from '../services/geminiService';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ReferenceLine } from 'recharts';
-import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList, Factory } from 'lucide-react';
+import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList, Factory, ArrowLeft, ArrowRight, Wallet, Clock } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { printFinancialReport, printZCutTicket } from '../utils/printService';
 
@@ -25,8 +26,8 @@ export const Reports: React.FC = () => {
   const [customEnd, setCustomEnd] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('ALL');
 
-  // --- DISTRIBUTION ANALYSIS STATE ---
-  const [distPeriod, setDistPeriod] = useState<'WEEK' | 'MONTH'>('MONTH');
+  // --- DISTRIBUTION ANALYSIS STATE (PERIODS) ---
+  const [selectedPeriodOffset, setSelectedPeriodOffset] = useState(0); // 0 = current, 1 = prev, etc.
   const [analysisResult, setAnalysisResult] = useState<{status: 'ok'|'warning'|'critical', messages: {title: string, desc: string, type: 'good'|'bad'|'info'}[]} | null>(null);
 
   // --- AI STATE ---
@@ -247,22 +248,50 @@ export const Reports: React.FC = () => {
 
   }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
-  // --- DISTRIBUTION METRICS MEMO (FIXED DATE LOGIC) ---
-  const distMetrics = useMemo(() => {
+  // --- DISTRIBUTION METRICS (FISCAL PERIOD LOGIC) ---
+  const getPeriodDates = (offset: number) => {
+      const startDay = settings.budgetConfig?.cycleStartDay || 1;
       const now = new Date();
-      // Set to start of day to ensure we include today's transactions regardless of time
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
       
-      if (distPeriod === 'WEEK') {
-          start.setDate(now.getDate() - 6); // Last 7 days including today
-      } else {
-          start.setDate(now.getDate() - 29); // Last 30 days including today
+      // Calculate anchor date based on offset
+      // If today is Feb 15 and startDay is 1:
+      // Offset 0: Feb 1 - Feb 28
+      // Offset 1: Jan 1 - Jan 31
+      
+      // We target the "start month". 
+      // If we are currently BEFORE the start day (e.g. today is Feb 5, startDay is 10), then we are in the "Jan 10 - Feb 9" cycle.
+      // If we are AFTER, we are in "Feb 10 - Mar 9".
+      
+      let targetMonth = new Date(); 
+      if (now.getDate() < startDay) {
+          targetMonth.setMonth(targetMonth.getMonth() - 1);
       }
       
+      // Apply offset (go back X months)
+      targetMonth.setMonth(targetMonth.getMonth() - offset);
+      
+      const start = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), startDay);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 1);
+      end.setDate(end.getDate() - 1); // Last day of period
+      end.setHours(23, 59, 59, 999);
+      
+      return { start, end };
+  };
+
+  const distMetrics = useMemo(() => {
+      const { start, end } = getPeriodDates(selectedPeriodOffset);
+      
       // Filter strictly by date range
-      const relevantTx = transactions.filter(t => t.status !== 'cancelled' && new Date(t.date).getTime() >= start.getTime());
-      const relevantMovs = cashMovements.filter(m => new Date(m.date).getTime() >= start.getTime());
+      const relevantTx = transactions.filter(t => {
+          const d = new Date(t.date);
+          return t.status !== 'cancelled' && d >= start && d <= end;
+      });
+      
+      const relevantMovs = cashMovements.filter(m => {
+          const d = new Date(m.date);
+          return d >= start && d <= end;
+      });
 
       let income = 0;
       relevantTx.forEach(t => {
@@ -273,21 +302,39 @@ export const Reports: React.FC = () => {
       
       const actualOpEx = relevantMovs.filter(m => m.type === 'EXPENSE').reduce((s, m) => s + m.amount, 0);
       const actualProfitTaken = relevantMovs.filter(m => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s, m) => s + m.amount, 0);
-      const actualInvestment = Math.max(0, income - (actualOpEx + actualProfitTaken));
-
+      
+      // Surplus Logic: If expenses are lower than budget, add difference to Investment (virtual)
       const config = settings.budgetConfig;
       const targetOpEx = income * (config.expensesPercentage / 100);
+      
+      // Actual Investment is what remains after expenses and profit taken
+      // PLUS any savings from operational expenses if actual < target (automagic logic)
+      let actualInvestment = Math.max(0, income - (actualOpEx + actualProfitTaken));
+      
+      // If actual expenses were LESS than target, we explicitly flag that surplus
+      const expenseSurplus = Math.max(0, targetOpEx - actualOpEx);
+
       const targetProfit = income * (config.profitPercentage / 100);
       const targetInvestment = income * (config.investmentPercentage / 100);
+      
+      // Days remaining in period
+      const now = new Date();
+      const timeDiff = end.getTime() - now.getTime();
+      const daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
+      const isCurrentPeriod = selectedPeriodOffset === 0;
 
       return {
           income,
           actual: { opEx: actualOpEx, profit: actualProfitTaken, investment: actualInvestment },
           target: { opEx: targetOpEx, profit: targetProfit, investment: targetInvestment },
-          config, // % values
-          periodStart: start // Return for UI display
+          expenseSurplus,
+          config, 
+          periodStart: start,
+          periodEnd: end,
+          daysRemaining: isCurrentPeriod ? daysRemaining : 0,
+          isCurrentPeriod
       };
-  }, [distPeriod, transactions, cashMovements, settings.budgetConfig]);
+  }, [selectedPeriodOffset, transactions, cashMovements, settings.budgetConfig]);
 
   // --- INVENTORY ANALYTICS MEMO (FIXED FOR PRODUCTION ADVICE) ---
   const inventoryMetrics = useMemo(() => {
@@ -880,6 +927,7 @@ export const Reports: React.FC = () => {
         ) : activeTab === 'INVENTORY' ? (
             // --- INVENTORY DETAILED REPORT TAB ---
             <div className="animate-[fadeIn_0.3s_ease-out]">
+                {/* Re-rendering existing Inventory content */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
                         <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -895,67 +943,41 @@ export const Reports: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Top Metrics Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                                <DollarSign className="w-5 h-5"/>
-                            </div>
+                            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg"><DollarSign className="w-5 h-5"/></div>
                             <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Valor en Costo</p>
                         </div>
                         <h3 className="text-2xl font-black text-slate-800 dark:text-white">${inventoryMetrics.totalStockValue.toLocaleString()}</h3>
-                        <p className="text-[10px] text-slate-400">Dinero invertido en bodega</p>
                     </div>
-
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg">
-                                <TrendingUp className="w-5 h-5"/>
-                            </div>
+                            <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg"><TrendingUp className="w-5 h-5"/></div>
                             <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Potencial Venta</p>
                         </div>
                         <h3 className="text-2xl font-black text-slate-800 dark:text-white">${inventoryMetrics.totalPotentialRevenue.toLocaleString()}</h3>
-                        <p className="text-[10px] text-slate-400">Si se vende todo el stock actual</p>
                     </div>
-
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg">
-                                <AlertTriangle className="w-5 h-5"/>
-                            </div>
+                            <div className="p-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg"><AlertTriangle className="w-5 h-5"/></div>
                             <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Riesgo Quiebre</p>
                         </div>
                         <h3 className="text-2xl font-black text-red-600 dark:text-red-400">{inventoryMetrics.criticalCount}</h3>
-                        <p className="text-[10px] text-slate-400">Productos con less de 7 días de stock</p>
                     </div>
-
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-lg">
-                                <TrendingDown className="w-5 h-5"/>
-                            </div>
+                            <div className="p-2 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-lg"><TrendingDown className="w-5 h-5"/></div>
                             <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Stock Muerto</p>
                         </div>
                         <h3 className="text-2xl font-black text-orange-600 dark:text-orange-400">{inventoryMetrics.deadStockCount}</h3>
-                        <p className="text-[10px] text-slate-400">Sin ventas en 30 días (Alto valor)</p>
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {/* Inventory Analyst Panel */}
                     <div className="lg:col-span-1">
                         <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden h-full">
-                            <div className="absolute top-0 right-0 p-6 opacity-10">
-                                <Factory className="w-32 h-32" />
-                            </div>
-                            <h3 className="text-xl font-bold mb-4 relative z-10 flex items-center gap-2">
-                                <Lightbulb className="w-5 h-5 text-yellow-300" /> Analista de Producción
-                            </h3>
-                            <p className="text-xs text-indigo-200 mb-4 relative z-10">
-                                Recomendaciones de reposición basadas en la velocidad de venta diaria.
-                            </p>
-                            
+                            <h3 className="text-xl font-bold mb-4 relative z-10 flex items-center gap-2"><Lightbulb className="w-5 h-5 text-yellow-300" /> Analista de Producción</h3>
                             <div className="space-y-4 relative z-10 custom-scrollbar max-h-[500px] overflow-y-auto">
                                 {inventoryMetrics.messages.map((msg, i) => (
                                     <div key={i} className={`p-4 rounded-xl border ${msg.type === 'bad' ? 'bg-red-500/20 border-red-500/50' : msg.type === 'good' ? 'bg-emerald-500/20 border-emerald-500/50' : 'bg-white/10 border-white/20'}`}>
@@ -966,80 +988,42 @@ export const Reports: React.FC = () => {
                             </div>
                         </div>
                     </div>
-
-                    {/* Detailed Table */}
                     <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col">
                         <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                            <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm flex items-center gap-2">
-                                <ClipboardList className="w-4 h-4"/> Detalle de Productos
-                            </h4>
+                            <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm flex items-center gap-2"><ClipboardList className="w-4 h-4"/> Detalle de Productos</h4>
                         </div>
                         <div className="flex-1 overflow-x-auto">
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase text-xs">
-                                    <tr>
-                                        <th className="px-4 py-3">Producto</th>
-                                        <th className="px-4 py-3 text-center">Stock</th>
-                                        <th className="px-4 py-3 text-center">Ventas (30d)</th>
-                                        <th className="px-4 py-3 text-center">Días Restantes</th>
-                                        <th className="px-4 py-3 text-right">Valor Venta</th>
-                                        <th className="px-4 py-3 text-center">Estado</th>
-                                    </tr>
+                                    <tr><th className="px-4 py-3">Producto</th><th className="px-4 py-3 text-center">Stock</th><th className="px-4 py-3 text-center">Ventas (30d)</th><th className="px-4 py-3 text-center">Días Rest.</th><th className="px-4 py-3 text-right">Valor Venta</th><th className="px-4 py-3 text-center">Estado</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                     {inventoryMetrics.sortedItems.slice(0, 50).map((item: any) => {
                                         let badgeColor = 'bg-slate-100 text-slate-500';
                                         let label = 'Normal';
-
-                                        if (item.daysRemaining < 7 && item.sold30Days > 0) {
-                                            badgeColor = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
-                                            label = 'Urgente';
-                                        } else if (item.sold30Days === 0) {
-                                            badgeColor = 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400';
-                                            label = 'Sin Mov.';
-                                        } else if (item.daysRemaining > 180) {
-                                            badgeColor = 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
-                                            label = 'Exceso';
-                                        } else {
-                                            badgeColor = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
-                                            label = 'Saludable';
-                                        }
-
+                                        if (item.daysRemaining < 7 && item.sold30Days > 0) { badgeColor = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'; label = 'Urgente'; } 
+                                        else if (item.sold30Days === 0) { badgeColor = 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400'; label = 'Sin Mov.'; } 
+                                        else if (item.daysRemaining > 180) { badgeColor = 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'; label = 'Exceso'; } 
+                                        else { badgeColor = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'; label = 'Saludable'; }
                                         return (
                                             <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                                <td className="px-4 py-3 font-medium text-slate-800 dark:text-white">
-                                                    <div className="line-clamp-1">{item.name}</div>
-                                                    <div className="text-[10px] text-slate-400">{item.category}</div>
-                                                </td>
+                                                <td className="px-4 py-3 font-medium text-slate-800 dark:text-white"><div className="line-clamp-1">{item.name}</div><div className="text-[10px] text-slate-400">{item.category}</div></td>
                                                 <td className="px-4 py-3 text-center font-bold text-slate-600 dark:text-slate-300">{item.stock}</td>
                                                 <td className="px-4 py-3 text-center text-slate-600 dark:text-slate-300">{item.sold30Days}</td>
-                                                <td className="px-4 py-3 text-center font-mono text-xs">
-                                                    {item.daysRemaining > 900 ? '∞' : item.daysRemaining.toFixed(0)} días
-                                                </td>
-                                                <td className="px-4 py-3 text-right font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">
-                                                    ${item.stockPotential.toFixed(0)}
-                                                </td>
-                                                <td className="px-4 py-3 text-center">
-                                                    <span className={`text-[10px] font-bold px-2 py-1 rounded ${badgeColor}`}>
-                                                        {label}
-                                                    </span>
-                                                </td>
+                                                <td className="px-4 py-3 text-center font-mono text-xs">{item.daysRemaining > 900 ? '∞' : item.daysRemaining.toFixed(0)} días</td>
+                                                <td className="px-4 py-3 text-right font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">${item.stockPotential.toFixed(0)}</td>
+                                                <td className="px-4 py-3 text-center"><span className={`text-[10px] font-bold px-2 py-1 rounded ${badgeColor}`}>{label}</span></td>
                                             </tr>
                                         );
                                     })}
                                 </tbody>
                             </table>
-                            {inventoryMetrics.sortedItems.length > 50 && (
-                                <div className="p-3 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
-                                    Mostrando 50 de {inventoryMetrics.sortedItems.length} items
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>
             </div>
         ) : activeTab === 'DISTRIBUTION' ? (
-            // --- BUDGET & DISTRIBUTION TAB ---
+            // --- UPDATED BUDGET & DISTRIBUTION TAB WITH PERIODS ---
             <div className="animate-[fadeIn_0.3s_ease-out]">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
@@ -1047,14 +1031,54 @@ export const Reports: React.FC = () => {
                             <Target className="w-6 h-6 text-indigo-500" /> Control de Presupuesto
                         </h3>
                         <p className="text-sm text-slate-500">
-                            Analizando: {distMetrics.periodStart.toLocaleDateString()} al presente.
+                            Ciclo Fiscal: Día {distMetrics.config.cycleStartDay || 1} al {distMetrics.periodEnd.getDate()}.
                         </p>
                     </div>
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <button onClick={() => setDistPeriod('WEEK')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${distPeriod === 'WEEK' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>Semana</button>
-                        <button onClick={() => setDistPeriod('MONTH')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${distPeriod === 'MONTH' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>Mes</button>
+                    <div className="flex items-center gap-3 bg-white dark:bg-slate-900 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <button 
+                            onClick={() => setSelectedPeriodOffset(prev => prev + 1)}
+                            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 transition-colors"
+                            title="Periodo Anterior"
+                        >
+                            <ArrowLeft className="w-4 h-4" />
+                        </button>
+                        <div className="text-center min-w-[140px]">
+                            <p className="text-xs font-bold text-slate-400 uppercase">Periodo</p>
+                            <p className="text-sm font-bold text-slate-800 dark:text-white">
+                                {distMetrics.periodStart.toLocaleDateString(undefined, {month: 'short', day: 'numeric'})} - {distMetrics.periodEnd.toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}
+                            </p>
+                        </div>
+                        <button 
+                            onClick={() => setSelectedPeriodOffset(prev => Math.max(0, prev - 1))}
+                            disabled={selectedPeriodOffset === 0}
+                            className={`p-2 rounded-lg transition-colors ${selectedPeriodOffset === 0 ? 'text-slate-300 cursor-not-allowed' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500'}`}
+                            title="Periodo Siguiente"
+                        >
+                            <ArrowRight className="w-4 h-4" />
+                        </button>
                     </div>
                 </div>
+
+                {/* Period Alerts Banner */}
+                {distMetrics.isCurrentPeriod && distMetrics.daysRemaining <= 3 && (
+                    <div className="mb-6 p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-2xl flex flex-col md:flex-row gap-4 items-center animate-[pulse_3s_infinite]">
+                        <div className="p-3 bg-orange-100 dark:bg-orange-800 rounded-full text-orange-600 dark:text-orange-200 shrink-0">
+                            <Clock className="w-6 h-6" />
+                        </div>
+                        <div className="flex-1 text-center md:text-left">
+                            <h4 className="font-bold text-orange-800 dark:text-orange-200 text-lg">¡Cierre de Periodo Próximo!</h4>
+                            <p className="text-sm text-orange-700 dark:text-orange-300">
+                                Quedan solo <strong>{distMetrics.daysRemaining} días</strong> para terminar el ciclo. 
+                                Asegúrate de distribuir las ganancias y registrar gastos pendientes.
+                            </p>
+                        </div>
+                        {distMetrics.expenseSurplus > 0 && (
+                            <div className="px-4 py-2 bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 rounded-xl font-bold text-sm text-center">
+                                Sobrante Gastos:<br/>${distMetrics.expenseSurplus.toFixed(0)} ➔ Ahorro
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     {/* Visual Comparison Cards */}
@@ -1063,11 +1087,11 @@ export const Reports: React.FC = () => {
                         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                             <div className="flex justify-between items-center mb-4">
                                 <h4 className="font-bold text-slate-700 dark:text-slate-200">Gastos Operativos</h4>
-                                <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">{distMetrics.config.expensesPercentage}% Objetivo</span>
+                                <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">{distMetrics.config.expensesPercentage}% Presupuesto</span>
                             </div>
                             <div className="flex items-end gap-2 mb-2">
                                 <span className={`text-2xl font-black ${distMetrics.actual.opEx > distMetrics.target.opEx ? 'text-red-500' : 'text-slate-800 dark:text-white'}`}>${distMetrics.actual.opEx.toFixed(0)}</span>
-                                <span className="text-sm text-slate-400 mb-1">/ ${distMetrics.target.opEx.toFixed(0)} permitidos</span>
+                                <span className="text-sm text-slate-400 mb-1">/ ${distMetrics.target.opEx.toFixed(0)} límite</span>
                             </div>
                             <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden">
                                 <div 
@@ -1075,8 +1099,10 @@ export const Reports: React.FC = () => {
                                     style={{ width: `${Math.min(100, (distMetrics.actual.opEx / (distMetrics.income || 1)) * 100)}%` }}
                                 ></div>
                             </div>
-                            {distMetrics.actual.opEx > distMetrics.target.opEx && (
-                                <p className="text-xs text-red-500 mt-2 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Excedido por ${(distMetrics.actual.opEx - distMetrics.target.opEx).toFixed(0)}</p>
+                            {distMetrics.expenseSurplus > 0 && (
+                                <p className="text-xs text-emerald-600 mt-2 font-bold flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3"/> Ahorro operativo: ${distMetrics.expenseSurplus.toFixed(0)} (Se suma a inversión)
+                                </p>
                             )}
                         </div>
 
@@ -1084,7 +1110,7 @@ export const Reports: React.FC = () => {
                         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                             <div className="flex justify-between items-center mb-4">
                                 <h4 className="font-bold text-slate-700 dark:text-slate-200">Retiro de Ganancias</h4>
-                                <span className="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded font-bold">{distMetrics.config.profitPercentage}% Objetivo</span>
+                                <span className="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded font-bold">{distMetrics.config.profitPercentage}% Asignado</span>
                             </div>
                             <div className="flex items-end gap-2 mb-2">
                                 <span className={`text-2xl font-black ${distMetrics.actual.profit > distMetrics.target.profit ? 'text-orange-500' : 'text-slate-800 dark:text-white'}`}>${distMetrics.actual.profit.toFixed(0)}</span>
@@ -1099,22 +1125,27 @@ export const Reports: React.FC = () => {
                         </div>
 
                         {/* Investment/Retained Card */}
-                        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
-                            <div className="flex justify-between items-center mb-4">
-                                <h4 className="font-bold text-slate-700 dark:text-slate-200">Inversión / Ahorro (Remanente)</h4>
-                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">{distMetrics.config.investmentPercentage}% Objetivo</span>
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-4 opacity-5">
+                                <Wallet className="w-24 h-24 text-blue-500"/>
                             </div>
-                            <div className="flex items-end gap-2 mb-2">
-                                <span className="text-2xl font-black text-blue-600 dark:text-blue-400">${distMetrics.actual.investment.toFixed(0)}</span>
-                                <span className="text-sm text-slate-400 mb-1">/ ${distMetrics.target.investment.toFixed(0)} ideal</span>
+                            <div className="flex justify-between items-center mb-4 relative z-10">
+                                <h4 className="font-bold text-slate-700 dark:text-slate-200">Inversión / Ahorro Real</h4>
+                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">{distMetrics.config.investmentPercentage}% Base</span>
                             </div>
-                            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden">
+                            <div className="flex items-end gap-2 mb-2 relative z-10">
+                                <span className="text-3xl font-black text-blue-600 dark:text-blue-400">${distMetrics.actual.investment.toFixed(0)}</span>
+                                <span className="text-sm text-slate-400 mb-1">acumulado</span>
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden relative z-10">
                                 <div 
                                     className="h-full rounded-full transition-all duration-500 bg-blue-500"
                                     style={{ width: `${Math.min(100, (distMetrics.actual.investment / (distMetrics.income || 1)) * 100)}%` }}
                                 ></div>
                             </div>
-                            <p className="text-[10px] text-slate-400 mt-2">Calculado como: Ingresos - (Gastos + Retiros). Es el dinero que queda para crecer.</p>
+                            <p className="text-[10px] text-slate-400 mt-2 relative z-10">
+                                Incluye el % base de inversión MÁS cualquier sobrante de gastos no utilizados.
+                            </p>
                         </div>
                     </div>
 
@@ -1126,7 +1157,7 @@ export const Reports: React.FC = () => {
                             </div>
                             <h3 className="text-xl font-bold mb-4 relative z-10">Analista Financiero</h3>
                             <p className="text-indigo-200 text-sm mb-6 relative z-10">
-                                Genera un diagnóstico lógico basado en tus porcentajes configurados y la realidad operativa de este periodo.
+                                Diagnóstico del periodo actual ({distMetrics.periodStart.toLocaleDateString()} - {distMetrics.periodEnd.toLocaleDateString()}).
                             </p>
                             
                             {!analysisResult ? (
@@ -1167,10 +1198,10 @@ export const Reports: React.FC = () => {
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                     <Lock className="w-6 h-6 text-indigo-500" /> Historial de Cierres de Caja
                 </h3>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {zReportHistory.length > 0 ? zReportHistory.map((report) => (
                         <div key={report.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col group hover:shadow-md transition-all">
+                            {/* ... Report Content ... */}
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <p className="text-xs text-slate-400 font-bold uppercase mb-1">Fecha de Corte</p>

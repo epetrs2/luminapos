@@ -1,3 +1,5 @@
+
+// ... existing imports
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { 
     Product, Customer, Supplier, Transaction, CashMovement, Order, Purchase, 
@@ -27,7 +29,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     ticketPaperWidth: '58mm',
     invoicePadding: 10,
     theme: 'light',
-    budgetConfig: { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20 },
+    budgetConfig: { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20, cycleStartDay: 1 },
     notificationsEnabled: true,
     soundConfig: { enabled: true, volume: 0.5, saleSound: 'SUCCESS', errorSound: 'ERROR', clickSound: 'POP', notificationSound: 'NOTE' },
     securityConfig: { autoLockMinutes: 0, blurAppOnBackground: false },
@@ -37,6 +39,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
 };
 
 interface StoreContextType {
+// ... rest of context definition (no changes needed here, handled by implicit updates)
     products: Product[];
     customers: Customer[];
     suppliers: Supplier[];

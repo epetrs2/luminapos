@@ -1,132 +1,100 @@
 
+export type ProductType = 'PRODUCT' | 'SUPPLY';
+export type MeasurementUnit = 'PIECE' | 'KG' | 'GRAM' | 'LITER' | 'METER';
+
 export interface ProductVariant {
   id: string;
-  name: string; // e.g. "Rojo / S"
+  name: string;
   price: number;
   stock: number;
   sku: string;
 }
 
-export type ProductType = 'PRODUCT' | 'SERVICE' | 'SUPPLY';
-export type MeasurementUnit = 'PIECE' | 'KG' | 'GRAM' | 'LITER' | 'METER';
-
 export interface Product {
   id: string;
   name: string;
-  price: number; // Sales Price
-  stock: number; // For simple products
+  price: number;
+  cost?: number;
+  stock: number;
   category: string;
-  sku: string; // Master SKU
-  description?: string;
-  
-  // Advanced Features
+  sku: string;
+  taxRate?: number;
+  hasVariants?: boolean;
   type?: ProductType;
-  unit: MeasurementUnit; // Sales unit (how it's sold)
-  
-  // Presentation / Net Content Details
-  presentationValue?: number; // e.g. 600
-  presentationUnit?: string; // e.g. 'ml', 'g', 'kg'
-
-  isActive: boolean; // For disabling products
-  cost?: number; // Last purchase cost
-  taxRate: number; // Per product tax (0, 8, 16, etc.)
-  hasVariants: boolean;
+  unit?: MeasurementUnit;
+  isActive?: boolean;
+  isConsignment?: boolean;
+  description?: string;
+  presentationValue?: number;
+  presentationUnit?: string;
   variants?: ProductVariant[];
-
-  // Third Party Logic
-  isConsignment?: boolean; // If true, revenue belongs to a third party
-}
-
-export interface Customer {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  notes: string;
-  creditLimit: number;
-  currentDebt: number;
-  hasUnlimitedCredit?: boolean;
-  clientType?: 'INDIVIDUAL' | 'BUSINESS';
-}
-
-export interface Supplier {
-  id: string;
-  name: string;
-  contactPerson: string;
-  email: string;
-  phone: string;
-  address: string;
-}
-
-export interface PurchaseItem {
-    productId: string;
-    variantId?: string;
-    variantName?: string;
-    name: string;
-    quantity: number;
-    unitCost: number; 
-    total: number;
-    type?: ProductType;
-}
-
-export interface Purchase {
-    id: string;
-    supplierId: string;
-    supplierName: string;
-    date: string;
-    items: PurchaseItem[];
-    shippingCost?: number; // NEW FIELD
-    total: number;
-    status: 'COMPLETED' | 'CANCELLED';
-    notes?: string;
 }
 
 export interface CartItem extends Product {
   quantity: number;
   originalPrice?: number;
-  variantId?: string; 
-  variantName?: string; 
-  finalTax?: number; 
+  variantId?: string;
+  variantName?: string;
+  finalTax?: number;
+}
+
+export interface PurchaseItem {
+  productId: string;
+  variantId?: string;
+  variantName?: string;
+  name: string;
+  quantity: number;
+  unitCost: number;
+  total: number;
+  type?: ProductType;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  notes?: string;
+  creditLimit: number;
+  currentDebt: number;
+  hasUnlimitedCredit: boolean;
+  clientType: 'INDIVIDUAL' | 'BUSINESS';
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
 }
 
 export interface Transaction {
   id: string;
   date: string;
-  
+  items: CartItem[];
   subtotal: number;
-  taxAmount: number; 
+  taxAmount: number;
   discount: number;
   shipping: number;
   total: number;
-  
-  items: CartItem[];
-  paymentMethod: 'cash' | 'card' | 'transfer' | 'split' | 'credit';
-  
-  paymentStatus: 'paid' | 'pending' | 'partial' | 'refunded';
-  amountPaid: number; // This is the amount applied to the debt/total
-  tenderedAmount?: number; // This is the actual amount handed by customer (for change calc)
-  
-  dueDate?: string;
-  transferReference?: string;
-  isTransferConfirmed?: boolean;
-
-  splitDetails?: { 
-    cash: number;
-    other: number;
-  };
+  paymentMethod: 'cash' | 'card' | 'transfer' | 'credit' | 'split';
+  paymentStatus: 'paid' | 'pending' | 'partial';
+  amountPaid: number;
+  tenderedAmount?: number;
   customerId?: string;
-  customerName?: string; 
-  status: 'completed' | 'cancelled' | 'returned'; 
-  
-  originalTransactionId?: string; 
-  isReturn?: boolean; 
-  returnedItems?: { itemId: string, variantId?: string, quantity: number }[]; 
+  status: 'completed' | 'cancelled' | 'returned';
+  splitDetails?: { cash: number; other: number };
+  transferReference?: string;
+  originalTransactionId?: string;
+  isReturn?: boolean;
 }
 
 export interface Order {
   id: string;
-  customerId?: string;
+  customerId: string;
   customerName: string;
   date: string;
   deliveryDate?: string;
@@ -137,50 +105,53 @@ export interface Order {
   priority: 'NORMAL' | 'HIGH';
 }
 
-export type BudgetCategory = 'OPERATIONAL' | 'INVESTMENT' | 'PROFIT' | 'SALES' | 'EQUITY' | 'THIRD_PARTY' | 'LOAN' | 'OTHER';
+export interface Purchase {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  date: string;
+  items: PurchaseItem[];
+  shippingCost?: number;
+  total: number;
+  status: 'COMPLETED';
+  notes?: string;
+}
+
+export type BudgetCategory = 'SALES' | 'OPERATIONAL' | 'EQUITY' | 'PROFIT' | 'THIRD_PARTY' | 'LOAN' | 'OTHER';
 
 export interface ZReportData {
-    openingFund: number;
-    grossSales: number; 
-    cashSales: number;
-    cardSales: number;
-    transferSales: number;
-    creditSales: number;
-    expenses: number;
-    withdrawals: number;
-    expectedCash: number;
-    declaredCash: number;
-    difference: number;
-    timestamp: string;
+  openingFund: number;
+  grossSales: number;
+  cashSales: number;
+  cardSales: number;
+  transferSales: number;
+  creditSales: number;
+  expenses: number;
+  withdrawals: number;
+  expectedCash: number;
+  declaredCash: number;
+  difference: number;
+  timestamp: string;
 }
 
 export interface CashMovement {
   id: string;
-  type: 'OPEN' | 'CLOSE' | 'EXPENSE' | 'DEPOSIT' | 'WITHDRAWAL';
+  type: 'OPEN' | 'CLOSE' | 'DEPOSIT' | 'EXPENSE' | 'WITHDRAWAL';
   amount: number;
   description: string;
   date: string;
-  
-  // High level financial bucket
-  category?: BudgetCategory;
-  // User defined tag (e.g. "Luz", "Renta", "Proveedor X")
-  subCategory?: string; 
-
+  category: BudgetCategory;
+  subCategory?: string;
   customerId?: string;
-  
   isZCut?: boolean;
-  zReportData?: ZReportData; 
-}
-
-export interface BusinessInsight {
-  analysis: string;
-  recommendations: string[];
+  zReportData?: ZReportData;
 }
 
 export interface BudgetConfig {
   expensesPercentage: number;
   investmentPercentage: number;
   profitPercentage: number;
+  cycleStartDay?: number; // Day of month when the budget resets (1-31)
 }
 
 export interface SequenceConfig {
