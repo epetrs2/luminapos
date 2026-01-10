@@ -895,7 +895,7 @@ const TransactionDetailModal: React.FC<{
 };
 
 export const SalesHistory: React.FC = () => {
-  const { transactions, customers, deleteTransaction, registerTransactionPayment, addTransaction, updateStockAfterSale, settings, notify, products, sendBtData, btDevice } = useStore();
+  const { transactions, customers, deleteTransaction, registerTransactionPayment, addTransaction, updateStockAfterSale, settings, notify, products, sendBtData, btDevice, addCashMovement } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -956,8 +956,15 @@ export const SalesHistory: React.FC = () => {
 
       // 3. Create Refund Transaction (If there is money involved)
       if (refundTotal > 0) {
+          // Generate ID for Refund Transaction
+          const currentMaxId = transactions.reduce((max, curr) => {
+              const idNum = parseInt(curr.id);
+              return !isNaN(idNum) && idNum > max ? idNum : max;
+          }, settings.sequences.ticketStart - 1);
+          const nextId = (currentMaxId + 1).toString();
+
           const refundTx: Transaction = {
-              id: '', 
+              id: nextId, 
               date: new Date().toISOString(),
               items: refundItems, 
               paymentMethod: selectedTransaction.paymentMethod,
@@ -973,7 +980,22 @@ export const SalesHistory: React.FC = () => {
               originalTransactionId: selectedTransaction.id,
               isReturn: true
           };
-          addTransaction(refundTx);
+          addTransaction(refundTx, { shouldAffectCash: false });
+
+          // Register Refund in Cash Register manually (as Withdrawal) to fix cash balance
+          if (selectedTransaction.paymentStatus === 'paid' || selectedTransaction.paymentStatus === 'partial') {
+               const channel = selectedTransaction.paymentMethod === 'cash' ? 'CASH' : 'VIRTUAL';
+               addCashMovement({
+                  id: crypto.randomUUID(),
+                  type: 'WITHDRAWAL',
+                  amount: refundTotal,
+                  description: `Devolución Venta #${selectedTransaction.id}`,
+                  date: new Date().toISOString(),
+                  category: 'SALES', 
+                  channel: channel,
+                  customerId: selectedTransaction.customerId
+               });
+          }
       }
 
       // 4. Update Stock (If stock involved)
