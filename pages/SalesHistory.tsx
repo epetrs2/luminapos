@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown, Edit2, Save, ToggleLeft, ToggleRight, RefreshCw } from 'lucide-react';
+import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown, Edit2, Save, ToggleLeft, ToggleRight, RefreshCw, RefreshCcw } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
 import { printInvoice, printThermalTicket } from '../utils/printService';
@@ -436,26 +436,38 @@ const PaymentModal: React.FC<{
     );
 };
 
+// --- ENHANCED RETURN MODAL ---
 const ReturnModal: React.FC<{
     transaction: Transaction;
     onClose: () => void;
-    onReturn: (items: CartItem[]) => void;
+    onReturn: (items: { item: CartItem, action: 'BOTH' | 'MONEY' | 'STOCK' }[]) => void;
 }> = ({ transaction, onClose, onReturn }) => {
-    // ... same content ...
     const [returnSelection, setReturnSelection] = useState<{[key: string]: number}>({});
+    const [returnActions, setReturnActions] = useState<{[key: string]: 'BOTH' | 'MONEY' | 'STOCK'}>({});
 
     const handleQtyChange = (itemId: string, maxQty: number, val: number) => {
         if (val < 0) val = 0;
         if (val > maxQty) val = maxQty;
         setReturnSelection(prev => ({...prev, [itemId]: val}));
+        // Default action if not set
+        if (!returnActions[itemId]) {
+            setReturnActions(prev => ({...prev, [itemId]: 'BOTH'}));
+        }
+    };
+
+    const handleActionChange = (itemId: string, action: 'BOTH' | 'MONEY' | 'STOCK') => {
+        setReturnActions(prev => ({...prev, [itemId]: action}));
     };
 
     const handleSubmit = () => {
-        const itemsToReturn: CartItem[] = [];
+        const itemsToReturn: { item: CartItem, action: 'BOTH' | 'MONEY' | 'STOCK' }[] = [];
+        
         transaction.items.forEach(item => {
             const qty = returnSelection[item.id] || 0;
+            const action = returnActions[item.id] || 'BOTH';
+            
             if (qty > 0) {
-                itemsToReturn.push({ ...item, quantity: qty });
+                itemsToReturn.push({ item: { ...item, quantity: qty }, action });
             }
         });
 
@@ -466,35 +478,58 @@ const ReturnModal: React.FC<{
         onReturn(itemsToReturn);
     };
 
+    // Calculate Dynamic Refund Total based on selections
     const totalRefund = transaction.items.reduce((acc, item) => {
         const qty = returnSelection[item.id] || 0;
-        return acc + (item.price * qty);
+        const action = returnActions[item.id] || 'BOTH';
+        // Only count money if action is BOTH or MONEY
+        if (action === 'BOTH' || action === 'MONEY') {
+            return acc + (item.price * qty);
+        }
+        return acc;
     }, 0);
 
     return (
         <div className="fixed inset-0 bg-black/60 z-[120] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4 animate-[fadeIn_0.2s_ease-out]">
             <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-100 dark:border-slate-800 flex flex-col max-h-[90vh]">
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Devolución de Productos</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Selecciona la cantidad a devolver. El stock se restaurará automáticamente.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Configura qué devolver: Stock, Dinero, o ambos.</p>
 
-                <div className="flex-1 overflow-y-auto space-y-3">
+                <div className="flex-1 overflow-y-auto space-y-4 custom-scrollbar">
                     {transaction.items.map(item => (
-                        <div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                            <div className="flex-1">
-                                <p className="font-bold text-sm text-slate-800 dark:text-white">{item.name}</p>
-                                <p className="text-xs text-slate-500">Comprado: {item.quantity} | ${item.price.toFixed(2)}</p>
+                        <div key={item.id} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <p className="font-bold text-sm text-slate-800 dark:text-white">{item.name}</p>
+                                    <p className="text-xs text-slate-500">Comprado: {item.quantity} | ${item.price.toFixed(2)}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-500 uppercase">Devolver:</span>
+                                    <input 
+                                        type="number"
+                                        min="0"
+                                        max={item.quantity}
+                                        value={returnSelection[item.id] || 0}
+                                        onChange={(e) => handleQtyChange(item.id, item.quantity, parseInt(e.target.value))}
+                                        className="w-16 p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-center font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-500 uppercase">Devolver:</span>
-                                <input 
-                                    type="number"
-                                    min="0"
-                                    max={item.quantity}
-                                    value={returnSelection[item.id] || 0}
-                                    onChange={(e) => handleQtyChange(item.id, item.quantity, parseInt(e.target.value))}
-                                    className="w-16 p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-center font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                                />
-                            </div>
+                            
+                            {(returnSelection[item.id] || 0) > 0 && (
+                                <div className="mt-2 animate-[fadeIn_0.2s]">
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Acción:</label>
+                                    <select 
+                                        value={returnActions[item.id] || 'BOTH'} 
+                                        onChange={(e) => handleActionChange(item.id, e.target.value as any)}
+                                        className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none focus:border-indigo-500 font-medium"
+                                    >
+                                        <option value="BOTH">Completa (Dinero + Stock)</option>
+                                        <option value="MONEY">Solo Reembolso (Sin Stock)</option>
+                                        <option value="STOCK">Solo Retorno (Sin Dinero)</option>
+                                    </select>
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
@@ -502,7 +537,9 @@ const ReturnModal: React.FC<{
                 <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
                     <div className="flex justify-between items-center mb-4">
                         <span className="font-bold text-slate-700 dark:text-slate-300">Total a Reembolsar:</span>
-                        <span className="text-2xl font-black text-red-500">-${totalRefund.toFixed(2)}</span>
+                        <span className={`text-2xl font-black ${totalRefund > 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                            -${totalRefund.toFixed(2)}
+                        </span>
                     </div>
                     <div className="flex gap-3">
                         <button onClick={onClose} className="flex-1 py-3 text-slate-500 font-medium hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">Cancelar</button>
@@ -520,7 +557,7 @@ const TransactionDetailModal: React.FC<{
   onDelete: (id: string, items: any[]) => void;
   onPay: () => void;
   onConfirmTransfer: () => void;
-  onReturn: (items: CartItem[]) => void;
+  onReturn: (items: { item: CartItem, action: 'BOTH' | 'MONEY' | 'STOCK' }[]) => void;
   onUpdate: (transaction: Transaction) => void; 
   getCustomerName: (id?: string) => string;
   getCustomer: (id?: string) => any;
@@ -894,39 +931,59 @@ export const SalesHistory: React.FC = () => {
       setSelectedTransaction(null);
   };
 
-  const handleReturnItems = (itemsToReturn: CartItem[]) => {
+  // --- UPDATED: HANDLE RETURN WITH TYPES ---
+  const handleReturnItems = (itemsToReturn: { item: CartItem, action: 'BOTH' | 'MONEY' | 'STOCK' }[]) => {
       if (!selectedTransaction) return;
 
-      const refundTotal = itemsToReturn.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      
-      const taxRefund = itemsToReturn.reduce((sum, item) => sum + (item.finalTax ? (item.finalTax / item.quantity) * item.quantity : 0), 0);
+      // 1. Calculate Refund (Financial) - Only for MONEY or BOTH
+      const refundItems = itemsToReturn.filter(r => r.action === 'MONEY' || r.action === 'BOTH').map(r => r.item);
+      const refundTotal = refundItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const taxRefund = refundItems.reduce((sum, item) => sum + (item.finalTax ? (item.finalTax / item.quantity) * item.quantity : 0), 0);
 
-      const refundTx: Transaction = {
-          id: '', 
-          date: new Date().toISOString(),
-          items: itemsToReturn, 
-          paymentMethod: selectedTransaction.paymentMethod,
-          status: 'returned',
-          customerId: selectedTransaction.customerId,
-          subtotal: -refundTotal,
-          taxAmount: -taxRefund,
-          discount: 0,
-          shipping: 0,
-          total: -refundTotal, 
-          paymentStatus: 'paid', 
-          amountPaid: -refundTotal,
-          originalTransactionId: selectedTransaction.id,
-          isReturn: true
-      };
-
-      addTransaction(refundTx);
-
-      const itemsToStock = itemsToReturn.map(item => ({
-          id: item.id.split('-')[0], 
-          quantity: -item.quantity, 
-          variantId: item.variantId
+      // 2. Prepare Stock Return - Only for STOCK or BOTH
+      const stockItems = itemsToReturn.filter(r => r.action === 'STOCK' || r.action === 'BOTH').map(r => ({
+          id: r.item.id.split('-')[0], 
+          quantity: -r.item.quantity, // Negative quantity for 'IN' logic in helper? No, helper expects sold items to reverse.
+          // Wait, updateStockAfterSale logic:
+          // return prev.map(p => ... stock - soldItem.quantity)
+          // To ADD stock, we pass NEGATIVE quantity to updateStockAfterSale?
+          // Let's check updateStockAfterSale in StoreContext:
+          // return { ...p, stock: p.stock - soldItem.quantity };
+          // So passing NEGATIVE quantity effectively ADDS stock ( - (-qty) = +qty )
+          // YES.
+          variantId: r.item.variantId
       }));
-      updateStockAfterSale(itemsToStock);
+
+      // 3. Create Refund Transaction (If there is money involved)
+      if (refundTotal > 0) {
+          const refundTx: Transaction = {
+              id: '', 
+              date: new Date().toISOString(),
+              items: refundItems, 
+              paymentMethod: selectedTransaction.paymentMethod,
+              status: 'returned',
+              customerId: selectedTransaction.customerId,
+              subtotal: -refundTotal,
+              taxAmount: -taxRefund,
+              discount: 0,
+              shipping: 0,
+              total: -refundTotal, 
+              paymentStatus: 'paid', 
+              amountPaid: -refundTotal,
+              originalTransactionId: selectedTransaction.id,
+              isReturn: true
+          };
+          addTransaction(refundTx);
+      }
+
+      // 4. Update Stock (If stock involved)
+      if (stockItems.length > 0) {
+          // We pass negative quantities to "updateStockAfterSale" to increase stock
+          const itemsToRestock = stockItems.map(i => ({...i, quantity: -Math.abs(i.quantity)}));
+          updateStockAfterSale(itemsToRestock);
+      }
+      
+      notify("Devolución Procesada", `Se procesó la devolución (${refundTotal > 0 ? '$' + refundTotal.toFixed(2) : 'Sin Reembolso'}).`, "success");
   };
 
   const handleOpenPayment = (transaction: Transaction) => {
