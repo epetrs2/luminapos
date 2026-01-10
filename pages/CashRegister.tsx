@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
-import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle, Tag, List, Repeat } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle, Tag, List, Repeat, CreditCard, Wallet } from 'lucide-react';
 import { CashMovement, BudgetCategory, ZReportData } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { printZCutTicket } from '../utils/printService';
@@ -13,7 +13,7 @@ const CAT_COLORS: Record<string, string> = {
     'EQUITY': '#3b82f6', // Blue
     'PROFIT': '#ec4899', // Pink
     'THIRD_PARTY': '#f97316', // Orange
-    'LOAN': '#8b5cf6', // Violet (New)
+    'LOAN': '#8b5cf6', // Violet
     'OTHER': '#64748b' // Slate
 };
 
@@ -31,9 +31,10 @@ export const CashRegister: React.FC = () => {
   const { cashMovements, addCashMovement, deleteCashMovement, settings, transactions, btDevice, sendBtData } = useStore();
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
-  const [subCategory, setSubCategory] = useState(''); // New: Specific category input
+  const [subCategory, setSubCategory] = useState(''); 
   const [type, setType] = useState<CashMovement['type']>('EXPENSE');
   const [category, setCategory] = useState<BudgetCategory>('OPERATIONAL'); 
+  const [paymentChannel, setPaymentChannel] = useState<'CASH' | 'VIRTUAL'>('CASH');
   
   // Open Register State
   const [openRegisterModalOpen, setOpenRegisterModalOpen] = useState(false);
@@ -71,12 +72,24 @@ export const CashRegister: React.FC = () => {
       isRegisterOpen = currentSessionMovements.some(m => m.type === 'OPEN');
   }
 
-  // Calculate Balance
-  const balance = currentSessionMovements.reduce((acc, curr) => {
-    if (curr.type === 'OPEN' || curr.type === 'DEPOSIT') return acc + curr.amount;
-    if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
-    return acc;
-  }, 0);
+  // Calculate Cash Balance (Physical) - Only things in CASH channel
+  const cashBalance = currentSessionMovements
+    .filter(m => m.channel !== 'VIRTUAL') // Default or CASH
+    .reduce((acc, curr) => {
+        if (curr.type === 'OPEN' || curr.type === 'DEPOSIT') return acc + curr.amount;
+        if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
+        return acc;
+    }, 0);
+
+  // Calculate Virtual Balance (Global) - VIRTUAL funds don't reset on "Close Register", they persist
+  // We calculate from ALL time history because bank accounts don't "close" daily in this system
+  const virtualBalance = cashMovements
+    .filter(m => m.channel === 'VIRTUAL')
+    .reduce((acc, curr) => {
+        if (curr.type === 'DEPOSIT') return acc + curr.amount;
+        if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
+        return acc;
+    }, 0);
 
   // Filter movements for today
   const today = new Date().toDateString();
@@ -126,6 +139,9 @@ export const CashRegister: React.FC = () => {
         return;
     }
 
+    // Default to Cash if not specified, but keep VIRTUAL if selected
+    const finalChannel = paymentChannel;
+
     addCashMovement({
       id: crypto.randomUUID(),
       type,
@@ -133,7 +149,8 @@ export const CashRegister: React.FC = () => {
       description,
       date: new Date().toISOString(),
       category,
-      subCategory: subCategory.trim() || undefined
+      subCategory: subCategory.trim() || undefined,
+      channel: finalChannel
     });
     setAmount('');
     setDescription('');
@@ -148,14 +165,15 @@ export const CashRegister: React.FC = () => {
           amount: fund,
           description: 'Apertura de Caja (Fondo Inicial)',
           date: new Date().toISOString(),
-          category: 'OPERATIONAL'
+          category: 'OPERATIONAL',
+          channel: 'CASH'
       });
       setOpenRegisterModalOpen(false);
       setInitialFund('');
   };
 
   const handlePerformZCut = () => {
-      const systemExpected = balance;
+      const systemExpected = cashBalance; // Expected PHYSICAL cash
       const counted = parseFloat(declaredCash) || 0;
       const diff = counted - systemExpected;
 
@@ -173,8 +191,8 @@ export const CashRegister: React.FC = () => {
           cardSales: sessionTx.filter(t => t.paymentMethod === 'card').reduce((sum, t) => sum + t.amountPaid, 0),
           transferSales: sessionTx.filter(t => t.paymentMethod === 'transfer').reduce((sum, t) => sum + t.amountPaid, 0),
           creditSales: sessionTx.filter(t => t.paymentMethod === 'credit').reduce((sum, t) => sum + t.total, 0), 
-          expenses: currentSessionMovements.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + m.amount, 0),
-          withdrawals: currentSessionMovements.filter(m => m.type === 'WITHDRAWAL').reduce((sum, m) => sum + m.amount, 0),
+          expenses: currentSessionMovements.filter(m => m.type === 'EXPENSE' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0),
+          withdrawals: currentSessionMovements.filter(m => m.type === 'WITHDRAWAL' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0),
           expectedCash: systemExpected,
           declaredCash: counted,
           difference: diff,
@@ -189,7 +207,8 @@ export const CashRegister: React.FC = () => {
           date: new Date().toISOString(),
           category: 'OTHER',
           isZCut: true,
-          zReportData: zData
+          zReportData: zData,
+          channel: 'CASH'
       };
 
       addCashMovement(zCutMovement);
@@ -250,35 +269,34 @@ export const CashRegister: React.FC = () => {
         </div>
 
         {/* Top Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className={`rounded-2xl p-6 text-white shadow-lg relative overflow-hidden transition-colors ${isRegisterOpen ? 'bg-gradient-to-br from-indigo-600 to-violet-700' : 'bg-slate-700'}`}>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div className={`col-span-2 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden transition-colors ${isRegisterOpen ? 'bg-gradient-to-br from-indigo-600 to-violet-700' : 'bg-slate-700'}`}>
                 <div className="absolute right-0 top-0 p-6 opacity-10">
                     <DollarSign className="w-24 h-24" />
                 </div>
                 <div className="relative z-10">
-                    <p className="text-indigo-100 font-medium mb-1">Balance Actual (Caja)</p>
-                    <h3 className="text-4xl font-bold tracking-tight">${balance.toFixed(2)}</h3>
+                    <p className="text-indigo-100 font-medium mb-1 flex items-center gap-2"><Lock className="w-4 h-4"/> Efectivo en Caja</p>
+                    <h3 className="text-4xl font-bold tracking-tight">${cashBalance.toFixed(2)}</h3>
                     {!isRegisterOpen && <p className="text-xs text-orange-300 mt-1">Caja cerrada. Balance reiniciado.</p>}
                 </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col justify-between relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-5"><CreditCard className="w-16 h-16 text-blue-500" /></div>
                 <div>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">Ingresos Hoy</p>
-                    <h3 className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">+${incomeToday.toFixed(2)}</h3>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm font-bold mb-1 flex items-center gap-2"><CreditCard className="w-4 h-4 text-blue-500"/> Banco / Virtual</p>
+                    <h3 className="text-2xl font-bold text-slate-800 dark:text-white">${virtualBalance.toFixed(2)}</h3>
                 </div>
-                <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl text-emerald-600 dark:text-emerald-400">
-                    <ArrowUpCircle className="w-8 h-8" />
-                </div>
+                <p className="text-xs text-slate-400 mt-2">Saldo acumulado en cuentas digitales.</p>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
                 <div>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">Egresos Hoy</p>
-                    <h3 className="text-2xl font-bold text-red-600 dark:text-red-400">-${expenseToday.toFixed(2)}</h3>
-                </div>
-                <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-600 dark:text-red-400">
-                    <ArrowDownCircle className="w-8 h-8" />
+                    <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">Flujo Hoy (Global)</p>
+                    <div className="flex justify-between items-center mt-2">
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1"><ArrowUpCircle className="w-4 h-4"/> ${incomeToday.toFixed(0)}</span>
+                        <span className="text-red-600 dark:text-red-400 font-bold flex items-center gap-1"><ArrowDownCircle className="w-4 h-4"/> ${expenseToday.toFixed(0)}</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -357,12 +375,22 @@ export const CashRegister: React.FC = () => {
                          <button type="button" onClick={() => handleTypeChange('DEPOSIT', 'EQUITY')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'DEPOSIT' && category === 'EQUITY' ? 'bg-blue-100 border-blue-300 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Aporte Dueño</button>
                          {/* PROFIT WITHDRAWAL */}
                          <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'PROFIT')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'PROFIT' ? 'bg-pink-100 border-pink-300 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Retiro Ganancia</button>
-                         {/* REEMBOLSO (NEW BUTTON) */}
+                         {/* REEMBOLSO */}
                          <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'LOAN')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'LOAN' ? 'bg-violet-100 border-violet-300 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Reembolso Dueño</button>
                          {/* THIRD PARTY PAYOUT */}
                          <button type="button" onClick={() => handleTypeChange('WITHDRAWAL', 'THIRD_PARTY')} className={`py-2 rounded-lg text-xs font-bold border transition-all ${type === 'WITHDRAWAL' && category === 'THIRD_PARTY' ? 'bg-orange-100 border-orange-300 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>Liq. Tercero</button>
                     </div>
                     
+                    {/* CHANNEL SELECTOR */}
+                    <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <button type="button" onClick={() => setPaymentChannel('CASH')} className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-all ${paymentChannel === 'CASH' ? 'bg-emerald-100 text-emerald-800' : 'text-slate-500'}`}>
+                            <DollarSign className="w-3 h-3"/> Efectivo
+                        </button>
+                        <button type="button" onClick={() => setPaymentChannel('VIRTUAL')} className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-all ${paymentChannel === 'VIRTUAL' ? 'bg-blue-100 text-blue-800' : 'text-slate-500'}`}>
+                            <CreditCard className="w-3 h-3"/> Virtual/Banco
+                        </button>
+                    </div>
+
                     <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
                         <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold outline-none" disabled={!isRegisterOpen} />
@@ -404,6 +432,7 @@ export const CashRegister: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left">Fecha</th>
                   <th className="px-6 py-3 text-left">Tipo</th>
+                  <th className="px-6 py-3 text-left">Origen</th>
                   <th className="px-6 py-3 text-left">Categoría</th>
                   <th className="px-6 py-3 text-left">Descripción</th>
                   <th className="px-6 py-3 text-right">Monto</th>
@@ -424,6 +453,13 @@ export const CashRegister: React.FC = () => {
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${movement.isZCut ? 'bg-indigo-100 text-indigo-700' : isExpense ? 'bg-red-100 text-red-700' : isLoan ? 'bg-violet-100 text-violet-700' : isThirdParty ? 'bg-orange-100 text-orange-700' : isEquity ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
                             {movement.isZCut ? 'CORTE Z' : isEquity ? 'APORTE' : isLoan ? 'REEMBOLSO' : isThirdParty ? 'LIQ. 3RO' : movement.type}
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                            {movement.channel === 'VIRTUAL' ? (
+                                <span className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100"><CreditCard className="w-3 h-3"/> Virtual</span>
+                            ) : (
+                                <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100"><DollarSign className="w-3 h-3"/> Caja</span>
+                            )}
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-slate-500">
                             {movement.subCategory || (movement.category === 'OPERATIONAL' ? 'General' : '-')}
@@ -523,8 +559,8 @@ export const CashRegister: React.FC = () => {
 
                   <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl mb-6">
                       <div className="flex justify-between text-sm mb-2">
-                          <span className="text-slate-500">Saldo Esperado (Sistema):</span>
-                          <span className="font-bold dark:text-white">${balance.toFixed(2)}</span>
+                          <span className="text-slate-500">Saldo Esperado (Físico):</span>
+                          <span className="font-bold dark:text-white">${cashBalance.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                           <span className="text-slate-500">Efectivo Declarado:</span>
@@ -532,8 +568,8 @@ export const CashRegister: React.FC = () => {
                       </div>
                       <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between text-sm font-bold">
                           <span>Diferencia:</span>
-                          <span className={`${((parseFloat(declaredCash)||0) - balance) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                              ${((parseFloat(declaredCash)||0) - balance).toFixed(2)}
+                          <span className={`${((parseFloat(declaredCash)||0) - cashBalance) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                              ${((parseFloat(declaredCash)||0) - cashBalance).toFixed(2)}
                           </span>
                       </div>
                   </div>

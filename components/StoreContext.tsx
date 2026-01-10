@@ -91,7 +91,7 @@ interface StoreContextType {
     updateSupplier: (supplier: Supplier) => void;
     deleteSupplier: (id: string) => void;
     addPurchase: (purchase: Purchase) => void;
-    deletePurchase: (id: string) => void; // NEW METHOD
+    deletePurchase: (id: string) => void;
 
     addCashMovement: (movement: CashMovement) => void;
     deleteCashMovement: (id: string) => void;
@@ -296,27 +296,71 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const addCategory = (c: string) => { };
     const removeCategory = (c: string) => { };
 
+    // --- UPDATED ADD TRANSACTION TO HANDLE VIRTUAL ACCOUNTS ---
     const addTransaction = (t: Transaction, options?: { shouldAffectCash?: boolean }) => {
         setTransactions(prev => [t, ...prev]);
-        if (options?.shouldAffectCash !== false && t.paymentMethod === 'cash') {
+        
+        if (options?.shouldAffectCash !== false) {
             const amount = t.amountPaid || t.total;
             if (amount > 0) {
-                addCashMovement({
-                    id: crypto.randomUUID(),
-                    type: 'DEPOSIT',
-                    amount: amount,
-                    description: `Venta #${t.id}`,
-                    date: t.date,
-                    category: 'SALES'
-                });
+                // Determine Channel (Cash or Virtual)
+                if (t.paymentMethod === 'cash') {
+                    addCashMovement({
+                        id: crypto.randomUUID(),
+                        type: 'DEPOSIT',
+                        amount: amount,
+                        description: `Venta #${t.id} (Efectivo)`,
+                        date: t.date,
+                        category: 'SALES',
+                        channel: 'CASH'
+                    });
+                } else if (t.paymentMethod === 'card' || t.paymentMethod === 'transfer') {
+                    addCashMovement({
+                        id: crypto.randomUUID(),
+                        type: 'DEPOSIT',
+                        amount: amount,
+                        description: `Venta #${t.id} (${t.paymentMethod === 'card' ? 'Tarjeta' : 'Transf.'})`,
+                        date: t.date,
+                        category: 'SALES',
+                        channel: 'VIRTUAL'
+                    });
+                } else if (t.paymentMethod === 'split') {
+                    const cashAmt = t.splitDetails?.cash || 0;
+                    const otherAmt = t.splitDetails?.other || 0;
+                    
+                    if (cashAmt > 0) {
+                        addCashMovement({
+                            id: crypto.randomUUID(),
+                            type: 'DEPOSIT',
+                            amount: cashAmt,
+                            description: `Venta #${t.id} (Efectivo)`,
+                            date: t.date,
+                            category: 'SALES',
+                            channel: 'CASH'
+                        });
+                    }
+                    if (otherAmt > 0) {
+                        addCashMovement({
+                            id: crypto.randomUUID(),
+                            type: 'DEPOSIT',
+                            amount: otherAmt,
+                            description: `Venta #${t.id} (Virtual)`,
+                            date: t.date,
+                            category: 'SALES',
+                            channel: 'VIRTUAL'
+                        });
+                    }
+                }
             }
         }
+        
         if (t.customerId) {
             const debt = t.total - (t.amountPaid || 0);
             if (debt > 0) {
                 setCustomers(prev => prev.map(c => c.id === t.customerId ? { ...c, currentDebt: c.currentDebt + debt } : c));
             }
         }
+        
         setHasPendingChanges(true);
         logActivity('SALE', `Venta registrada #${t.id}`);
         notify("Venta Exitosa", `Ticket #${t.id} guardado.`);
@@ -351,26 +395,33 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         logActivity('SALE', `Venta anulada #${id}`);
     };
 
+    // --- UPDATED REGISTER PAYMENT TO HANDLE VIRTUAL ---
     const registerTransactionPayment = (id: string, amount: number, method: 'cash' | 'card' | 'transfer') => {
         const tx = transactions.find(t => t.id === id);
         if (!tx) return;
         const newPaid = (tx.amountPaid || 0) + amount;
         const newStatus = newPaid >= tx.total ? 'paid' : 'partial';
+        
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, amountPaid: newPaid, paymentStatus: newStatus } : t));
+        
         if (tx.customerId) {
             setCustomers(prev => prev.map(c => c.id === tx.customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c));
         }
-        if (method === 'cash') {
-            addCashMovement({
-                id: crypto.randomUUID(),
-                type: 'DEPOSIT',
-                amount: amount,
-                description: `Abono Venta #${id}`,
-                date: new Date().toISOString(),
-                category: 'SALES',
-                customerId: tx.customerId
-            });
-        }
+
+        // Handle Channel
+        const channel = method === 'cash' ? 'CASH' : 'VIRTUAL';
+        
+        addCashMovement({
+            id: crypto.randomUUID(),
+            type: 'DEPOSIT',
+            amount: amount,
+            description: `Abono Venta #${id} (${method})`,
+            date: new Date().toISOString(),
+            category: 'SALES',
+            customerId: tx.customerId,
+            channel: channel
+        });
+        
         setHasPendingChanges(true);
     };
 
@@ -387,16 +438,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setCustomers(prev => prev.filter(c => c.id !== id));
         setHasPendingChanges(true);
     };
+    // Default to Cash for manual customer payment unless extended later
     const processCustomerPayment = (id: string, amount: number) => {
         setCustomers(prev => prev.map(c => c.id === id ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c));
         addCashMovement({
             id: crypto.randomUUID(),
             type: 'DEPOSIT',
             amount: amount,
-            description: 'Abono a Cuenta Cliente',
+            description: 'Abono a Cuenta Cliente (Efectivo)',
             date: new Date().toISOString(),
             category: 'SALES',
-            customerId: id
+            customerId: id,
+            channel: 'CASH'
         });
         setHasPendingChanges(true);
     };
@@ -413,6 +466,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setSuppliers(prev => prev.filter(s => s.id !== id));
         setHasPendingChanges(true);
     };
+    // Purchase affects Cash by default (Operational Expense)
     const addPurchase = (p: Purchase) => {
         setPurchases(prev => [p, ...prev]);
         p.items.forEach(item => adjustStock(item.productId, item.quantity, 'IN', item.variantId));
@@ -422,28 +476,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             amount: p.total,
             description: `Compra Proveedor: ${p.supplierName}`,
             date: p.date,
-            category: 'OPERATIONAL'
+            category: 'OPERATIONAL',
+            channel: 'CASH' // Purchases typically default to cash here, or we could add a selector in Purchase Form later
         });
         setHasPendingChanges(true);
     };
 
-    // --- NEW: DELETE PURCHASE ---
     const deletePurchase = (id: string) => {
         const purchase = purchases.find(p => p.id === id);
         if (!purchase) return;
 
-        // 1. Revert Stock (Take items OUT)
         purchase.items.forEach(item => {
             adjustStock(item.productId, item.quantity, 'OUT', item.variantId);
         });
 
-        // 2. Remove associated Cash Movement (Best effort by matching Exact Date timestamp)
-        // Since Purchase creation and CashMovement creation use the same new Date().toISOString() variable in addPurchase,
-        // (well, effectively usually sequential), but checking exact match is safest.
-        // Actually, in `addPurchase`, `p.date` is passed to `addCashMovement`. So they are IDENTICAL strings.
         setCashMovements(prev => prev.filter(m => m.date !== purchase.date));
-
-        // 3. Remove Purchase Record
         setPurchases(prev => prev.filter(p => p.id !== id));
 
         setHasPendingChanges(true);

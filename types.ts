@@ -27,6 +27,7 @@ export interface CashMovement {
   customerId?: string;
   isZCut?: boolean;
   zReportData?: ZReportData;
+  channel?: 'CASH' | 'VIRTUAL'; // NEW: Distinguish between physical cash drawer and bank/digital account
 }
 
 export type CycleType = 'MONTHLY' | 'FIXED_DAYS';
