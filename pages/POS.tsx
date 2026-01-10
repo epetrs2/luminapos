@@ -489,7 +489,7 @@ export const POS: React.FC = () => {
                             <div key={uniqueKey} className="flex items-center gap-3 group bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
                                 <div className="flex flex-col items-center gap-1">
                                     <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? 1 : 0.1)} className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center transition-colors shadow-sm"><Plus className="w-4 h-4"/></button>
-                                    <span className={`text-xs font-black w-10 text-center ${item.unit !== 'PIECE' ? 'text-indigo-600' : 'text-slate-700 dark:text-slate-300'}`}>{item.quantity} {item.unit !== 'PIECE' ? item.unit.slice(0,2).toLowerCase() : ''}</span>
+                                    <span className={`text-xs font-black w-10 text-center ${item.unit && item.unit !== 'PIECE' ? 'text-indigo-600' : 'text-slate-700 dark:text-slate-300'}`}>{item.quantity} {(item.unit && item.unit !== 'PIECE') ? item.unit.slice(0,2).toLowerCase() : ''}</span>
                                     <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? -1 : -0.1)} className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors shadow-sm"><Minus className="w-4 h-4"/></button>
                                 </div>
                                 <div className="flex-1 min-w-0">
