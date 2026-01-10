@@ -375,25 +375,49 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         let targetChannel: 'CASH' | 'VIRTUAL' = 'CASH';
         if (tx.paymentMethod === 'card' || tx.paymentMethod === 'transfer') targetChannel = 'VIRTUAL';
         
-        // Find associated movements and update them
-        // We match by description containing the ticket ID and being a DEPOSIT
+        // Find associated movements
         let found = false;
-        setCashMovements(prev => prev.map(m => {
-            if (m.type === 'DEPOSIT' && m.description.includes(tx.id)) {
-                found = true;
-                // Only update if different to avoid noise
-                if (m.channel !== targetChannel) {
-                    return { ...m, channel: targetChannel };
-                }
-            }
-            return m;
-        }));
+        let anyChanges = false;
 
-        if (found) {
+        setCashMovements(prev => {
+            const updated = prev.map(m => {
+                // Improved matching: Look for ID within description strings
+                if (m.type === 'DEPOSIT' && (m.description.includes(`#${tx.id}`) || m.description.includes(`Venta ${tx.id}`))) {
+                    found = true;
+                    if (m.channel !== targetChannel) {
+                        anyChanges = true;
+                        return { ...m, channel: targetChannel };
+                    }
+                }
+                return m;
+            });
+            return updated;
+        });
+
+        // If not found, CREATE IT (Retroactive fix)
+        if (!found) {
+            const missingAmount = tx.amountPaid || tx.total;
+            if (missingAmount > 0) {
+                addCashMovement({
+                    id: crypto.randomUUID(),
+                    type: 'DEPOSIT',
+                    amount: missingAmount,
+                    description: `Venta #${tx.id} (Sincronizada)`, // Mark as synced/restored
+                    date: tx.date, // Use ORIGINAL date to keep history correct
+                    category: 'SALES',
+                    customerId: tx.customerId,
+                    channel: targetChannel
+                });
+                notify("Corrección Aplicada", `Movimiento faltante RECREADO en cuenta ${targetChannel === 'VIRTUAL' ? 'VIRTUAL' : 'EFECTIVO'}.`, "success");
+                setHasPendingChanges(true);
+            } else {
+                 notify("Aviso", "La venta no tiene monto pagado, no se requiere movimiento.", "warning");
+            }
+        } else if (anyChanges) {
+            notify("Sincronizado", `Flujo de venta #${tx.id} actualizado a ${targetChannel === 'VIRTUAL' ? 'VIRTUAL' : 'EFECTIVO'}.`, "success");
             setHasPendingChanges(true);
-            notify("Contabilidad Actualizada", `Venta #${tx.id} movida a cuenta ${targetChannel === 'VIRTUAL' ? 'VIRTUAL' : 'EFECTIVO'}.`, "success");
         } else {
-            notify("Aviso", "No se encontró el movimiento original en caja.", "warning");
+            notify("Info", "El movimiento ya estaba correcto.", "info");
         }
     };
 
