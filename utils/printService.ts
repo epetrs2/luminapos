@@ -11,13 +11,13 @@ const BASE_CSS = `
 
 const PRODUCTION_CSS = `
     ${BASE_CSS}
-    body { font-size: 11px; margin: 30px 40px; color: #0f172a; line-height: 1.3; }
+    body { font-size: 11px; margin: 30px 40px; color: #000; line-height: 1.3; }
     
     /* Header Compacto con mejor contraste */
-    .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #1e293b; padding-bottom: 12px; margin-bottom: 25px; }
-    .header h1 { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; color: #1e293b; }
-    .header-sub { font-size: 12px; color: #475569; font-weight: 600; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
-    .header-meta { text-align: right; font-size: 11px; font-weight: 700; color: #334155; }
+    .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 4px solid #000; padding-bottom: 12px; margin-bottom: 25px; }
+    .header h1 { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; color: #000; }
+    .header-sub { font-size: 12px; color: #333; font-weight: 600; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+    .header-meta { text-align: right; font-size: 11px; font-weight: 700; color: #000; }
 
     /* Sección Genérica */
     .step-section { margin-bottom: 30px; }
@@ -28,21 +28,24 @@ const PRODUCTION_CSS = `
         margin-bottom: 12px;
         padding: 8px 12px;
         border-radius: 6px;
-        border: 1px solid #cbd5e1;
+        border: 2px solid #000;
+        background: #fff;
     }
     
-    /* Colores por Paso para mejor distinción visual */
-    .step-1 { background-color: #fff7ed; border-color: #fdba74; } /* Orange/Amber tint */
-    .step-1 .step-number { background: #ea580c; color: white; }
-    .step-1 .step-title { color: #9a3412; }
+    /* IMPORTANTE: FABRICAR (Rojo) */
+    .step-1 { border-color: #dc2626; }
+    .step-1 .step-number { background: #dc2626; color: white; }
+    .step-1 .step-title { color: #dc2626; }
 
-    .step-2 { background-color: #eff6ff; border-color: #93c5fd; } /* Blue tint */
-    .step-2 .step-number { background: #2563eb; color: white; }
-    .step-2 .step-title { color: #1e40af; }
+    /* BODEGA (Gris Oscuro) */
+    .step-2 { border-color: #525252; } 
+    .step-2 .step-number { background: #525252; color: white; }
+    .step-2 .step-title { color: #525252; }
 
-    .step-3 { background-color: #f8fafc; border-color: #94a3b8; } /* Slate tint */
-    .step-3 .step-number { background: #0f172a; color: white; }
-    .step-3 .step-title { color: #0f172a; }
+    /* DISTRIBUCIÓN (Negro) */
+    .step-3 { border-color: #000; }
+    .step-3 .step-number { background: #000; color: white; }
+    .step-3 .step-title { color: #000; }
 
     .step-number {
         width: 24px;
@@ -54,26 +57,25 @@ const PRODUCTION_CSS = `
         font-weight: 800;
         font-size: 13px;
         margin-right: 10px;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
     .step-title { font-weight: 900; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
     
-    /* Tablas de Cotejo (Pasos 1 y 2) */
-    .checklist-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid #e2e8f0; }
-    .checklist-table th { text-align: left; background: #f1f5f9; border-bottom: 2px solid #cbd5e1; padding: 6px 8px; font-weight: 800; color: #475569; font-size: 10px; text-transform: uppercase; }
-    .checklist-table td { border-bottom: 1px solid #e2e8f0; padding: 8px; vertical-align: middle; }
+    /* Tablas de Cotejo (Grises) */
+    .checklist-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid #000; }
+    .checklist-table th { text-align: left; background: #e5e5e5; border-bottom: 2px solid #000; padding: 6px 8px; font-weight: 800; color: #000; font-size: 10px; text-transform: uppercase; }
+    .checklist-table td { border-bottom: 1px solid #ccc; padding: 8px; vertical-align: middle; color: #000; }
     
-    /* Zebra Striping para mejor lectura */
-    .checklist-table tbody tr:nth-child(even) { background-color: #f8fafc; }
+    /* Zebra Striping sutil */
+    .checklist-table tbody tr:nth-child(even) { background-color: #f5f5f5; }
     .checklist-table tr:last-child td { border-bottom: none; }
     
     .col-check { width: 40px; text-align: center; }
-    .col-qty { width: 70px; text-align: center; font-weight: 800; font-size: 14px; color: #0f172a; background: #fff; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
+    .col-qty { width: 70px; text-align: center; font-weight: 800; font-size: 14px; color: #000; background: #fff; border-left: 1px solid #ccc; border-right: 1px solid #ccc; }
     .col-item { padding-left: 15px; }
     
     .checkbox { 
         width: 18px; height: 18px; 
-        border: 2px solid #94a3b8; 
+        border: 2px solid #555; 
         border-radius: 4px; 
         display: inline-block; 
         background: white;
@@ -89,15 +91,14 @@ const PRODUCTION_CSS = `
     .order-block {
         break-inside: avoid; /* Evita que un pedido se corte a la mitad */
         margin-bottom: 15px;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
+        border: 1px solid #000;
+        border-radius: 4px;
         overflow: hidden;
         background: white;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
     }
     
     .order-head {
-        background: #1e293b;
+        background: #000;
         color: white;
         padding: 6px 10px;
         display: flex;
@@ -105,26 +106,26 @@ const PRODUCTION_CSS = `
         align-items: center;
     }
     .order-client { font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: 0.2px; }
-    .order-ref { font-family: monospace; font-size: 11px; color: #fff; background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 4px; font-weight: 600; }
-    .order-urgent { color: #fecaca; font-weight: 900; font-size: 10px; margin-left: 5px; background: #991b1b; padding: 1px 4px; rounded; }
+    .order-ref { font-family: monospace; font-size: 11px; color: #fff; border: 1px solid #fff; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+    .order-urgent { color: #fff; font-weight: 900; font-size: 10px; margin-left: 5px; background: #dc2626; padding: 1px 4px; border-radius: 2px; }
 
     .order-items { padding: 4px 0; }
-    .o-item { display: flex; align-items: center; padding: 5px 10px; border-bottom: 1px solid #f1f5f9; }
-    .o-item:nth-child(even) { background-color: #f8fafc; }
+    .o-item { display: flex; align-items: center; padding: 5px 10px; border-bottom: 1px solid #e5e5e5; }
+    .o-item:nth-child(even) { background-color: #f5f5f5; }
     .o-item:last-child { border-bottom: none; }
     
     .o-check { 
         width: 14px; height: 14px; 
-        border: 1px solid #cbd5e1; 
-        border-radius: 3px; 
+        border: 1px solid #000; 
+        border-radius: 2px; 
         margin-right: 8px; 
         flex-shrink: 0;
         background: white;
     }
-    .o-qty { font-weight: 800; font-size: 12px; margin-right: 8px; min-width: 24px; text-align: center; background: #e2e8f0; border-radius: 4px; padding: 1px 0; }
-    .o-desc { font-size: 11px; color: #334155; line-height: 1.2; font-weight: 600; }
-    .o-var { font-size: 10px; color: #64748b; font-style: italic; font-weight: normal; margin-left: 4px; }
-    .o-note { font-size: 10px; color: #b91c1c; margin: 4px 8px; padding: 4px; background: #fef2f2; border: 1px dashed #fca5a5; border-radius: 4px; display: block; font-weight: 600; }
+    .o-qty { font-weight: 800; font-size: 12px; margin-right: 8px; min-width: 24px; text-align: center; background: #e5e5e5; color: #000; border-radius: 4px; padding: 1px 0; }
+    .o-desc { font-size: 11px; color: #000; line-height: 1.2; font-weight: 600; }
+    .o-var { font-size: 10px; color: #444; font-style: italic; font-weight: normal; margin-left: 4px; }
+    .o-note { font-size: 10px; color: #dc2626; margin: 4px 8px; padding: 4px; border: 1px dashed #dc2626; background: #fff0f0; border-radius: 4px; display: block; font-weight: 700; }
 
     .footer-signatures { 
         margin-top: 40px; 
@@ -134,8 +135,8 @@ const PRODUCTION_CSS = `
         page-break-inside: avoid;
     }
     .sig-block { text-align: center; width: 28%; }
-    .sig-line { border-top: 2px solid #334155; margin-bottom: 6px; width: 100%; display: block; }
-    .sig-label { font-size: 10px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
+    .sig-line { border-top: 2px solid #000; margin-bottom: 6px; width: 100%; display: block; }
+    .sig-label { font-size: 10px; font-weight: 800; color: #000; text-transform: uppercase; letter-spacing: 0.5px; }
 `;
 
 const openPrintWindow = (content: string) => {
