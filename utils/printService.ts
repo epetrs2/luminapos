@@ -11,56 +11,72 @@ const BASE_CSS = `
 // Estilos específicos para la Hoja de Producción Optimizada
 const PRODUCTION_CSS = `
     ${BASE_CSS}
-    body { font-size: 11px; margin: 30px 40px; color: #1e293b; line-height: 1.3; }
+    body { font-size: 11px; margin: 30px 40px; color: #0f172a; line-height: 1.3; }
     
-    /* Header Compacto */
-    .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
-    .header h1 { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; color: #0f172a; }
-    .header-sub { font-size: 10px; color: #64748b; font-weight: 500; margin-top: 2px; text-transform: uppercase; }
-    .header-meta { text-align: right; font-size: 10px; font-weight: 600; color: #334155; }
+    /* Header Compacto con mejor contraste */
+    .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #1e293b; padding-bottom: 12px; margin-bottom: 25px; }
+    .header h1 { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; color: #1e293b; }
+    .header-sub { font-size: 12px; color: #475569; font-weight: 600; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+    .header-meta { text-align: right; font-size: 11px; font-weight: 700; color: #334155; }
 
     /* Sección Genérica */
-    .step-section { margin-bottom: 25px; }
+    .step-section { margin-bottom: 30px; }
     
     .step-header { 
         display: flex; 
         align-items: center; 
-        margin-bottom: 10px;
-        background: #f1f5f9;
-        padding: 6px 10px;
-        border-radius: 4px;
-        border-left: 4px solid #0f172a;
+        margin-bottom: 12px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #cbd5e1;
     }
+    
+    /* Colores por Paso para mejor distinción visual */
+    .step-1 { background-color: #fff7ed; border-color: #fdba74; } /* Orange/Amber tint */
+    .step-1 .step-number { background: #ea580c; color: white; }
+    .step-1 .step-title { color: #9a3412; }
+
+    .step-2 { background-color: #eff6ff; border-color: #93c5fd; } /* Blue tint */
+    .step-2 .step-number { background: #2563eb; color: white; }
+    .step-2 .step-title { color: #1e40af; }
+
+    .step-3 { background-color: #f8fafc; border-color: #94a3b8; } /* Slate tint */
+    .step-3 .step-number { background: #0f172a; color: white; }
+    .step-3 .step-title { color: #0f172a; }
+
     .step-number {
-        background: #0f172a;
-        color: white;
-        width: 20px;
-        height: 20px;
+        width: 24px;
+        height: 24px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 700;
-        font-size: 11px;
-        margin-right: 8px;
+        font-weight: 800;
+        font-size: 13px;
+        margin-right: 10px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
-    .step-title { font-weight: 800; font-size: 12px; text-transform: uppercase; color: #0f172a; letter-spacing: 0.5px; }
+    .step-title { font-weight: 900; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
     
     /* Tablas de Cotejo (Pasos 1 y 2) */
-    .checklist-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    .checklist-table th { text-align: left; border-bottom: 1px solid #94a3b8; padding: 4px; font-weight: 700; color: #64748b; font-size: 9px; text-transform: uppercase; }
-    .checklist-table td { border-bottom: 1px solid #e2e8f0; padding: 6px 4px; vertical-align: middle; }
+    .checklist-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid #e2e8f0; }
+    .checklist-table th { text-align: left; background: #f1f5f9; border-bottom: 2px solid #cbd5e1; padding: 6px 8px; font-weight: 800; color: #475569; font-size: 10px; text-transform: uppercase; }
+    .checklist-table td { border-bottom: 1px solid #e2e8f0; padding: 8px; vertical-align: middle; }
+    
+    /* Zebra Striping para mejor lectura */
+    .checklist-table tbody tr:nth-child(even) { background-color: #f8fafc; }
     .checklist-table tr:last-child td { border-bottom: none; }
     
-    .col-check { width: 30px; text-align: center; }
-    .col-qty { width: 60px; text-align: center; font-weight: 800; font-size: 13px; color: #0f172a; }
-    .col-item { }
+    .col-check { width: 40px; text-align: center; }
+    .col-qty { width: 70px; text-align: center; font-weight: 800; font-size: 14px; color: #0f172a; background: #fff; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
+    .col-item { padding-left: 15px; }
     
     .checkbox { 
-        width: 16px; height: 16px; 
-        border: 2px solid #cbd5e1; 
-        border-radius: 3px; 
+        width: 18px; height: 18px; 
+        border: 2px solid #94a3b8; 
+        border-radius: 4px; 
         display: inline-block; 
+        background: white;
     }
 
     /* Distribución (Paso 3) - Diseño Columnas */
@@ -73,52 +89,53 @@ const PRODUCTION_CSS = `
     .order-block {
         break-inside: avoid; /* Evita que un pedido se corte a la mitad */
         margin-bottom: 15px;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
         overflow: hidden;
         background: white;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
     }
     
     .order-head {
-        background: #f8fafc;
-        padding: 5px 8px;
-        border-bottom: 1px solid #e2e8f0;
+        background: #1e293b;
+        color: white;
+        padding: 6px 10px;
         display: flex;
         justify-content: space-between;
         align-items: center;
     }
-    .order-client { font-weight: 800; font-size: 11px; text-transform: uppercase; color: #0f172a; }
-    .order-ref { font-family: monospace; font-size: 10px; color: #64748b; background: white; padding: 1px 4px; border-radius: 3px; border: 1px solid #e2e8f0; }
-    .order-urgent { color: #dc2626; font-weight: 800; font-size: 9px; margin-left: 5px; }
+    .order-client { font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: 0.2px; }
+    .order-ref { font-family: monospace; font-size: 11px; color: #fff; background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+    .order-urgent { color: #fecaca; font-weight: 900; font-size: 10px; margin-left: 5px; background: #991b1b; padding: 1px 4px; rounded; }
 
-    .order-items { padding: 4px 8px; }
-    .o-item { display: flex; align-items: flex-start; padding: 3px 0; border-bottom: 1px dashed #f1f5f9; }
+    .order-items { padding: 4px 0; }
+    .o-item { display: flex; align-items: center; padding: 5px 10px; border-bottom: 1px solid #f1f5f9; }
+    .o-item:nth-child(even) { background-color: #f8fafc; }
     .o-item:last-child { border-bottom: none; }
     
     .o-check { 
-        width: 12px; height: 12px; 
+        width: 14px; height: 14px; 
         border: 1px solid #cbd5e1; 
-        border-radius: 2px; 
-        margin-right: 6px; 
-        margin-top: 1px;
+        border-radius: 3px; 
+        margin-right: 8px; 
         flex-shrink: 0;
+        background: white;
     }
-    .o-qty { font-weight: 700; font-size: 11px; margin-right: 6px; min-width: 20px; text-align: center; }
-    .o-desc { font-size: 10px; color: #334155; line-height: 1.2; }
-    .o-var { font-size: 9px; color: #64748b; font-style: italic; }
-    .o-note { font-size: 9px; color: #ef4444; margin-top: 4px; padding: 2px 4px; background: #fef2f2; border-radius: 3px; display: block; }
+    .o-qty { font-weight: 800; font-size: 12px; margin-right: 8px; min-width: 24px; text-align: center; background: #e2e8f0; border-radius: 4px; padding: 1px 0; }
+    .o-desc { font-size: 11px; color: #334155; line-height: 1.2; font-weight: 600; }
+    .o-var { font-size: 10px; color: #64748b; font-style: italic; font-weight: normal; margin-left: 4px; }
+    .o-note { font-size: 10px; color: #b91c1c; margin: 4px 8px; padding: 4px; background: #fef2f2; border: 1px dashed #fca5a5; border-radius: 4px; display: block; font-weight: 600; }
 
     .footer-signatures { 
-        margin-top: 30px; 
+        margin-top: 40px; 
         display: flex; 
         justify-content: space-between; 
-        padding-top: 10px; 
+        padding-top: 20px; 
         page-break-inside: avoid;
     }
-    .sig-block { text-align: center; width: 30%; }
-    .sig-line { border-top: 1px solid #94a3b8; margin-bottom: 4px; width: 100%; display: block; }
-    .sig-label { font-size: 9px; font-weight: 600; color: #94a3b8; text-transform: uppercase; }
+    .sig-block { text-align: center; width: 28%; }
+    .sig-line { border-top: 2px solid #334155; margin-bottom: 6px; width: 100%; display: block; }
+    .sig-label { font-size: 10px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
 `;
 
 const openPrintWindow = (content: string) => {
@@ -467,8 +484,8 @@ export const printProductionSummary = (
                 </div>
             </div>
 
-            <div class="step-section">
-                <div class="step-header">
+            <div class="step-section step-1">
+                <div class="step-header step-1">
                     <div class="step-number">1</div>
                     <span class="step-title">FALTANTE / FABRICAR</span>
                 </div>
@@ -488,8 +505,8 @@ export const printProductionSummary = (
                 ` : '<div style="padding:10px; font-style:italic; font-size:10px; color:#64748b;">Nada por fabricar.</div>'}
             </div>
 
-            <div class="step-section">
-                <div class="step-header">
+            <div class="step-section step-2">
+                <div class="step-header step-2">
                     <div class="step-number">2</div>
                     <span class="step-title">TOMAR DE BODEGA</span>
                 </div>
@@ -509,8 +526,8 @@ export const printProductionSummary = (
                 ` : '<div style="padding:10px; font-style:italic; font-size:10px; color:#64748b;">Nada de bodega.</div>'}
             </div>
 
-            <div class="step-section">
-                <div class="step-header">
+            <div class="step-section step-3">
+                <div class="step-header step-3">
                     <div class="step-number">3</div>
                     <span class="step-title">DISTRIBUCIÓN POR PEDIDO</span>
                 </div>

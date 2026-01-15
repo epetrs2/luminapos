@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Plus, Edit2, Trash2, Search, Package, AlertTriangle, ArrowLeftRight, Sparkles, X, BrainCircuit, Loader2, Filter, Check, Layers, Tag, Percent, DollarSign, Archive, Box, Eye, EyeOff, Scale, Info, Hash, Handshake } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
@@ -143,7 +144,8 @@ export const Inventory: React.FC = () => {
   const handleAddCategory = () => {
     if (newCategoryName.trim()) {
         addCategory(newCategoryName.trim());
-        setFormData({ ...formData, category: newCategoryName.trim() });
+        // Set the category in the form data so it persists
+        setFormData(prev => ({ ...prev, category: newCategoryName.trim() }));
         setIsAddingCategory(false);
         setNewCategoryName('');
     }
@@ -370,6 +372,10 @@ export const Inventory: React.FC = () => {
                                     <>
                                         <select className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm outline-none" value={formData.category || ''} onChange={e => setFormData({ ...formData, category: e.target.value })}>
                                             <option value="">Seleccionar...</option>
+                                            {/* Fix: Show newly created category even if not in master list yet */}
+                                            {formData.category && !categories.includes(formData.category) && (
+                                                <option value={formData.category}>{formData.category}</option>
+                                            )}
                                             {categories.map(cat => (<option key={cat} value={cat}>{cat}</option>))}
                                         </select>
                                         <button onClick={() => setIsAddingCategory(true)} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl"><Plus className="w-5 h-5" /></button>
