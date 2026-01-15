@@ -8,34 +8,83 @@ const BASE_CSS = `
     body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; background-color: #fff; }
 `;
 
-// ... (Rest of existing CSS and functions kept, adding new ones below) ...
-
+// Estilos específicos para la Hoja de Producción por Pasos
 const PRODUCTION_CSS = `
     ${BASE_CSS}
-    body { font-size: 12px; margin: 20px; }
-    .header { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
-    .header-left h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -1px; }
-    .header-left p { margin: 0; color: #666; font-size: 12px; font-weight: 600; text-transform: uppercase; }
-    .header-right { text-align: right; font-size: 11px; }
+    body { font-size: 11px; margin: 25px; color: #1e293b; }
     
-    .section-header { background: #000; color: #fff; padding: 8px 12px; font-weight: 800; margin-bottom: 15px; border-radius: 6px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
-    .section-header.secondary { background: #cbd5e1; color: #334155; margin-top: 30px; }
+    .header { display: flex; justify-content: space-between; border-bottom: 3px solid #0f172a; padding-bottom: 15px; margin-bottom: 20px; }
+    .header h1 { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: -1px; text-transform: uppercase; }
+    .header-meta { text-align: right; font-size: 11px; color: #64748b; font-weight: 600; }
+
+    .step-container { margin-bottom: 25px; page-break-inside: avoid; }
     
-    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-    th { border-bottom: 2px solid #0f172a; text-align: left; padding: 8px 5px; font-weight: 800; color: #334155; text-transform: uppercase; font-size: 11px; }
-    td { border-bottom: 1px solid #e2e8f0; padding: 8px 5px; vertical-align: middle; color: #334155; }
+    .step-header { 
+        background: #0f172a; 
+        color: white; 
+        padding: 8px 12px; 
+        border-radius: 6px; 
+        display: flex; 
+        align-items: center; 
+        margin-bottom: 10px;
+    }
+    .step-number {
+        background: white;
+        color: #0f172a;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        margin-right: 10px;
+        font-size: 14px;
+    }
+    .step-title { font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
     
-    .check-box { width: 18px; height: 18px; border: 2px solid #cbd5e1; border-radius: 4px; margin: 0 auto; }
-    .qty-box { display: inline-block; padding: 4px 10px; border: 2px solid #0f172a; border-radius: 6px; font-weight: 800; min-width: 20px; text-align: center; }
+    /* Grid Layout para Items */
+    .items-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .item-card { 
+        border: 1px solid #cbd5e1; 
+        border-radius: 6px; 
+        padding: 8px 10px; 
+        display: flex; 
+        align-items: center; 
+        justify-content: space-between;
+        background: #f8fafc;
+    }
+    .item-card.highlight { background: #fff; border-color: #0f172a; }
     
-    .footer { display: flex; justify-content: space-between; margin-top: 60px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
-    .sig-box { border-top: 2px solid #cbd5e1; width: 30%; text-align: center; padding-top: 8px; font-size: 10px; font-weight: 700; color: #94a3b8; }
+    .qty-badge {
+        font-size: 18px;
+        font-weight: 900;
+        color: #0f172a;
+        min-width: 30px;
+        text-align: center;
+    }
+    .item-name { font-weight: 700; font-size: 12px; margin-left: 10px; flex: 1; }
+    .item-meta { font-size: 10px; color: #64748b; font-weight: normal; display: block; }
+
+    /* Tabla de Distribución */
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th { text-align: left; border-bottom: 2px solid #000; padding: 5px; font-weight: 800; text-transform: uppercase; }
+    td { border-bottom: 1px solid #e2e8f0; padding: 6px 5px; vertical-align: top; }
     
-    .row-high td { background-color: #fef2f2; }
-    .priority-high { color: #dc2626; font-weight: 800; font-size: 9px; background: #fee2e2; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-top: 4px; }
+    .dist-tag {
+        display: inline-block;
+        background: #e2e8f0;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 600;
+        margin-right: 5px;
+        margin-bottom: 2px;
+    }
     
-    .order-items-list { margin: 0; padding-left: 0; list-style: none; }
-    .order-items-list li { margin-bottom: 3px; font-size: 11px; }
+    .check-box { width: 14px; height: 14px; border: 1px solid #94a3b8; display: inline-block; }
+
+    .footer { margin-top: 40px; border-top: 1px dashed #cbd5e1; padding-top: 10px; display: flex; justify-content: space-between; color: #94a3b8; font-size: 10px; }
 `;
 
 const generateInvoiceCss = (settings: BusinessSettings) => `
@@ -503,49 +552,62 @@ export const printProductionSummary = (
         if (!summaryItems[key]) {
             summaryItems[key] = { 
                 ...i, 
-                quantity: 0, 
-                orders: [],
-                hasHighPriority: false 
+                totalQty: 0, 
+                orders: [] 
             };
         }
-        summaryItems[key].quantity += i.quantity;
-        // Keep track of which orders requested this item
-        // Format: #1234 (Juan)
-        const orderRef = `#${o.id.slice(-4)} ${o.customerName.split(' ')[0]}`;
+        summaryItems[key].totalQty += i.quantity;
+        
+        // Add ref: "#1234 (Juan): 2"
+        const orderRef = `#${o.id.slice(-4)} ${o.customerName.split(' ')[0]}: ${i.quantity}`;
         if (!summaryItems[key].orders.includes(orderRef)) {
              summaryItems[key].orders.push(orderRef);
         }
-        if (o.priority === 'HIGH') {
-            summaryItems[key].hasHighPriority = true;
-        }
     }));
 
-    // 2. Sort: High priority first, then alphabetical
-    const sortedItems = Object.values(summaryItems).sort((a, b) => {
-        if (a.hasHighPriority && !b.hasHighPriority) return -1;
-        if (!a.hasHighPriority && b.hasHighPriority) return 1;
-        return a.name.localeCompare(b.name);
+    // 2. Logic: Split into "To Produce" (Diff) and "To Pick" (Stock)
+    const toProduce: any[] = [];
+    const toPick: any[] = [];
+    const distribution: any[] = [];
+
+    Object.values(summaryItems).forEach(item => {
+        let currentStock = 0;
+        const product = products.find(p => p.id === item.id);
+        
+        if (product) {
+            if (item.variantId && product.variants) {
+                const v = product.variants.find(v => v.id === item.variantId);
+                currentStock = v ? v.stock : 0;
+            } else {
+                currentStock = product.stock;
+            }
+        }
+
+        const required = item.totalQty;
+        const pickQty = Math.min(required, Math.max(0, currentStock));
+        const makeQty = Math.max(0, required - Math.max(0, currentStock));
+
+        if (makeQty > 0) {
+            toProduce.push({ ...item, qty: makeQty });
+        }
+        
+        if (pickQty > 0) {
+            toPick.push({ ...item, qty: pickQty });
+        }
+
+        distribution.push(item);
     });
 
-    const highPriorityItems = sortedItems.filter(i => i.hasHighPriority);
-    const normalItems = sortedItems.filter(i => !i.hasHighPriority);
-
-    const generateTableRows = (items: any[]) => items.map(item => `
-        <tr>
-            <td style="width: 40px; text-align: center;"><div class="check-box"></div></td>
-            <td style="width: 80px; text-align: center;">
-                <span class="qty-box">${item.quantity}</span>
-            </td>
-            <td>
-                <div style="font-weight: 800; font-size: 13px;">${item.name}</div>
-                ${item.variantName ? `<div style="font-size: 11px; color: #64748b; font-style: italic;">${item.variantName}</div>` : ''}
-            </td>
-            <td style="width: 35%;">
-                <ul class="order-items-list">
-                    ${item.orders.map((o: string) => `<li>${o}</li>`).join('')}
-                </ul>
-            </td>
-        </tr>
+    // Helper to render grid items
+    const renderGridItems = (items: any[]) => items.map(item => `
+        <div class="item-card highlight">
+            <span class="qty-badge">${item.qty}</span>
+            <div class="item-name">
+                ${item.name}
+                ${item.variantName ? `<span class="item-meta">${item.variantName}</span>` : ''}
+            </div>
+            <div class="check-box"></div>
+        </div>
     `).join('');
 
     const html = `
@@ -556,59 +618,80 @@ export const printProductionSummary = (
         </head>
         <body>
             <div class="header">
-                <div class="header-left">
-                    <h1>ORDEN DE PRODUCCIÓN</h1>
-                    <p>${settings.name}</p>
+                <div>
+                    <h1>HOJA DE PRODUCCIÓN</h1>
+                    <div style="font-weight:bold; color:#0f172a;">${settings.name}</div>
                 </div>
-                <div class="header-right">
+                <div class="header-meta">
                     <div>FECHA: ${new Date().toLocaleDateString()}</div>
                     <div>HORA: ${new Date().toLocaleTimeString()}</div>
-                    <div>PEDIDOS: ${orders.length}</div>
+                    <div>TOTAL PEDIDOS: ${orders.length}</div>
                 </div>
             </div>
 
-            ${highPriorityItems.length > 0 ? `
-                <div class="section-header">
-                    <span>🔥 PRIORIDAD ALTA</span>
-                    <span>${highPriorityItems.length} ITEMS</span>
+            <!-- PASO 1: PRODUCCIÓN / FALTANTE -->
+            <div class="step-container">
+                <div class="step-header">
+                    <div class="step-number">1</div>
+                    <span class="step-title">PRODUCCIÓN / FALTANTE (FABRICAR)</span>
+                </div>
+                ${toProduce.length > 0 ? `
+                    <div class="items-grid">
+                        ${renderGridItems(toProduce)}
+                    </div>
+                ` : '<div style="padding:10px; font-style:italic; color:#64748b;">Nada por fabricar. Todo en stock.</div>'}
+            </div>
+
+            <!-- PASO 2: BODEGA / STOCK -->
+            <div class="step-container">
+                <div class="step-header" style="background: #475569;">
+                    <div class="step-number">2</div>
+                    <span class="step-title">BODEGA / ALMACÉN (TOMAR)</span>
+                </div>
+                ${toPick.length > 0 ? `
+                    <div class="items-grid">
+                        ${renderGridItems(toPick)}
+                    </div>
+                ` : '<div style="padding:10px; font-style:italic; color:#64748b;">No se requiere stock de bodega.</div>'}
+            </div>
+
+            <!-- PASO 3: DISTRIBUCIÓN -->
+            <div class="step-container">
+                <div class="step-header" style="background: #cbd5e1; color: #0f172a;">
+                    <div class="step-number" style="background: #0f172a; color: white;">3</div>
+                    <span class="step-title">DISTRIBUCIÓN POR PEDIDO</span>
                 </div>
                 <table>
                     <thead>
                         <tr>
-                            <th>LISTO</th>
-                            <th style="text-align:center">CANT</th>
-                            <th>PRODUCTO / DETALLE</th>
-                            <th>REFERENCIAS</th>
+                            <th style="width:30px">OK</th>
+                            <th style="width:50px">TOTAL</th>
+                            <th>PRODUCTO / VARIANTE</th>
+                            <th>DETALLE DE PEDIDOS</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${generateTableRows(highPriorityItems)}
+                        ${distribution.map(item => `
+                            <tr>
+                                <td><div class="check-box"></div></td>
+                                <td style="font-weight:900; font-size:14px; text-align:center;">${item.totalQty}</td>
+                                <td>
+                                    <div style="font-weight:bold;">${item.name}</div>
+                                    ${item.variantName ? `<div style="font-size:10px; color:#64748b;">${item.variantName}</div>` : ''}
+                                </td>
+                                <td>
+                                    ${item.orders.map((o: string) => `<span class="dist-tag">${o}</span>`).join('')}
+                                </td>
+                            </tr>
+                        `).join('')}
                     </tbody>
                 </table>
-            ` : ''}
-
-            <div class="section-header ${highPriorityItems.length > 0 ? 'secondary' : ''}">
-                <span>📦 PRODUCCIÓN GENERAL</span>
-                <span>${normalItems.length} ITEMS</span>
             </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>LISTO</th>
-                        <th style="text-align:center">CANT</th>
-                        <th>PRODUCTO / DETALLE</th>
-                        <th>REFERENCIAS</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${generateTableRows(normalItems)}
-                </tbody>
-            </table>
 
             <div class="footer">
-                <div class="sig-box">ENCARGADO DE PRODUCCIÓN</div>
-                <div class="sig-box">SUPERVISOR / CALIDAD</div>
-                <div class="sig-box">LOGÍSTICA / ENTREGA</div>
+                <div>CONTROL DE CALIDAD</div>
+                <div>EMPAQUE Y ENVÍO</div>
+                <div>FIRMA RESPONSABLE</div>
             </div>
         </body>
         </html>
