@@ -575,7 +575,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const addOrder = (o: Order) => {
-        const newO = { ...o, id: o.id || (settings.sequences.orderStart + orders.length).toString() };
+        // Calculate distinct ID based on max existing numeric ID to prevent collisions
+        // Prevents duplications when array length changes due to deletions
+        let newId = o.id;
+        if (!newId) {
+            const maxId = orders.reduce((max, order) => {
+                const numId = parseInt(order.id);
+                return !isNaN(numId) && numId > max ? numId : max;
+            }, settings.sequences.orderStart - 1);
+            newId = (maxId + 1).toString();
+        }
+
+        const newO = { ...o, id: newId };
         setOrders(prev => [...prev, newO]);
         setHasPendingChanges(true);
     };
