@@ -496,89 +496,124 @@ export const printProductionSummary = (
     settings: BusinessSettings,
     products: Product[]
 ) => {
-    // Consolidate Logic
+    // 1. Group items by ID/Variant
     const summaryItems: Record<string, any> = {};
     orders.forEach(o => o.items.forEach(i => {
         const key = i.variantId ? `${i.id}-${i.variantId}` : i.id;
-        if (!summaryItems[key]) summaryItems[key] = { ...i, quantity: 0, orders: [] };
+        if (!summaryItems[key]) {
+            summaryItems[key] = { 
+                ...i, 
+                quantity: 0, 
+                orders: [],
+                hasHighPriority: false 
+            };
+        }
         summaryItems[key].quantity += i.quantity;
-        // avoid duplicate order ids for same item in same order (unlikely but safe)
-        if (!summaryItems[key].orders.includes(o.id.slice(-4))) {
-             summaryItems[key].orders.push(o.id.slice(-4));
+        // Keep track of which orders requested this item
+        // Format: #1234 (Juan)
+        const orderRef = `#${o.id.slice(-4)} ${o.customerName.split(' ')[0]}`;
+        if (!summaryItems[key].orders.includes(orderRef)) {
+             summaryItems[key].orders.push(orderRef);
+        }
+        if (o.priority === 'HIGH') {
+            summaryItems[key].hasHighPriority = true;
         }
     }));
 
-    const sortedItems = Object.values(summaryItems).sort((a, b) => a.name.localeCompare(b.name));
+    // 2. Sort: High priority first, then alphabetical
+    const sortedItems = Object.values(summaryItems).sort((a, b) => {
+        if (a.hasHighPriority && !b.hasHighPriority) return -1;
+        if (!a.hasHighPriority && b.hasHighPriority) return 1;
+        return a.name.localeCompare(b.name);
+    });
 
-    const css = `
-        ${BASE_CSS}
-        body { padding: 40px; font-family: 'Inter', sans-serif; }
-        .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #000; padding-bottom: 20px; }
-        h1 { margin: 0; font-size: 24px; text-transform: uppercase; font-weight: 900; }
-        .meta { font-size: 12px; color: #666; margin-top: 5px; }
-        
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th { text-align: left; border-bottom: 2px solid #000; padding: 10px 5px; font-weight: 800; text-transform: uppercase; }
-        td { border-bottom: 1px solid #ccc; padding: 10px 5px; vertical-align: top; }
-        
-        .qty-col { font-size: 16px; font-weight: 800; text-align: center; width: 60px; }
-        .check-col { width: 40px; }
-        .box { width: 20px; height: 20px; border: 2px solid #333; display: inline-block; border-radius: 4px; }
-        
-        .orders-list { font-size: 10px; color: #666; margin-top: 4px; font-family: monospace; }
-        .variant-tag { font-size: 11px; font-style: italic; color: #444; }
-    `;
+    const highPriorityItems = sortedItems.filter(i => i.hasHighPriority);
+    const normalItems = sortedItems.filter(i => !i.hasHighPriority);
+
+    const generateTableRows = (items: any[]) => items.map(item => `
+        <tr>
+            <td style="width: 40px; text-align: center;"><div class="check-box"></div></td>
+            <td style="width: 80px; text-align: center;">
+                <span class="qty-box">${item.quantity}</span>
+            </td>
+            <td>
+                <div style="font-weight: 800; font-size: 13px;">${item.name}</div>
+                ${item.variantName ? `<div style="font-size: 11px; color: #64748b; font-style: italic;">${item.variantName}</div>` : ''}
+            </td>
+            <td style="width: 35%;">
+                <ul class="order-items-list">
+                    ${item.orders.map((o: string) => `<li>${o}</li>`).join('')}
+                </ul>
+            </td>
+        </tr>
+    `).join('');
 
     const html = `
         <html>
         <head>
-            <title>Resumen de Producción</title>
-            <style>${css}</style>
+            <title>Orden de Producción</title>
+            <style>${PRODUCTION_CSS}</style>
         </head>
         <body>
             <div class="header">
-                <h1>Hoja de Producción</h1>
-                <div class="meta">
-                    ${settings.name}<br/>
-                    Generado: ${new Date().toLocaleString()}<br/>
-                    Total Pedidos: ${orders.length}
+                <div class="header-left">
+                    <h1>ORDEN DE PRODUCCIÓN</h1>
+                    <p>${settings.name}</p>
+                </div>
+                <div class="header-right">
+                    <div>FECHA: ${new Date().toLocaleDateString()}</div>
+                    <div>HORA: ${new Date().toLocaleTimeString()}</div>
+                    <div>PEDIDOS: ${orders.length}</div>
                 </div>
             </div>
 
+            ${highPriorityItems.length > 0 ? `
+                <div class="section-header">
+                    <span>🔥 PRIORIDAD ALTA</span>
+                    <span>${highPriorityItems.length} ITEMS</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>LISTO</th>
+                            <th style="text-align:center">CANT</th>
+                            <th>PRODUCTO / DETALLE</th>
+                            <th>REFERENCIAS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${generateTableRows(highPriorityItems)}
+                    </tbody>
+                </table>
+            ` : ''}
+
+            <div class="section-header ${highPriorityItems.length > 0 ? 'secondary' : ''}">
+                <span>📦 PRODUCCIÓN GENERAL</span>
+                <span>${normalItems.length} ITEMS</span>
+            </div>
             <table>
                 <thead>
                     <tr>
-                        <th class="check-col"></th>
-                        <th class="qty-col">CANT</th>
-                        <th>DESCRIPCIÓN</th>
-                        <th>REFS</th>
+                        <th>LISTO</th>
+                        <th style="text-align:center">CANT</th>
+                        <th>PRODUCTO / DETALLE</th>
+                        <th>REFERENCIAS</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${sortedItems.map(item => `
-                        <tr>
-                            <td class="check-col"><div class="box"></div></td>
-                            <td class="qty-col">${item.quantity}</td>
-                            <td>
-                                <div style="font-weight:700; font-size:14px;">${item.name}</div>
-                                ${item.variantName ? `<div class="variant-tag">${item.variantName}</div>` : ''}
-                            </td>
-                            <td>
-                                <div class="orders-list">
-                                    ${item.orders.join(', ')}
-                                </div>
-                            </td>
-                        </tr>
-                    `).join('')}
+                    ${generateTableRows(normalItems)}
                 </tbody>
             </table>
-            
-            <div style="margin-top: 40px; font-size: 10px; text-align: center; color: #999;">
-                Documento interno de control - LuminaPOS
+
+            <div class="footer">
+                <div class="sig-box">ENCARGADO DE PRODUCCIÓN</div>
+                <div class="sig-box">SUPERVISOR / CALIDAD</div>
+                <div class="sig-box">LOGÍSTICA / ENTREGA</div>
             </div>
         </body>
         </html>
     `;
+    
     openPrintWindow(html);
 };
 
