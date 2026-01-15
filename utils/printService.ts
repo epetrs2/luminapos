@@ -11,128 +11,114 @@ const BASE_CSS = `
 // Estilos específicos para la Hoja de Producción Optimizada
 const PRODUCTION_CSS = `
     ${BASE_CSS}
-    body { font-size: 11px; margin: 20px; color: #1e293b; }
+    body { font-size: 11px; margin: 30px 40px; color: #1e293b; line-height: 1.3; }
     
-    .header { display: flex; justify-content: space-between; border-bottom: 3px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
-    .header h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; }
-    .header-meta { text-align: right; font-size: 10px; color: #64748b; font-weight: 600; }
+    /* Header Compacto */
+    .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
+    .header h1 { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; color: #0f172a; }
+    .header-sub { font-size: 10px; color: #64748b; font-weight: 500; margin-top: 2px; text-transform: uppercase; }
+    .header-meta { text-align: right; font-size: 10px; font-weight: 600; color: #334155; }
 
-    .step-section { margin-bottom: 30px; page-break-inside: avoid; }
+    /* Sección Genérica */
+    .step-section { margin-bottom: 25px; }
     
     .step-header { 
         display: flex; 
         align-items: center; 
-        margin-bottom: 15px;
-        border-bottom: 2px solid #e2e8f0;
-        padding-bottom: 8px;
+        margin-bottom: 10px;
+        background: #f1f5f9;
+        padding: 6px 10px;
+        border-radius: 4px;
+        border-left: 4px solid #0f172a;
     }
-    .step-badge {
+    .step-number {
         background: #0f172a;
         color: white;
-        width: 28px;
-        height: 28px;
+        width: 20px;
+        height: 20px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 800;
-        font-size: 14px;
-        margin-right: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-    .step-title { font-weight: 800; font-size: 16px; text-transform: uppercase; color: #0f172a; }
-    .step-desc { margin-left: auto; font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase; }
-
-    /* Grid para Items Agregados (Paso 1 y 2) */
-    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .summary-card { 
-        border: 1px solid #cbd5e1; 
-        border-radius: 6px; 
-        padding: 6px 8px; 
-        display: flex; 
-        align-items: center; 
-        background: #f8fafc;
-    }
-    .summary-card.highlight { background: #fff; border-color: #0f172a; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    
-    .qty-box {
-        background: #0f172a;
-        color: white;
-        font-weight: 800;
-        font-size: 14px;
-        min-width: 32px;
-        height: 24px;
-        border-radius: 4px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        font-weight: 700;
+        font-size: 11px;
         margin-right: 8px;
     }
-    .item-info { flex: 1; min-width: 0; }
-    .item-name { font-weight: 700; font-size: 11px; line-height: 1.1; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .item-variant { font-size: 9px; color: #64748b; }
+    .step-title { font-weight: 800; font-size: 12px; text-transform: uppercase; color: #0f172a; letter-spacing: 0.5px; }
     
-    /* Distribución por Pedido (Paso 3) */
-    .orders-container { 
-        display: grid; 
-        grid-template-columns: 1fr 1fr; 
-        gap: 15px; 
-    }
-    .order-card { 
-        border: 2px solid #0f172a; 
-        border-radius: 8px; 
-        overflow: hidden; 
-        page-break-inside: avoid;
-    }
-    .order-header { 
-        background: #0f172a; 
-        color: white; 
-        padding: 6px 10px; 
-        display: flex; 
-        justify-content: space-between; 
-        align-items: center;
-    }
-    .customer-name { font-weight: 800; font-size: 12px; text-transform: uppercase; }
-    .order-id { font-family: monospace; font-size: 11px; background: rgba(255,255,255,0.2); padding: 1px 4px; rounded; }
+    /* Tablas de Cotejo (Pasos 1 y 2) */
+    .checklist-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .checklist-table th { text-align: left; border-bottom: 1px solid #94a3b8; padding: 4px; font-weight: 700; color: #64748b; font-size: 9px; text-transform: uppercase; }
+    .checklist-table td { border-bottom: 1px solid #e2e8f0; padding: 6px 4px; vertical-align: middle; }
+    .checklist-table tr:last-child td { border-bottom: none; }
     
-    .order-body { padding: 5px; }
-    .order-item-row { 
-        display: flex; 
-        align-items: center; 
-        padding: 4px 0; 
-        border-bottom: 1px dashed #e2e8f0; 
-    }
-    .order-item-row:last-child { border-bottom: none; }
+    .col-check { width: 30px; text-align: center; }
+    .col-qty { width: 60px; text-align: center; font-weight: 800; font-size: 13px; color: #0f172a; }
+    .col-item { }
     
-    .check-circle { 
-        width: 14px; 
-        height: 14px; 
-        border: 1px solid #94a3b8; 
-        border-radius: 50%; 
-        margin-right: 8px; 
-    }
-    .item-qty { font-weight: 800; font-size: 12px; min-width: 25px; text-align: center; }
-    .item-detail { font-size: 11px; font-weight: 600; color: #334155; }
-    
-    .order-footer {
-        background: #f1f5f9;
-        padding: 4px 8px;
-        font-size: 9px;
-        color: #64748b;
-        font-style: italic;
-        border-top: 1px solid #e2e8f0;
+    .checkbox { 
+        width: 16px; height: 16px; 
+        border: 2px solid #cbd5e1; 
+        border-radius: 3px; 
+        display: inline-block; 
     }
 
+    /* Distribución (Paso 3) - Diseño Columnas */
+    .distribution-container {
+        column-count: 2; /* Divide en 2 columnas estilo periódico */
+        column-gap: 20px;
+        width: 100%;
+    }
+    
+    .order-block {
+        break-inside: avoid; /* Evita que un pedido se corte a la mitad */
+        margin-bottom: 15px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        overflow: hidden;
+        background: white;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    }
+    
+    .order-head {
+        background: #f8fafc;
+        padding: 5px 8px;
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .order-client { font-weight: 800; font-size: 11px; text-transform: uppercase; color: #0f172a; }
+    .order-ref { font-family: monospace; font-size: 10px; color: #64748b; background: white; padding: 1px 4px; border-radius: 3px; border: 1px solid #e2e8f0; }
+    .order-urgent { color: #dc2626; font-weight: 800; font-size: 9px; margin-left: 5px; }
+
+    .order-items { padding: 4px 8px; }
+    .o-item { display: flex; align-items: flex-start; padding: 3px 0; border-bottom: 1px dashed #f1f5f9; }
+    .o-item:last-child { border-bottom: none; }
+    
+    .o-check { 
+        width: 12px; height: 12px; 
+        border: 1px solid #cbd5e1; 
+        border-radius: 2px; 
+        margin-right: 6px; 
+        margin-top: 1px;
+        flex-shrink: 0;
+    }
+    .o-qty { font-weight: 700; font-size: 11px; margin-right: 6px; min-width: 20px; text-align: center; }
+    .o-desc { font-size: 10px; color: #334155; line-height: 1.2; }
+    .o-var { font-size: 9px; color: #64748b; font-style: italic; }
+    .o-note { font-size: 9px; color: #ef4444; margin-top: 4px; padding: 2px 4px; background: #fef2f2; border-radius: 3px; display: block; }
+
     .footer-signatures { 
-        margin-top: 40px; 
+        margin-top: 30px; 
         display: flex; 
         justify-content: space-between; 
-        border-top: 1px solid #cbd5e1; 
-        padding-top: 15px; 
+        padding-top: 10px; 
+        page-break-inside: avoid;
     }
     .sig-block { text-align: center; width: 30%; }
-    .sig-line { border-top: 1px solid #0f172a; margin-bottom: 5px; width: 100%; display: block; }
-    .sig-label { font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .sig-line { border-top: 1px solid #94a3b8; margin-bottom: 4px; width: 100%; display: block; }
+    .sig-label { font-size: 9px; font-weight: 600; color: #94a3b8; text-transform: uppercase; }
 `;
 
 const openPrintWindow = (content: string) => {
@@ -147,14 +133,13 @@ const openPrintWindow = (content: string) => {
     }
 };
 
-// ... (Keep existing generateInvoiceCss and generateInvoiceHalf) ...
+// ... (GenerateInvoiceCss and related Invoice functions kept identical) ...
 const generateInvoiceCss = (settings: BusinessSettings) => `
     ${BASE_CSS}
     @page { 
         size: letter landscape; 
         margin: ${settings.invoicePadding || 10}px; 
     }
-    /* ... Invoice CSS kept same as previous correct version ... */
     .page-container { display: flex; width: 100%; height: 98vh; gap: 20px; justify-content: center; align-items: stretch; }
     .invoice-panel { flex: 1; border: 2px solid #1e293b; border-radius: 6px; display: flex; flex-direction: column; height: 100%; overflow: hidden; box-sizing: border-box; }
     .header-bar { background-color: #1e293b; color: white; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f172a; }
@@ -196,7 +181,6 @@ const generateInvoiceCss = (settings: BusinessSettings) => `
     .final-total .t-value { background-color: #e2e8f0; font-size: 20px; font-weight: 900; color: #0f172a; }
 `;
 
-// ... (Keep generateInvoiceHalf, printInvoice, printOrderInvoice same as before) ...
 const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: BusinessSettings) => {
     const minRows = 12; 
     const emptyRows = Math.max(0, minRows - t.items.length);
@@ -391,7 +375,7 @@ export const printProductionSummary = (
     settings: BusinessSettings,
     products: Product[]
 ) => {
-    // 1. Group items by ID/Variant for TOTALS (Step 1 & 2)
+    // 1. Calcular totales para Pasos 1 y 2
     const summaryItems: Record<string, any> = {};
     orders.forEach(o => o.items.forEach(i => {
         const key = i.variantId ? `${i.id}-${i.variantId}` : i.id;
@@ -401,7 +385,7 @@ export const printProductionSummary = (
         summaryItems[key].totalQty += i.quantity;
     }));
 
-    // 2. Logic: Split into "To Produce" (Diff) and "To Pick" (Stock)
+    // 2. Lógica: Dividir en "Fabricar" y "Bodega"
     const toProduce: any[] = [];
     const toPick: any[] = [];
 
@@ -426,36 +410,41 @@ export const printProductionSummary = (
         if (pickQty > 0) toPick.push({ ...item, qty: pickQty });
     });
 
-    // Helper to render grid items for Step 1 and 2
-    const renderGridItems = (items: any[]) => items.map(item => `
-        <div class="summary-card highlight">
-            <div class="qty-box">${item.qty}</div>
-            <div class="item-info">
-                <span class="item-name">${item.name}</span>
-                ${item.variantName ? `<span class="item-variant">${item.variantName}</span>` : ''}
-            </div>
-        </div>
+    // Helper para generar filas de la tabla de checklist
+    const renderTableRows = (items: any[]) => items.map(item => `
+        <tr>
+            <td class="col-check"><div class="checkbox"></div></td>
+            <td class="col-qty">${item.qty}</td>
+            <td class="col-item">
+                <div style="font-weight: 700; font-size: 12px;">${item.name}</div>
+                ${item.variantName ? `<div style="font-size: 10px; color: #64748b;">${item.variantName}</div>` : ''}
+            </td>
+        </tr>
     `).join('');
 
-    // --- STEP 3: DISTRIBUTION (PER CUSTOMER CARD) ---
-    const renderOrderCards = () => orders.map(order => `
-        <div class="order-card">
-            <div class="order-header">
-                <span class="customer-name">${order.customerName}</span>
-                <span class="order-id">#${order.id.slice(-4)}</span>
+    // --- STEP 3: DISTRIBUTION (COLUMNAS COMPACTAS) ---
+    const renderOrderBlocks = () => orders.map(order => `
+        <div class="order-block">
+            <div class="order-head">
+                <span class="order-client">
+                    ${order.customerName.length > 22 ? order.customerName.substring(0, 22) + '...' : order.customerName}
+                    ${order.priority === 'HIGH' ? '<span class="order-urgent">!</span>' : ''}
+                </span>
+                <span class="order-ref">#${order.id.slice(-4)}</span>
             </div>
-            <div class="order-body">
+            <div class="order-items">
                 ${order.items.map(item => `
-                    <div class="order-item-row">
-                        <div class="check-circle"></div>
-                        <span class="item-qty">${item.quantity}</span>
-                        <span class="item-detail">
-                            ${item.name} ${item.variantName ? `<small>(${item.variantName})</small>` : ''}
-                        </span>
+                    <div class="o-item">
+                        <div class="o-check"></div>
+                        <span class="o-qty">${item.quantity}</span>
+                        <div class="o-desc">
+                            ${item.name}
+                            ${item.variantName ? `<span class="o-var">(${item.variantName})</span>` : ''}
+                        </div>
                     </div>
                 `).join('')}
+                ${order.notes ? `<div class="o-note">Nota: ${order.notes}</div>` : ''}
             </div>
-            ${order.notes ? `<div class="order-footer"><strong>Nota:</strong> ${order.notes}</div>` : ''}
         </div>
     `).join('');
 
@@ -469,60 +458,72 @@ export const printProductionSummary = (
             <div class="header">
                 <div>
                     <h1>HOJA DE PRODUCCIÓN</h1>
-                    <div style="font-weight:bold; color:#0f172a;">${settings.name}</div>
+                    <div class="header-sub">${settings.name}</div>
                 </div>
                 <div class="header-meta">
-                    <div>FECHA: ${new Date().toLocaleDateString()}</div>
-                    <div>HORA: ${new Date().toLocaleTimeString()}</div>
-                    <div>TOTAL PEDIDOS: ${orders.length}</div>
+                    <div>${new Date().toLocaleDateString()}</div>
+                    <div>${new Date().toLocaleTimeString()}</div>
+                    <div>PEDIDOS: ${orders.length}</div>
                 </div>
             </div>
 
-            <!-- PASO 1: PRODUCCIÓN / FALTANTE -->
             <div class="step-section">
                 <div class="step-header">
-                    <div class="step-badge">1</div>
+                    <div class="step-number">1</div>
                     <span class="step-title">FALTANTE / FABRICAR</span>
-                    <span class="step-desc">Lo que no hay en stock</span>
                 </div>
                 ${toProduce.length > 0 ? `
-                    <div class="summary-grid">
-                        ${renderGridItems(toProduce)}
-                    </div>
-                ` : '<div style="padding:10px; font-style:italic; color:#64748b;">Nada por fabricar. Todo en stock.</div>'}
+                    <table class="checklist-table">
+                        <thead>
+                            <tr>
+                                <th class="col-check">OK</th>
+                                <th class="col-qty">CANT</th>
+                                <th>DESCRIPCIÓN</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${renderTableRows(toProduce)}
+                        </tbody>
+                    </table>
+                ` : '<div style="padding:10px; font-style:italic; font-size:10px; color:#64748b;">Nada por fabricar.</div>'}
             </div>
 
-            <!-- PASO 2: BODEGA / STOCK -->
             <div class="step-section">
                 <div class="step-header">
-                    <div class="step-badge" style="background:#475569;">2</div>
+                    <div class="step-number">2</div>
                     <span class="step-title">TOMAR DE BODEGA</span>
-                    <span class="step-desc">Lo que ya está listo</span>
                 </div>
                 ${toPick.length > 0 ? `
-                    <div class="summary-grid">
-                        ${renderGridItems(toPick)}
-                    </div>
-                ` : '<div style="padding:10px; font-style:italic; color:#64748b;">No se requiere stock de bodega.</div>'}
+                    <table class="checklist-table">
+                        <thead>
+                            <tr>
+                                <th class="col-check">OK</th>
+                                <th class="col-qty">CANT</th>
+                                <th>DESCRIPCIÓN</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${renderTableRows(toPick)}
+                        </tbody>
+                    </table>
+                ` : '<div style="padding:10px; font-style:italic; font-size:10px; color:#64748b;">Nada de bodega.</div>'}
             </div>
 
-            <!-- PASO 3: DISTRIBUCIÓN (DESGLOSE POR CLIENTE) -->
             <div class="step-section">
-                <div class="step-header" style="border-color:#0f172a;">
-                    <div class="step-badge" style="background:#0f172a;">3</div>
-                    <span class="step-title">DISTRIBUCIÓN / EMPAQUE</span>
-                    <span class="step-desc">Armado de pedidos</span>
+                <div class="step-header">
+                    <div class="step-number">3</div>
+                    <span class="step-title">DISTRIBUCIÓN POR PEDIDO</span>
                 </div>
                 
-                <div class="orders-container">
-                    ${renderOrderCards()}
+                <div class="distribution-container">
+                    ${renderOrderBlocks()}
                 </div>
             </div>
 
             <div class="footer-signatures">
                 <div class="sig-block"><span class="sig-line"></span><span class="sig-label">PRODUCCIÓN</span></div>
-                <div class="sig-block"><span class="sig-line"></span><span class="sig-label">ALMACÉN / BODEGA</span></div>
-                <div class="sig-block"><span class="sig-line"></span><span class="sig-label">CONTROL CALIDAD Y EMPAQUE</span></div>
+                <div class="sig-block"><span class="sig-line"></span><span class="sig-label">BODEGA</span></div>
+                <div class="sig-block"><span class="sig-line"></span><span class="sig-label">CALIDAD / EMPAQUE</span></div>
             </div>
         </body>
         </html>
@@ -531,7 +532,7 @@ export const printProductionSummary = (
     openPrintWindow(html);
 };
 
-// ... (Rest of the file: printProductionTicket, printProductionMasterList, printThermalTicket, etc. remains unchanged) ...
+// ... (Rest of the file remains unchanged) ...
 export const printProductionTicket = async (
     order: Order,
     settings: BusinessSettings,
