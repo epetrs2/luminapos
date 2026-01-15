@@ -8,334 +8,131 @@ const BASE_CSS = `
     body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; background-color: #fff; }
 `;
 
-// Estilos específicos para la Hoja de Producción por Pasos
+// Estilos específicos para la Hoja de Producción Optimizada
 const PRODUCTION_CSS = `
     ${BASE_CSS}
-    body { font-size: 11px; margin: 25px; color: #1e293b; }
+    body { font-size: 11px; margin: 20px; color: #1e293b; }
     
-    .header { display: flex; justify-content: space-between; border-bottom: 3px solid #0f172a; padding-bottom: 15px; margin-bottom: 20px; }
-    .header h1 { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: -1px; text-transform: uppercase; }
-    .header-meta { text-align: right; font-size: 11px; color: #64748b; font-weight: 600; }
+    .header { display: flex; justify-content: space-between; border-bottom: 3px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
+    .header h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px; text-transform: uppercase; }
+    .header-meta { text-align: right; font-size: 10px; color: #64748b; font-weight: 600; }
 
-    .step-container { margin-bottom: 25px; page-break-inside: avoid; }
+    .step-section { margin-bottom: 30px; page-break-inside: avoid; }
     
     .step-header { 
-        background: #0f172a; 
-        color: white; 
-        padding: 8px 12px; 
-        border-radius: 6px; 
         display: flex; 
         align-items: center; 
-        margin-bottom: 10px;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #e2e8f0;
+        padding-bottom: 8px;
     }
-    .step-number {
-        background: white;
-        color: #0f172a;
-        width: 24px;
-        height: 24px;
+    .step-badge {
+        background: #0f172a;
+        color: white;
+        width: 28px;
+        height: 28px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 900;
-        margin-right: 10px;
+        font-weight: 800;
         font-size: 14px;
+        margin-right: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
-    .step-title { font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
-    
-    /* Grid Layout para Items */
-    .items-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-    .item-card { 
+    .step-title { font-weight: 800; font-size: 16px; text-transform: uppercase; color: #0f172a; }
+    .step-desc { margin-left: auto; font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase; }
+
+    /* Grid para Items Agregados (Paso 1 y 2) */
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .summary-card { 
         border: 1px solid #cbd5e1; 
         border-radius: 6px; 
-        padding: 8px 10px; 
+        padding: 6px 8px; 
         display: flex; 
         align-items: center; 
-        justify-content: space-between;
         background: #f8fafc;
     }
-    .item-card.highlight { background: #fff; border-color: #0f172a; }
+    .summary-card.highlight { background: #fff; border-color: #0f172a; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
     
-    .qty-badge {
-        font-size: 18px;
-        font-weight: 900;
-        color: #0f172a;
-        min-width: 30px;
-        text-align: center;
-    }
-    .item-name { font-weight: 700; font-size: 12px; margin-left: 10px; flex: 1; }
-    .item-meta { font-size: 10px; color: #64748b; font-weight: normal; display: block; }
-
-    /* Tabla de Distribución */
-    table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    th { text-align: left; border-bottom: 2px solid #000; padding: 5px; font-weight: 800; text-transform: uppercase; }
-    td { border-bottom: 1px solid #e2e8f0; padding: 6px 5px; vertical-align: top; }
-    
-    .dist-tag {
-        display: inline-block;
-        background: #e2e8f0;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 10px;
-        font-weight: 600;
-        margin-right: 5px;
-        margin-bottom: 2px;
-    }
-    
-    .check-box { width: 14px; height: 14px; border: 1px solid #94a3b8; display: inline-block; }
-
-    .footer { margin-top: 40px; border-top: 1px dashed #cbd5e1; padding-top: 10px; display: flex; justify-content: space-between; color: #94a3b8; font-size: 10px; }
-`;
-
-const generateInvoiceCss = (settings: BusinessSettings) => `
-    ${BASE_CSS}
-    @page { 
-        size: letter landscape; 
-        margin: ${settings.invoicePadding || 10}px; 
-    }
-    
-    .page-container {
-        display: flex;
-        width: 100%;
-        height: 98vh;
-        gap: 20px;
-        justify-content: center;
-        align-items: stretch;
-    }
-
-    .invoice-panel {
-        flex: 1;
-        border: 2px solid #1e293b; /* Slate 800 */
-        border-radius: 6px;
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        overflow: hidden;
-        box-sizing: border-box;
-    }
-
-    /* --- HEADER --- */
-    .header-bar {
-        background-color: #1e293b; 
+    .qty-box {
+        background: #0f172a;
         color: white;
-        padding: 8px 12px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 2px solid #0f172a;
-    }
-    
-    .header-title {
         font-weight: 800;
-        font-size: 20px; /* Increased */
-        letter-spacing: 1px;
-        text-transform: uppercase;
-    }
-    
-    .header-tag {
-        background-color: white;
-        color: #1e293b;
-        font-size: 12px; /* Increased */
-        font-weight: 800;
-        padding: 3px 10px;
+        font-size: 14px;
+        min-width: 32px;
+        height: 24px;
         border-radius: 4px;
-        text-transform: uppercase;
-    }
-
-    .brand-row {
-        display: flex;
-        height: 70px; /* Increased height */
-        border-bottom: 1px solid #334155;
-    }
-
-    .logo-area {
-        width: 130px;
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 5px;
-        border-right: 1px solid #e2e8f0;
+        margin-right: 8px;
     }
-    .logo-area img { max-height: 60px; max-width: 100%; object-fit: contain; }
-
-    .company-info {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
+    .item-info { flex: 1; min-width: 0; }
+    .item-name { font-weight: 700; font-size: 11px; line-height: 1.1; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-variant { font-size: 9px; color: #64748b; }
+    
+    /* Distribución por Pedido (Paso 3) */
+    .orders-container { 
+        display: grid; 
+        grid-template-columns: 1fr 1fr; 
+        gap: 15px; 
+    }
+    .order-card { 
+        border: 2px solid #0f172a; 
+        border-radius: 8px; 
+        overflow: hidden; 
+        page-break-inside: avoid;
+    }
+    .order-header { 
+        background: #0f172a; 
+        color: white; 
+        padding: 6px 10px; 
+        display: flex; 
+        justify-content: space-between; 
         align-items: center;
-        background-color: #f8fafc;
-        padding: 0 15px;
     }
+    .customer-name { font-weight: 800; font-size: 12px; text-transform: uppercase; }
+    .order-id { font-family: monospace; font-size: 11px; background: rgba(255,255,255,0.2); padding: 1px 4px; rounded; }
     
-    .company-name { font-weight: 800; font-size: 18px; color: #334155; text-transform: uppercase; margin-bottom: 2px; } /* Increased */
-    .company-details { font-size: 11px; color: #475569; text-align: center; line-height: 1.3; font-weight: 500; } /* Increased */
-
-    .ticket-id-box {
-        width: 110px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        background-color: #fff;
-        border-left: 2px solid #334155;
+    .order-body { padding: 5px; }
+    .order-item-row { 
+        display: flex; 
+        align-items: center; 
+        padding: 4px 0; 
+        border-bottom: 1px dashed #e2e8f0; 
     }
-    .ticket-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; } /* Increased */
-    .ticket-value { font-size: 20px; font-weight: 800; color: #ef4444; } /* Increased */
-
-    /* --- INFO GRID --- */
-    .info-grid {
-        display: grid;
-        grid-template-columns: 85px 1fr 85px 1fr; /* Adjusted for larger text */
-        font-size: 12px; /* Increased Base Font */
-        border-bottom: 2px solid #1e293b;
-    }
-
-    .info-cell {
-        display: flex;
-        align-items: center;
-        padding: 5px 8px; /* Increased Padding */
-        border-bottom: 1px solid #e2e8f0;
-        height: 24px; /* Increased Height */
-        overflow: hidden;
-    }
+    .order-item-row:last-child { border-bottom: none; }
     
-    .info-label {
-        background-color: #e2e8f0;
-        font-weight: 700;
-        color: #1e293b;
-        text-transform: uppercase;
-        border-right: 1px solid #94a3b8;
-        font-size: 11px;
+    .check-circle { 
+        width: 14px; 
+        height: 14px; 
+        border: 1px solid #94a3b8; 
+        border-radius: 50%; 
+        margin-right: 8px; 
     }
+    .item-qty { font-weight: 800; font-size: 12px; min-width: 25px; text-align: center; }
+    .item-detail { font-size: 11px; font-weight: 600; color: #334155; }
     
-    .info-value {
-        font-weight: 600;
-        color: #0f172a;
-        white-space: nowrap;
-        border-right: 1px solid #e2e8f0;
-    }
-    .info-value:last-child { border-right: none; }
-
-    /* --- TABLE --- */
-    .table-wrapper {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-    }
-
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12px; /* Increased Table Font */
-    }
-
-    thead th {
-        background-color: #f1f5f9;
-        color: #334155;
-        font-weight: 800;
-        text-transform: uppercase;
-        padding: 6px 8px; /* Increased Padding */
-        border-bottom: 2px solid #334155;
-        border-right: 1px solid #cbd5e1;
-        height: 20px;
-    }
-    thead th:last-child { border-right: none; }
-
-    tbody td {
-        padding: 5px 8px; /* Increased Padding */
-        border-bottom: 1px solid #f1f5f9;
-        border-right: 1px solid #f1f5f9;
-        color: #334155;
-        height: 20px; /* Min height */
-        font-weight: 500;
-    }
-    tbody td:last-child { border-right: none; }
-    
-    .col-price { text-align: right; width: 75px; }
-    .col-qty { text-align: center; width: 50px; font-weight: bold; }
-    .col-total { text-align: right; width: 85px; font-weight: bold; background-color: #f8fafc; }
-    .row-empty td { border: none; }
-
-    /* --- FOOTER --- */
-    .footer-section {
-        height: 120px; /* Increased Height for larger font footer */
-        border-top: 2px solid #1e293b;
-        display: flex;
-    }
-
-    .footer-left {
-        flex: 1;
-        padding: 10px;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
-    }
-
-    .signature-area {
-        border-top: 2px solid #94a3b8;
-        text-align: center;
-        font-size: 10px;
-        font-weight: 600;
+    .order-footer {
+        background: #f1f5f9;
+        padding: 4px 8px;
+        font-size: 9px;
         color: #64748b;
-        padding-top: 4px;
-        width: 80%;
-        margin: 0 auto;
+        font-style: italic;
+        border-top: 1px solid #e2e8f0;
     }
 
-    .footer-right {
-        width: 260px; /* Wider for larger numbers */
-        border-left: 2px solid #1e293b;
-        display: flex;
-        flex-direction: column;
+    .footer-signatures { 
+        margin-top: 40px; 
+        display: flex; 
+        justify-content: space-between; 
+        border-top: 1px solid #cbd5e1; 
+        padding-top: 15px; 
     }
-
-    .total-row {
-        flex: 1;
-        display: flex;
-        align-items: stretch;
-        border-bottom: 1px solid #cbd5e1;
-    }
-    .total-row:last-child { border-bottom: none; flex: 1.5; }
-
-    .t-label {
-        flex: 1;
-        background-color: #f1f5f9;
-        font-size: 11px; /* Increased */
-        font-weight: 700;
-        color: #475569;
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        padding-right: 10px;
-        text-align: right;
-        line-height: 1;
-        text-transform: uppercase;
-    }
-
-    .t-value {
-        width: 100px;
-        font-size: 13px; /* Increased */
-        font-weight: 700;
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        padding-right: 10px;
-        border-left: 1px solid #cbd5e1;
-        background-color: white;
-    }
-
-    .final-total .t-label {
-        background-color: #334155;
-        color: white;
-        font-size: 14px; /* Increased */
-    }
-    .final-total .t-value {
-        background-color: #e2e8f0;
-        font-size: 20px; /* SUPER LEGIBLE */
-        font-weight: 900;
-        color: #0f172a;
-    }
+    .sig-block { text-align: center; width: 30%; }
+    .sig-line { border-top: 1px solid #0f172a; margin-bottom: 5px; width: 100%; display: block; }
+    .sig-label { font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase; }
 `;
 
 const openPrintWindow = (content: string) => {
@@ -350,7 +147,56 @@ const openPrintWindow = (content: string) => {
     }
 };
 
-// ... (Keep existing generateInvoiceHalf, printInvoice, printOrderInvoice, etc.) ...
+// ... (Keep existing generateInvoiceCss and generateInvoiceHalf) ...
+const generateInvoiceCss = (settings: BusinessSettings) => `
+    ${BASE_CSS}
+    @page { 
+        size: letter landscape; 
+        margin: ${settings.invoicePadding || 10}px; 
+    }
+    /* ... Invoice CSS kept same as previous correct version ... */
+    .page-container { display: flex; width: 100%; height: 98vh; gap: 20px; justify-content: center; align-items: stretch; }
+    .invoice-panel { flex: 1; border: 2px solid #1e293b; border-radius: 6px; display: flex; flex-direction: column; height: 100%; overflow: hidden; box-sizing: border-box; }
+    .header-bar { background-color: #1e293b; color: white; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f172a; }
+    .header-title { font-weight: 800; font-size: 20px; letter-spacing: 1px; text-transform: uppercase; }
+    .header-tag { background-color: white; color: #1e293b; font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 4px; text-transform: uppercase; }
+    .brand-row { display: flex; height: 70px; border-bottom: 1px solid #334155; }
+    .logo-area { width: 130px; display: flex; align-items: center; justify-content: center; padding: 5px; border-right: 1px solid #e2e8f0; }
+    .logo-area img { max-height: 60px; max-width: 100%; object-fit: contain; }
+    .company-info { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #f8fafc; padding: 0 15px; }
+    .company-name { font-weight: 800; font-size: 18px; color: #334155; text-transform: uppercase; margin-bottom: 2px; }
+    .company-details { font-size: 11px; color: #475569; text-align: center; line-height: 1.3; font-weight: 500; }
+    .ticket-id-box { width: 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #fff; border-left: 2px solid #334155; }
+    .ticket-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .ticket-value { font-size: 20px; font-weight: 800; color: #ef4444; }
+    .info-grid { display: grid; grid-template-columns: 85px 1fr 85px 1fr; font-size: 12px; border-bottom: 2px solid #1e293b; }
+    .info-cell { display: flex; align-items: center; padding: 5px 8px; border-bottom: 1px solid #e2e8f0; height: 24px; overflow: hidden; }
+    .info-label { background-color: #e2e8f0; font-weight: 700; color: #1e293b; text-transform: uppercase; border-right: 1px solid #94a3b8; font-size: 11px; }
+    .info-value { font-weight: 600; color: #0f172a; white-space: nowrap; border-right: 1px solid #e2e8f0; }
+    .info-value:last-child { border-right: none; }
+    .table-wrapper { flex: 1; display: flex; flex-direction: column; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th { background-color: #f1f5f9; color: #334155; font-weight: 800; text-transform: uppercase; padding: 6px 8px; border-bottom: 2px solid #334155; border-right: 1px solid #cbd5e1; height: 20px; }
+    thead th:last-child { border-right: none; }
+    tbody td { padding: 5px 8px; border-bottom: 1px solid #f1f5f9; border-right: 1px solid #f1f5f9; color: #334155; height: 20px; font-weight: 500; }
+    tbody td:last-child { border-right: none; }
+    .col-price { text-align: right; width: 75px; }
+    .col-qty { text-align: center; width: 50px; font-weight: bold; }
+    .col-total { text-align: right; width: 85px; font-weight: bold; background-color: #f8fafc; }
+    .row-empty td { border: none; }
+    .footer-section { height: 120px; border-top: 2px solid #1e293b; display: flex; }
+    .footer-left { flex: 1; padding: 10px; display: flex; flex-direction: column; justify-content: flex-end; }
+    .signature-area { border-top: 2px solid #94a3b8; text-align: center; font-size: 10px; font-weight: 600; color: #64748b; padding-top: 4px; width: 80%; margin: 0 auto; }
+    .footer-right { width: 260px; border-left: 2px solid #1e293b; display: flex; flex-direction: column; }
+    .total-row { flex: 1; display: flex; align-items: stretch; border-bottom: 1px solid #cbd5e1; }
+    .total-row:last-child { border-bottom: none; flex: 1.5; }
+    .t-label { flex: 1; background-color: #f1f5f9; font-size: 11px; font-weight: 700; color: #475569; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; text-align: right; line-height: 1; text-transform: uppercase; }
+    .t-value { width: 100px; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; border-left: 1px solid #cbd5e1; background-color: white; }
+    .final-total .t-label { background-color: #334155; color: white; font-size: 14px; }
+    .final-total .t-value { background-color: #e2e8f0; font-size: 20px; font-weight: 900; color: #0f172a; }
+`;
+
+// ... (Keep generateInvoiceHalf, printInvoice, printOrderInvoice same as before) ...
 const generateInvoiceHalf = (type: string, t: Transaction, c: any, settings: BusinessSettings) => {
     const minRows = 12; 
     const emptyRows = Math.max(0, minRows - t.items.length);
@@ -545,30 +391,19 @@ export const printProductionSummary = (
     settings: BusinessSettings,
     products: Product[]
 ) => {
-    // 1. Group items by ID/Variant
+    // 1. Group items by ID/Variant for TOTALS (Step 1 & 2)
     const summaryItems: Record<string, any> = {};
     orders.forEach(o => o.items.forEach(i => {
         const key = i.variantId ? `${i.id}-${i.variantId}` : i.id;
         if (!summaryItems[key]) {
-            summaryItems[key] = { 
-                ...i, 
-                totalQty: 0, 
-                orders: [] 
-            };
+            summaryItems[key] = { ...i, totalQty: 0 };
         }
         summaryItems[key].totalQty += i.quantity;
-        
-        // Add ref: "#1234 (Juan): 2"
-        const orderRef = `#${o.id.slice(-4)} ${o.customerName.split(' ')[0]}: ${i.quantity}`;
-        if (!summaryItems[key].orders.includes(orderRef)) {
-             summaryItems[key].orders.push(orderRef);
-        }
     }));
 
     // 2. Logic: Split into "To Produce" (Diff) and "To Pick" (Stock)
     const toProduce: any[] = [];
     const toPick: any[] = [];
-    const distribution: any[] = [];
 
     Object.values(summaryItems).forEach(item => {
         let currentStock = 0;
@@ -587,26 +422,40 @@ export const printProductionSummary = (
         const pickQty = Math.min(required, Math.max(0, currentStock));
         const makeQty = Math.max(0, required - Math.max(0, currentStock));
 
-        if (makeQty > 0) {
-            toProduce.push({ ...item, qty: makeQty });
-        }
-        
-        if (pickQty > 0) {
-            toPick.push({ ...item, qty: pickQty });
-        }
-
-        distribution.push(item);
+        if (makeQty > 0) toProduce.push({ ...item, qty: makeQty });
+        if (pickQty > 0) toPick.push({ ...item, qty: pickQty });
     });
 
-    // Helper to render grid items
+    // Helper to render grid items for Step 1 and 2
     const renderGridItems = (items: any[]) => items.map(item => `
-        <div class="item-card highlight">
-            <span class="qty-badge">${item.qty}</span>
-            <div class="item-name">
-                ${item.name}
-                ${item.variantName ? `<span class="item-meta">${item.variantName}</span>` : ''}
+        <div class="summary-card highlight">
+            <div class="qty-box">${item.qty}</div>
+            <div class="item-info">
+                <span class="item-name">${item.name}</span>
+                ${item.variantName ? `<span class="item-variant">${item.variantName}</span>` : ''}
             </div>
-            <div class="check-box"></div>
+        </div>
+    `).join('');
+
+    // --- STEP 3: DISTRIBUTION (PER CUSTOMER CARD) ---
+    const renderOrderCards = () => orders.map(order => `
+        <div class="order-card">
+            <div class="order-header">
+                <span class="customer-name">${order.customerName}</span>
+                <span class="order-id">#${order.id.slice(-4)}</span>
+            </div>
+            <div class="order-body">
+                ${order.items.map(item => `
+                    <div class="order-item-row">
+                        <div class="check-circle"></div>
+                        <span class="item-qty">${item.quantity}</span>
+                        <span class="item-detail">
+                            ${item.name} ${item.variantName ? `<small>(${item.variantName})</small>` : ''}
+                        </span>
+                    </div>
+                `).join('')}
+            </div>
+            ${order.notes ? `<div class="order-footer"><strong>Nota:</strong> ${order.notes}</div>` : ''}
         </div>
     `).join('');
 
@@ -630,68 +479,50 @@ export const printProductionSummary = (
             </div>
 
             <!-- PASO 1: PRODUCCIÓN / FALTANTE -->
-            <div class="step-container">
+            <div class="step-section">
                 <div class="step-header">
-                    <div class="step-number">1</div>
-                    <span class="step-title">PRODUCCIÓN / FALTANTE (FABRICAR)</span>
+                    <div class="step-badge">1</div>
+                    <span class="step-title">FALTANTE / FABRICAR</span>
+                    <span class="step-desc">Lo que no hay en stock</span>
                 </div>
                 ${toProduce.length > 0 ? `
-                    <div class="items-grid">
+                    <div class="summary-grid">
                         ${renderGridItems(toProduce)}
                     </div>
                 ` : '<div style="padding:10px; font-style:italic; color:#64748b;">Nada por fabricar. Todo en stock.</div>'}
             </div>
 
             <!-- PASO 2: BODEGA / STOCK -->
-            <div class="step-container">
-                <div class="step-header" style="background: #475569;">
-                    <div class="step-number">2</div>
-                    <span class="step-title">BODEGA / ALMACÉN (TOMAR)</span>
+            <div class="step-section">
+                <div class="step-header">
+                    <div class="step-badge" style="background:#475569;">2</div>
+                    <span class="step-title">TOMAR DE BODEGA</span>
+                    <span class="step-desc">Lo que ya está listo</span>
                 </div>
                 ${toPick.length > 0 ? `
-                    <div class="items-grid">
+                    <div class="summary-grid">
                         ${renderGridItems(toPick)}
                     </div>
                 ` : '<div style="padding:10px; font-style:italic; color:#64748b;">No se requiere stock de bodega.</div>'}
             </div>
 
-            <!-- PASO 3: DISTRIBUCIÓN -->
-            <div class="step-container">
-                <div class="step-header" style="background: #cbd5e1; color: #0f172a;">
-                    <div class="step-number" style="background: #0f172a; color: white;">3</div>
-                    <span class="step-title">DISTRIBUCIÓN POR PEDIDO</span>
+            <!-- PASO 3: DISTRIBUCIÓN (DESGLOSE POR CLIENTE) -->
+            <div class="step-section">
+                <div class="step-header" style="border-color:#0f172a;">
+                    <div class="step-badge" style="background:#0f172a;">3</div>
+                    <span class="step-title">DISTRIBUCIÓN / EMPAQUE</span>
+                    <span class="step-desc">Armado de pedidos</span>
                 </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width:30px">OK</th>
-                            <th style="width:50px">TOTAL</th>
-                            <th>PRODUCTO / VARIANTE</th>
-                            <th>DETALLE DE PEDIDOS</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${distribution.map(item => `
-                            <tr>
-                                <td><div class="check-box"></div></td>
-                                <td style="font-weight:900; font-size:14px; text-align:center;">${item.totalQty}</td>
-                                <td>
-                                    <div style="font-weight:bold;">${item.name}</div>
-                                    ${item.variantName ? `<div style="font-size:10px; color:#64748b;">${item.variantName}</div>` : ''}
-                                </td>
-                                <td>
-                                    ${item.orders.map((o: string) => `<span class="dist-tag">${o}</span>`).join('')}
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
+                
+                <div class="orders-container">
+                    ${renderOrderCards()}
+                </div>
             </div>
 
-            <div class="footer">
-                <div>CONTROL DE CALIDAD</div>
-                <div>EMPAQUE Y ENVÍO</div>
-                <div>FIRMA RESPONSABLE</div>
+            <div class="footer-signatures">
+                <div class="sig-block"><span class="sig-line"></span><span class="sig-label">PRODUCCIÓN</span></div>
+                <div class="sig-block"><span class="sig-line"></span><span class="sig-label">ALMACÉN / BODEGA</span></div>
+                <div class="sig-block"><span class="sig-line"></span><span class="sig-label">CONTROL CALIDAD Y EMPAQUE</span></div>
             </div>
         </body>
         </html>
@@ -700,6 +531,7 @@ export const printProductionSummary = (
     openPrintWindow(html);
 };
 
+// ... (Rest of the file: printProductionTicket, printProductionMasterList, printThermalTicket, etc. remains unchanged) ...
 export const printProductionTicket = async (
     order: Order,
     settings: BusinessSettings,
