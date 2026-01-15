@@ -1,5 +1,4 @@
 
-// ... existing imports
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { 
     Product, Customer, Supplier, Transaction, CashMovement, Order, Purchase, 
@@ -46,7 +45,6 @@ const DEFAULT_SETTINGS: BusinessSettings = {
 };
 
 interface StoreContextType {
-// ... existing interface methods
     products: Product[];
     customers: Customer[];
     suppliers: Supplier[];
@@ -57,7 +55,7 @@ interface StoreContextType {
     users: User[];
     userInvites: UserInvite[];
     activityLogs: ActivityLog[];
-    periodClosures: PeriodClosure[]; // NEW
+    periodClosures: PeriodClosure[]; 
     settings: BusinessSettings;
     currentUser: User | null;
     toasts: ToastNotification[];
@@ -82,7 +80,7 @@ interface StoreContextType {
     deleteTransaction: (id: string, items: any[]) => void;
     registerTransactionPayment: (id: string, amount: number, method: 'cash' | 'card' | 'transfer') => void;
     updateStockAfterSale: (items: any[]) => void;
-    rectifyTransactionChannel: (transactionId: string) => void; // NEW METHOD
+    rectifyTransactionChannel: (transactionId: string) => void;
 
     addCustomer: (customer: Customer) => void;
     updateCustomer: (customer: Customer) => void;
@@ -98,7 +96,7 @@ interface StoreContextType {
     addCashMovement: (movement: CashMovement) => void;
     deleteCashMovement: (id: string) => void;
 
-    addPeriodClosure: (closure: PeriodClosure) => void; // NEW
+    addPeriodClosure: (closure: PeriodClosure) => void;
 
     addOrder: (order: Order) => void;
     updateOrder: (order: Order) => void;
@@ -146,7 +144,7 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    // ... State definitions (unchanged) ...
+    // ... State definitions ...
     const [products, setProducts] = useState<Product[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -157,7 +155,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [users, setUsers] = useState<User[]>([]);
     const [userInvites, setUserInvites] = useState<UserInvite[]>([]);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
-    const [periodClosures, setPeriodClosures] = useState<PeriodClosure[]>([]); // NEW STATE
+    const [periodClosures, setPeriodClosures] = useState<PeriodClosure[]>([]);
     const [settings, setSettings] = useState<BusinessSettings>(DEFAULT_SETTINGS);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -175,7 +173,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Derived
     const categories = Array.from(new Set(products.map(p => p.category))).sort();
 
-    // Refs (unchanged)
+    // Refs
     const storeRef = useRef({
         products, customers, suppliers, transactions, cashMovements, orders, purchases, users, userInvites, activityLogs, periodClosures, settings
     });
@@ -189,8 +187,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         pendingChangesRef.current = hasPendingChanges;
     }, [hasPendingChanges]);
 
-    // ... Load and Save Effects (unchanged) ...
-    // Load from LocalStorage on mount
+    // ... Load and Save Effects ...
     useEffect(() => {
         const load = (key: string, setter: any, def: any) => {
             const stored = localStorage.getItem(key);
@@ -207,7 +204,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         load('users', setUsers, []);
         load('userInvites', setUserInvites, []);
         load('activityLogs', setActivityLogs, []);
-        load('periodClosures', setPeriodClosures, []); // NEW
+        load('periodClosures', setPeriodClosures, []);
         load('settings', setSettings, DEFAULT_SETTINGS);
         
         // Recover session if exists
@@ -226,14 +223,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     useEffect(() => { localStorage.setItem('users', JSON.stringify(users)); }, [users]);
     useEffect(() => { localStorage.setItem('userInvites', JSON.stringify(userInvites)); }, [userInvites]);
     useEffect(() => { localStorage.setItem('activityLogs', JSON.stringify(activityLogs)); }, [activityLogs]);
-    useEffect(() => { localStorage.setItem('periodClosures', JSON.stringify(periodClosures)); }, [periodClosures]); // NEW
+    useEffect(() => { localStorage.setItem('periodClosures', JSON.stringify(periodClosures)); }, [periodClosures]);
     useEffect(() => { localStorage.setItem('settings', JSON.stringify(settings)); }, [settings]);
     useEffect(() => { 
         if (currentUser) localStorage.setItem('currentUser', JSON.stringify(currentUser));
         else localStorage.removeItem('currentUser');
     }, [currentUser]);
 
-    // ... Helper functions (notify, etc) ...
+    // ... Helper functions ...
     const notify = (title: string, message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
         const id = Date.now().toString();
         setToasts(prev => [...prev, { id, title, message, type }]);
@@ -267,21 +264,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setActivityLogs(prev => [log, ...prev].slice(0, 1000));
     };
 
-    // ... CRUD Methods (unchanged until Purchases) ...
+    // Helper to immediately block external syncs
+    const flagChange = () => {
+        setHasPendingChanges(true);
+        pendingChangesRef.current = true;
+    };
+
+    // ... CRUD Methods ...
     const addProduct = (p: Product) => {
         const newProduct = { ...p, id: p.id || (settings.sequences.productStart + products.length).toString() };
         setProducts(prev => [...prev, newProduct]);
-        setHasPendingChanges(true);
+        flagChange();
         logActivity('INVENTORY', `Producto creado: ${p.name}`);
     };
     const updateProduct = (p: Product) => {
         setProducts(prev => prev.map(item => item.id === p.id ? p : item));
-        setHasPendingChanges(true);
+        flagChange();
         logActivity('INVENTORY', `Producto actualizado: ${p.name}`);
     };
     const deleteProduct = (id: string) => {
         setProducts(prev => prev.filter(p => p.id !== id));
-        setHasPendingChanges(true);
+        flagChange();
         logActivity('INVENTORY', `Producto eliminado: ${id}`);
     };
     const adjustStock = (id: string, qty: number, type: 'IN' | 'OUT', variantId?: string) => {
@@ -298,7 +301,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
             return p;
         }));
-        setHasPendingChanges(true);
+        flagChange();
     };
     const addCategory = (c: string) => { };
     const removeCategory = (c: string) => { };
@@ -310,7 +313,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (options?.shouldAffectCash !== false) {
             const amount = t.amountPaid || t.total;
             if (amount > 0) {
-                // Determine Channel (Cash or Virtual)
                 if (t.paymentMethod === 'cash') {
                     addCashMovement({
                         id: crypto.randomUUID(),
@@ -368,12 +370,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
         }
         
-        setHasPendingChanges(true);
+        flagChange();
         logActivity('SALE', `Venta registrada #${t.id}`);
         notify("Venta Exitosa", `Ticket #${t.id} guardado.`);
     };
 
-    // --- RECTIFY TRANSACTION (FIX PAST SALES) ---
     const rectifyTransactionChannel = (transactionId: string) => {
         const tx = transactions.find(t => t.id === transactionId);
         if (!tx) return;
@@ -381,13 +382,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         let targetChannel: 'CASH' | 'VIRTUAL' = 'CASH';
         if (tx.paymentMethod === 'card' || tx.paymentMethod === 'transfer') targetChannel = 'VIRTUAL';
         
-        // Find associated movements
         let found = false;
         let anyChanges = false;
 
         setCashMovements(prev => {
             const updated = prev.map(m => {
-                // Improved matching: Look for ID within description strings
                 if (m.type === 'DEPOSIT' && (m.description.includes(`#${tx.id}`) || m.description.includes(`Venta ${tx.id}`))) {
                     found = true;
                     if (m.channel !== targetChannel) {
@@ -400,7 +399,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return updated;
         });
 
-        // If not found, CREATE IT (Retroactive fix)
         if (!found) {
             const missingAmount = tx.amountPaid || tx.total;
             if (missingAmount > 0) {
@@ -408,20 +406,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     id: crypto.randomUUID(),
                     type: 'DEPOSIT',
                     amount: missingAmount,
-                    description: `Venta #${tx.id} (Sincronizada)`, // Mark as synced/restored
-                    date: tx.date, // Use ORIGINAL date to keep history correct
+                    description: `Venta #${tx.id} (Sincronizada)`, 
+                    date: tx.date, 
                     category: 'SALES',
                     customerId: tx.customerId,
                     channel: targetChannel
                 });
                 notify("Corrección Aplicada", `Movimiento faltante RECREADO en cuenta ${targetChannel === 'VIRTUAL' ? 'VIRTUAL' : 'EFECTIVO'}.`, "success");
-                setHasPendingChanges(true);
+                flagChange();
             } else {
                  notify("Aviso", "La venta no tiene monto pagado, no se requiere movimiento.", "warning");
             }
         } else if (anyChanges) {
             notify("Sincronizado", `Flujo de venta #${tx.id} actualizado a ${targetChannel === 'VIRTUAL' ? 'VIRTUAL' : 'EFECTIVO'}.`, "success");
-            setHasPendingChanges(true);
+            flagChange();
         } else {
             notify("Info", "El movimiento ya estaba correcto.", "info");
         }
@@ -446,17 +444,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const updateTransaction = (id: string, updates: Partial<Transaction>) => {
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
-        setHasPendingChanges(true);
+        flagChange();
     };
 
     const deleteTransaction = (id: string, items: any[]) => {
         items.forEach(item => adjustStock(item.id, item.quantity, 'IN', item.variantId));
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled' } : t));
-        setHasPendingChanges(true);
+        flagChange();
         logActivity('SALE', `Venta anulada #${id}`);
     };
 
-    // --- REGISTER PAYMENT ---
     const registerTransactionPayment = (id: string, amount: number, method: 'cash' | 'card' | 'transfer') => {
         const tx = transactions.find(t => t.id === id);
         if (!tx) return;
@@ -469,7 +466,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setCustomers(prev => prev.map(c => c.id === tx.customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c));
         }
 
-        // Handle Channel
         const channel = method === 'cash' ? 'CASH' : 'VIRTUAL';
         
         addCashMovement({
@@ -483,23 +479,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             channel: channel
         });
         
-        setHasPendingChanges(true);
+        flagChange();
     };
 
     const addCustomer = (c: Customer) => {
         const newC = { ...c, id: c.id || (settings.sequences.customerStart + customers.length).toString() };
         setCustomers(prev => [...prev, newC]);
-        setHasPendingChanges(true);
+        flagChange();
     };
     const updateCustomer = (c: Customer) => {
         setCustomers(prev => prev.map(item => item.id === c.id ? c : item));
-        setHasPendingChanges(true);
+        flagChange();
     };
     const deleteCustomer = (id: string) => {
         setCustomers(prev => prev.filter(c => c.id !== id));
-        setHasPendingChanges(true);
+        flagChange();
     };
-    // Default to Cash for manual customer payment unless extended later
     const processCustomerPayment = (id: string, amount: number) => {
         setCustomers(prev => prev.map(c => c.id === id ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c));
         addCashMovement({
@@ -512,22 +507,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             customerId: id,
             channel: 'CASH'
         });
-        setHasPendingChanges(true);
+        flagChange();
     };
 
     const addSupplier = (s: Supplier) => {
         setSuppliers(prev => [...prev, s]);
-        setHasPendingChanges(true);
+        flagChange();
     };
     const updateSupplier = (s: Supplier) => {
         setSuppliers(prev => prev.map(item => item.id === s.id ? s : item));
-        setHasPendingChanges(true);
+        flagChange();
     };
     const deleteSupplier = (id: string) => {
         setSuppliers(prev => prev.filter(s => s.id !== id));
-        setHasPendingChanges(true);
+        flagChange();
     };
-    // Purchase affects Cash by default (Operational Expense)
     const addPurchase = (p: Purchase) => {
         setPurchases(prev => [p, ...prev]);
         p.items.forEach(item => adjustStock(item.productId, item.quantity, 'IN', item.variantId));
@@ -538,9 +532,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             description: `Compra Proveedor: ${p.supplierName}`,
             date: p.date,
             category: 'OPERATIONAL',
-            channel: 'CASH' // Purchases typically default to cash here, or we could add a selector in Purchase Form later
+            channel: 'CASH'
         });
-        setHasPendingChanges(true);
+        flagChange();
     };
 
     const deletePurchase = (id: string) => {
@@ -554,29 +548,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setCashMovements(prev => prev.filter(m => m.date !== purchase.date));
         setPurchases(prev => prev.filter(p => p.id !== id));
 
-        setHasPendingChanges(true);
+        flagChange();
         logActivity('INVENTORY', `Compra eliminada: ${purchase.supplierName} - Stock revertido`);
         notify("Compra Eliminada", "Stock descontado y dinero devuelto a caja.", "success");
     };
 
     const addCashMovement = (m: CashMovement) => {
         setCashMovements(prev => [m, ...prev]);
-        setHasPendingChanges(true);
+        flagChange();
     };
     const deleteCashMovement = (id: string) => {
         setCashMovements(prev => prev.filter(m => m.id !== id));
-        setHasPendingChanges(true);
+        flagChange();
     };
 
     const addPeriodClosure = (closure: PeriodClosure) => {
         setPeriodClosures(prev => [...prev, closure]);
-        setHasPendingChanges(true);
+        flagChange();
         logActivity('SETTINGS', `Cierre de periodo realizado: ${closure.periodStart} - ${closure.periodEnd}`);
     };
 
     const addOrder = (o: Order) => {
-        // Calculate distinct ID based on max existing numeric ID to prevent collisions
-        // Prevents duplications when array length changes due to deletions
         let newId = o.id;
         if (!newId) {
             const maxId = orders.reduce((max, order) => {
@@ -588,31 +580,41 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         const newO = { ...o, id: newId };
         setOrders(prev => [...prev, newO]);
-        setHasPendingChanges(true);
+        flagChange();
     };
     const updateOrder = (o: Order) => {
         setOrders(prev => prev.map(item => item.id === o.id ? o : item));
-        setHasPendingChanges(true);
+        flagChange();
     };
     
     const updateOrderStatus = (id: string, status: string) => {
         setOrders(prev => prev.map(o => o.id === id ? { ...o, status: status as any } : o));
-        setHasPendingChanges(true);
+        flagChange();
         if(settings.enableCloudSync) setTimeout(() => pushToCloud(), 200); 
     };
 
     const completeOrder = (id: string) => {
         setOrders(prev => prev.map(o => o.id === id ? { ...o, status: 'COMPLETED' } : o));
-        setHasPendingChanges(true);
+        flagChange();
         logActivity('ORDER', `Pedido completado y entregado #${id}`);
         if(settings.enableCloudSync) setTimeout(() => pushToCloud(), 200);
     };
 
     const deleteOrder = (id: string) => {
-        setOrders(prev => prev.filter(o => o.id !== id));
-        setHasPendingChanges(true);
+        setOrders(prev => {
+            const updated = prev.filter(o => o.id !== id);
+            // Sync ref immediately to allow instant push with correct data
+            storeRef.current.orders = updated;
+            return updated;
+        });
+        
+        flagChange();
         logActivity('ORDER', `Pedido eliminado #${id}`);
-        if(settings.enableCloudSync) setTimeout(() => pushToCloud(), 200);
+        
+        if(settings.enableCloudSync) {
+            // Force push immediately to clear it from cloud
+            setTimeout(() => pushToCloud(), 200);
+        }
     };
 
     const convertOrderToSale = (o: Order) => { };
@@ -623,7 +625,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const updateSettings = (s: BusinessSettings) => {
         setSettings(s);
-        setHasPendingChanges(true);
+        flagChange();
     };
 
     const importData = async (data: any) => {
@@ -669,15 +671,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const addUser = (u: User) => {
         setUsers(prev => [...prev, u]);
-        setHasPendingChanges(true);
+        flagChange();
     };
     const updateUser = (u: User) => {
         setUsers(prev => prev.map(item => item.id === u.id ? u : item));
-        setHasPendingChanges(true);
+        flagChange();
     };
     const deleteUser = (id: string) => {
         setUsers(prev => prev.filter(u => u.id !== id));
-        setHasPendingChanges(true);
+        flagChange();
     };
 
     const generateInvite = (role: UserRole) => {
@@ -736,7 +738,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const newUsers = [...users];
         newUsers[userIndex] = updatedUser;
         setUsers(newUsers);
-        setHasPendingChanges(true);
+        flagChange();
         return 'SUCCESS';
     };
 
@@ -760,20 +762,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const pullFromCloud = async (url?: string, secret?: string, silent?: boolean, force?: boolean) => {
         if (!settings.enableCloudSync && !force) return false;
+        
+        // Block pull if we have local pending changes to avoid overwrite
         if (hasPendingChanges && !force) {
             await pushToCloud();
             return false;
         }
+        if (pendingChangesRef.current && !force) {
+            return false;
+        }
+
         setIsSyncing(true);
         try {
             const data = await fetchFullDataFromCloud(url || settings.googleWebAppUrl || '', secret || settings.cloudSecret);
+            
+            // Double check pending flag after fetch to avoid race condition
             if (pendingChangesRef.current && !force) {
                 return false;
             }
+
             if (data) {
                 await importData(data);
                 if (!silent) notify("Sincronización", "Datos descargados correctamente.", "success");
                 setHasPendingChanges(false);
+                pendingChangesRef.current = false;
                 return true;
             }
         } catch (e) {
@@ -792,6 +804,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const dataToPush = overrideData || storeRef.current;
             await pushFullDataToCloud(settings.googleWebAppUrl || '', settings.cloudSecret, dataToPush);
             setHasPendingChanges(false);
+            pendingChangesRef.current = false;
             return true;
         } catch (e) {
             notify("Error de Sync", "No se pudo subir a la nube.", "error");
@@ -855,6 +868,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (settings.enableCloudSync && settings.googleWebAppUrl) {
             intervalId = setInterval(() => {
                 if (isSyncing) return;
+                // Use Ref for check to get latest value immediately
                 if (pendingChangesRef.current) {
                     pushToCloud().catch(console.error);
                 } else {
