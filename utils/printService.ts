@@ -1,14 +1,14 @@
 
+// ... keep imports
 import { Transaction, BusinessSettings, CashMovement, Order, CartItem, Product } from '../types';
 import { generateEscPosTicket, generateEscPosZReport, generateProductionTicket, generateConsolidatedProduction, generateMonthEndTicket } from './escPosHelper';
 
-// Estilos CSS base compartidos
+// ... keep BASE_CSS and PRODUCTION_CSS (unchanged)
 const BASE_CSS = `
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; background-color: #fff; }
 `;
 
-// Estilos específicos para la Hoja de Producción Optimizada
 const PRODUCTION_CSS = `
     ${BASE_CSS}
     body { font-size: 11px; margin: 30px 40px; color: #0f172a; line-height: 1.3; }
@@ -443,10 +443,13 @@ export const printProductionSummary = (
     const renderOrderBlocks = () => orders.map(order => `
         <div class="order-block">
             <div class="order-head">
-                <span class="order-client">
-                    ${order.customerName.length > 22 ? order.customerName.substring(0, 22) + '...' : order.customerName}
-                    ${order.priority === 'HIGH' ? '<span class="order-urgent">!</span>' : ''}
-                </span>
+                <div style="display:flex; flex-direction:column;">
+                    <span class="order-client">
+                        ${order.customerName.length > 20 ? order.customerName.substring(0, 20) + '...' : order.customerName}
+                        ${order.priority === 'HIGH' ? '<span class="order-urgent">!</span>' : ''}
+                    </span>
+                    ${order.deliveryDate ? `<span style="font-size:9px; font-weight:normal; opacity:0.9;">📅 ${new Date(order.deliveryDate).toLocaleDateString()}</span>` : ''}
+                </div>
                 <span class="order-ref">#${order.id.slice(-4)}</span>
             </div>
             <div class="order-items">
