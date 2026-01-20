@@ -1,15 +1,15 @@
-
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { generateBusinessInsight } from '../services/geminiService';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ReferenceLine } from 'recharts';
-import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList, Factory, ArrowLeft, ArrowRight, Wallet, Clock, Archive, Check } from 'lucide-react';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ReferenceLine, ComposedChart, Line } from 'recharts';
+import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList, Factory, ArrowLeft, ArrowRight, Wallet, Clock, Archive, Check, CreditCard, Banknote } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { printFinancialReport, printZCutTicket, printMonthEndTicket, printMonthEndReportPDF } from '../utils/printService';
 import { Transaction, CashMovement, PeriodClosure } from '../types';
 
 // --- COLORS FOR CHARTS ---
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#f97316'];
+const PAY_COLORS = { cash: '#10b981', card: '#3b82f6', transfer: '#8b5cf6', credit: '#f43f5e', split: '#f59e0b' };
 
 type DateRangeOption = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 type ReportTab = 'GENERAL' | 'Z_HISTORY' | 'DISTRIBUTION' | 'INVENTORY';
@@ -57,7 +57,8 @@ export const Reports: React.FC = () => {
       categoryData,
       expenseCategoryData,
       thirdPartyMetrics,
-      zReportHistory
+      zReportHistory,
+      paymentChartData
   } = useMemo(() => {
       // ... (Same logic as existing code)
       const now = new Date();
@@ -101,7 +102,7 @@ export const Reports: React.FC = () => {
       const validMovs = cashMovements.filter((m: CashMovement) => isInRange(m.date));
       const zHistory = cashMovements.filter((m: CashMovement) => m.isZCut).sort((a: CashMovement, b: CashMovement) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-      const daysMap = new Map<string, { date: string, rawDate: number, sales: number, expenses: number }>();
+      const daysMap = new Map<string, { date: string, rawDate: number, sales: number, expenses: number, profit: number }>();
       const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
       
       if (diffDays <= 60) {
@@ -109,7 +110,7 @@ export const Reports: React.FC = () => {
           while (iterDate <= endDate) {
               const label = iterDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
               const key = `${iterDate.getFullYear()}-${iterDate.getMonth()}-${iterDate.getDate()}`; 
-              daysMap.set(key, { date: label, rawDate: iterDate.getTime(), sales: 0, expenses: 0 });
+              daysMap.set(key, { date: label, rawDate: iterDate.getTime(), sales: 0, expenses: 0, profit: 0 });
               iterDate.setDate(iterDate.getDate() + 1);
           }
       }
@@ -117,14 +118,22 @@ export const Reports: React.FC = () => {
       validTx.forEach((t: Transaction) => {
           const d = new Date(t.date);
           const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-          if (daysMap.has(key)) daysMap.get(key)!.sales += t.total;
+          if (daysMap.has(key)) {
+              const entry = daysMap.get(key)!;
+              entry.sales += t.total;
+              entry.profit += t.total; // Start with sales
+          }
       });
 
       validMovs.forEach((m: CashMovement) => {
           if (m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')) {
               const d = new Date(m.date);
               const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-              if (daysMap.has(key)) daysMap.get(key)!.expenses += m.amount;
+              if (daysMap.has(key)) {
+                  const entry = daysMap.get(key)!;
+                  entry.expenses += m.amount;
+                  entry.profit -= m.amount; // Subtract expenses
+              }
           }
       });
 
@@ -165,7 +174,7 @@ export const Reports: React.FC = () => {
               catMap.set(cat, (catMap.get(cat) || 0) + (item.price * item.quantity));
           });
       });
-      const categoryArray = Array.from(catMap.entries()).map(([name, value]) => ({ name, value }));
+      const categoryArray = Array.from(catMap.entries()).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 7);
 
       const expMap = new Map<string, number>();
       validMovs.filter((m: CashMovement) => m.type === 'EXPENSE').forEach((m: CashMovement) => {
@@ -176,10 +185,25 @@ export const Reports: React.FC = () => {
       if (payouts > 0) expMap.set('Pagos a Terceros', payouts);
       const expenseCategoryArray = Array.from(expMap.entries()).map(([name, value]) => ({ name, value }));
 
-      return { filteredTransactions: validTx, filteredMovements: validMovs, chartData: chartDataArray, summaryMetrics: { totalSales, totalMoneyOut, avgTicket, transactionCount, netEstimate }, thirdPartyMetrics: { total: thirdPartySales, own: ownSales }, topProducts: topProductsArray, categoryData: categoryArray, expenseCategoryData: expenseCategoryArray, zReportHistory: zHistory };
+      // --- Payment Methods Data ---
+      const payMap = new Map<string, number>();
+      validTx.forEach(t => {
+          let label = 'Otros';
+          if (t.paymentMethod === 'cash') label = 'Efectivo';
+          else if (t.paymentMethod === 'card') label = 'Tarjeta';
+          else if (t.paymentMethod === 'transfer') label = 'Transferencia';
+          else if (t.paymentMethod === 'credit') label = 'Crédito';
+          else if (t.paymentMethod === 'split') label = 'Dividido';
+          
+          payMap.set(label, (payMap.get(label) || 0) + t.total);
+      });
+      const paymentChartData = Array.from(payMap.entries()).map(([name, value]) => ({ name, value }));
+
+      return { filteredTransactions: validTx, filteredMovements: validMovs, chartData: chartDataArray, summaryMetrics: { totalSales, totalMoneyOut, avgTicket, transactionCount, netEstimate }, thirdPartyMetrics: { total: thirdPartySales, own: ownSales }, topProducts: topProductsArray, categoryData: categoryArray, expenseCategoryData: expenseCategoryArray, zReportHistory: zHistory, paymentChartData };
   }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
-  // --- UPDATED: DISTRIBUTION METRICS (FISCAL PERIOD LOGIC) ---
+  // ... (Rest of logic: getPeriodDates, distMetrics, currentPeriodClosure, inventoryMetrics, handleSmartAnalysis, etc.) ...
+  // (Keep exactly as original code, just omitting for brevity in this snippet as they don't change)
   const getPeriodDates = (offset: number) => {
       const config = settings.budgetConfig;
       const startDateStr = config.fiscalStartDate || new Date().toISOString().split('T')[0];
@@ -250,7 +274,6 @@ export const Reports: React.FC = () => {
       const daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
       const isCurrentPeriod = selectedPeriodOffset === 0;
 
-      // TOP PRODUCTS IN PERIOD (FOR REPORT)
       const periodProducts = new Map<string, {name:string, qty:number, total:number}>();
       relevantTx.forEach((t: Transaction) => t.items.forEach((i: any) => {
           const curr = periodProducts.get(i.id) || {name:i.name, qty:0, total:0};
@@ -259,7 +282,6 @@ export const Reports: React.FC = () => {
       }));
       const topPeriodProducts = Array.from(periodProducts.values()).sort((a,b) => b.total - a.total).slice(0, 10);
 
-      // TOP CUSTOMERS IN PERIOD (FOR REPORT)
       const periodCustomers = new Map<string, {name:string, total:number}>();
       relevantTx.forEach((t: Transaction) => {
           if(!t.customerId) return;
@@ -284,7 +306,6 @@ export const Reports: React.FC = () => {
       };
   }, [selectedPeriodOffset, transactions, cashMovements, settings.budgetConfig, customers]);
 
-  // --- NEW: CHECK IF PERIOD IS CLOSED ---
   const currentPeriodClosure = useMemo(() => {
       const pStart = distMetrics.periodStart.toISOString().split('T')[0];
       const pEnd = distMetrics.periodEnd.toISOString().split('T')[0];
@@ -295,7 +316,6 @@ export const Reports: React.FC = () => {
       });
   }, [periodClosures, distMetrics.periodStart, distMetrics.periodEnd]);
 
-  // --- ADDED: INVENTORY METRICS CALCULATION ---
   const inventoryMetrics = useMemo(() => {
     let totalStockValue = 0;
     let totalPotentialRevenue = 0;
@@ -526,7 +546,7 @@ export const Reports: React.FC = () => {
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       
-      {/* MONTH END MODAL */}
+      {/* MONTH END MODAL (Same as existing) */}
       {isMonthEndModalOpen && (
           <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full border border-slate-100 dark:border-slate-800 overflow-hidden">
@@ -687,10 +707,11 @@ export const Reports: React.FC = () => {
           )}
         </div>
 
-        {/* ... (GENERAL TAB CONTENT - Keep exactly as existing) ... */}
+        {/* ... (GENERAL TAB CONTENT - UPDATED WITH NEW CHARTS) ... */}
         {activeTab === 'GENERAL' && (
-            <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 animate-[fadeIn_0.3s_ease-out]">
+            <div className="animate-[fadeIn_0.3s_ease-out]">
+                {/* SUMMARY CARDS */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden group">
                         <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><TrendingUp className="w-20 h-20 text-indigo-600" /></div>
                         <div className="flex items-center gap-3 mb-4"><div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl"><DollarSign className="w-6 h-6" /></div><div><p className="text-sm font-bold text-slate-500 dark:text-slate-400">Ventas Totales</p><p className="text-[10px] text-slate-400">Propias + Terceros</p></div></div>
@@ -728,10 +749,11 @@ export const Reports: React.FC = () => {
                     )}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8 animate-[slideUp_0.4s_ease-out]">
-                    <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                {/* --- NEW: MAIN CHARTS ROW (Area & Bar) --- */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
                         <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-indigo-500" /> Tendencia de Ventas</h3>
-                        <div className="h-80 w-full">
+                        <div className="h-72 w-full">
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={chartData}>
                                     <defs><linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/><stop offset="95%" stopColor="#6366f1" stopOpacity={0}/></linearGradient></defs>
@@ -744,9 +766,70 @@ export const Reports: React.FC = () => {
                             </ResponsiveContainer>
                         </div>
                     </div>
-                    {/* ... Top Products ... */}
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col">
-                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2"><Package className="w-5 h-5 text-emerald-500" /> Top Productos</h3>
+
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2"><ArrowDownRight className="w-5 h-5 text-emerald-500" /> Ingresos vs Egresos</h3>
+                        <div className="h-72 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+                                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} dy={10} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{fill: textColor, fontSize: 11}} width={40} />
+                                    <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px', backgroundColor: isDark ? '#1e293b' : '#fff', color: isDark ? '#fff' : '#000'}} />
+                                    <Legend />
+                                    <Bar dataKey="sales" name="Ventas" fill="#10b981" radius={[4, 4, 0, 0]} />
+                                    <Bar dataKey="expenses" name="Gastos" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+                </div>
+
+                {/* --- NEW: SECONDARY CHARTS ROW (Pie & Categories & List) --- */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    {/* Payment Methods */}
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2"><CreditCard className="w-5 h-5 text-blue-500" /> Métodos de Pago</h3>
+                        <div className="h-64 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie data={paymentChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                        {paymentChartData.map((entry, index) => {
+                                            // Map labels to specific colors
+                                            let color = COLORS[index % COLORS.length];
+                                            if (entry.name === 'Efectivo') color = PAY_COLORS.cash;
+                                            if (entry.name === 'Tarjeta') color = PAY_COLORS.card;
+                                            if (entry.name === 'Transferencia') color = PAY_COLORS.transfer;
+                                            if (entry.name === 'Crédito') color = PAY_COLORS.credit;
+                                            if (entry.name === 'Dividido') color = PAY_COLORS.split;
+                                            return <Cell key={`cell-${index}`} fill={color} />;
+                                        })}
+                                    </Pie>
+                                    <Tooltip formatter={(value: number) => `$${value.toFixed(2)}`} contentStyle={{borderRadius:'8px', border:'none'}} />
+                                    <Legend verticalAlign="bottom" height={36}/>
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Sales by Category */}
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2"><Tag className="w-5 h-5 text-orange-500" /> Ventas por Categoría</h3>
+                        <div className="h-64 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={categoryData} layout="vertical" margin={{left: 10, right: 10}}>
+                                    <XAxis type="number" hide />
+                                    <YAxis dataKey="name" type="category" width={80} tick={{fill: textColor, fontSize: 10}} interval={0}/>
+                                    <Tooltip cursor={{fill: 'transparent'}} contentStyle={{borderRadius: '12px', border: 'none', backgroundColor: isDark ? '#1e293b' : '#fff', color: isDark ? '#fff' : '#000'}} />
+                                    <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} barSize={20} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Top Products (Existing List - Adjusted Height) */}
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col h-[360px]">
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2"><Package className="w-5 h-5 text-purple-500" /> Top Productos</h3>
                         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-4">
                             {topProducts.length > 0 ? topProducts.map((p, idx) => (
                                 <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
@@ -760,7 +843,7 @@ export const Reports: React.FC = () => {
                         </div>
                     </div>
                 </div>
-            </>
+            </div>
         )}
 
         {activeTab === 'INVENTORY' && (
