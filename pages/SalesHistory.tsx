@@ -5,6 +5,7 @@ import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
 import { printInvoice, printThermalTicket } from '../utils/printService';
 
+// ... (Existing PaymentIcon and getPaymentLabel helpers remain unchanged) ...
 const PaymentIcon = ({ method }: { method: string }) => {
     switch (method) {
         case 'card': return <CreditCard className="w-4 h-4" />;
@@ -347,7 +348,7 @@ const ManualEntryModal: React.FC<{
     );
 };
 
-// ... (Rest of PaymentModal and other components remain the same) ...
+// ... (Rest of PaymentModal and ReturnModal remain the same) ...
 
 const PaymentModal: React.FC<{
     transaction: Transaction;
@@ -941,9 +942,8 @@ export const SalesHistory: React.FC = () => {
       
       // 2. Prepare Stock Return - Only for STOCK or BOTH
       const stockItems = itemsToReturn.filter(r => r.action === 'STOCK' || r.action === 'BOTH').map(r => ({
-          id: r.item.id.split('-')[0], 
+          ...r.item, // FIX: Spread all properties to satisfy CartItem type
           quantity: -r.item.quantity, // Negative quantity adds stock
-          variantId: r.item.variantId
       }));
 
       // 3. Update Existing Transaction (Subtract Items)
@@ -1004,8 +1004,7 @@ export const SalesHistory: React.FC = () => {
 
       // 6. Return Stock
       if (stockItems.length > 0) {
-          const itemsToRestock = stockItems.map(i => ({...i, quantity: -Math.abs(i.quantity)}));
-          updateStockAfterSale(itemsToRestock);
+          updateStockAfterSale(stockItems);
       }
       
       // Update local view

@@ -71,7 +71,7 @@ interface StoreContextType {
     deleteUser: (id: string) => void;
     generateInvite: (role: UserRole) => string;
     deleteInvite: (code: string) => void;
-    registerWithInvite: (code: string, userData: Partial<User>) => Promise<string>;
+    registerWithInvite: (code: string, userData: Partial<User> & { password?: string; securityAnswer?: string }) => Promise<string>;
 
     addCategory: (cat: string) => void;
     removeCategory: (cat: string) => void;
@@ -629,7 +629,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return code;
     };
     const deleteInvite = (code: string) => { setUserInvites(prev => prev.filter(i => i.code !== code)); flagChange(); };
-    const registerWithInvite = async (code: string, userData: Partial<User>) => {
+    
+    // REGISTER WITH INVITE - UPDATED TYPE SIGNATURE
+    const registerWithInvite = async (code: string, userData: Partial<User> & { password?: string; securityAnswer?: string }) => {
         const invite = userInvites.find(i => i.code === code);
         if (!invite) return 'INVALID_CODE';
         if (users.some(u => u.username.toLowerCase() === userData.username?.toLowerCase())) return 'USERNAME_EXISTS';
