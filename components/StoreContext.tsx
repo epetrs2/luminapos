@@ -306,15 +306,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setTransactions(prev => [t, ...prev]);
         
         if (options?.shouldAffectCash !== false) {
-            // FIX: Usar el monto pagado real. NO usar t.total como respaldo si amountPaid es 0 (Venta Pendiente).
-            const amount = t.amountPaid !== undefined ? t.amountPaid : 0;
+            // FIX LÓGICA: Ventas Pendientes NUNCA deben sumar a caja.
+            // Si estatus es 'pending', amountToAdd es 0.
+            // Si es 'partial' o 'paid', usamos t.amountPaid.
+            const isPending = t.paymentStatus === 'pending';
+            const amountToAdd = (!isPending && t.amountPaid !== undefined) ? t.amountPaid : 0;
             
-            if (amount > 0) {
+            if (amountToAdd > 0) {
                 if (t.paymentMethod === 'cash') {
                     addCashMovement({
                         id: crypto.randomUUID(),
                         type: 'DEPOSIT',
-                        amount: amount,
+                        amount: amountToAdd,
                         description: `Venta #${t.id} (Efectivo)`,
                         date: t.date,
                         category: 'SALES',
@@ -324,7 +327,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     addCashMovement({
                         id: crypto.randomUUID(),
                         type: 'DEPOSIT',
-                        amount: amount,
+                        amount: amountToAdd,
                         description: `Venta #${t.id} (${t.paymentMethod === 'card' ? 'Tarjeta' : 'Transf.'})`,
                         date: t.date,
                         category: 'SALES',
