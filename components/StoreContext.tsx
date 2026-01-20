@@ -63,6 +63,18 @@ const DEFAULT_SETTINGS: BusinessSettings = {
     }
 };
 
+// Types for Context
+interface StockUpdateItem {
+    id: string;
+    quantity: number;
+    variantId?: string;
+}
+
+interface RegisterUserData extends Partial<User> {
+    password?: string;
+    securityAnswer?: string;
+}
+
 // Define Context Type
 interface StoreContextType {
     // Data
@@ -102,7 +114,7 @@ interface StoreContextType {
     deleteTransaction: (id: string, items: CartItem[]) => void;
     registerTransactionPayment: (id: string, amount: number, method: 'cash' | 'transfer' | 'card') => void;
     rectifyTransactionChannel: (id: string) => void;
-    updateStockAfterSale: (items: CartItem[]) => void;
+    updateStockAfterSale: (items: StockUpdateItem[]) => void;
 
     addCustomer: (c: Customer) => void;
     updateCustomer: (c: Customer) => void;
@@ -132,7 +144,7 @@ interface StoreContextType {
     deleteUser: (id: string) => void;
     generateInvite: (role: UserRole) => string;
     deleteInvite: (code: string) => void;
-    registerWithInvite: (code: string, userData: Partial<User>) => Promise<string>;
+    registerWithInvite: (code: string, userData: RegisterUserData) => Promise<string>;
     
     addCategory: (c: string) => void;
     removeCategory: (c: string) => void;
@@ -294,7 +306,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setTransactions(prev => [t, ...prev]);
         
         if (options?.shouldAffectCash !== false) {
-            // FIX: Usar el monto pagado real. NO usar t.total como respaldo si amountPaid es 0 (Venta Pendiente).
             const amount = t.amountPaid !== undefined ? t.amountPaid : 0;
             
             if (amount > 0) {
@@ -360,7 +371,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         notify("Venta Exitosa", `Ticket #${t.id} guardado.`);
     };
 
-    const updateStockAfterSale = (items: CartItem[]) => {
+    const updateStockAfterSale = (items: StockUpdateItem[]) => {
         setProducts(prev => prev.map(p => {
             const saleItems = items.filter(i => i.id === p.id);
             if (saleItems.length === 0) return p;
@@ -430,9 +441,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
 
     const rectifyTransactionChannel = (id: string) => {
-        // Logic to verify/fix funds associated with transaction
-        // Simplified: Check payments and ensure they exist in cash movements
-        // For now, mostly a placeholder for UI action in SalesHistory
         notify("Sincronización", "Verificando fondos... (Lógica de rectificación no implementada)", "info");
     };
 
@@ -645,7 +653,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         flagChange();
     };
 
-    const registerWithInvite = async (code: string, userData: Partial<User>) => {
+    const registerWithInvite = async (code: string, userData: RegisterUserData) => {
         const invite = userInvites.find(i => i.code === code);
         if (!invite) return 'INVALID_CODE';
         

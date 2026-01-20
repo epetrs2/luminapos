@@ -1,10 +1,11 @@
-
+// ... (imports remain unchanged)
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Search, Plus, Clock, CheckCircle, Package, ArrowRight, X, AlertCircle, ShoppingCart, Trash2, Printer, Edit2, Check, AlertTriangle, FileText, ChevronRight, MoreHorizontal, Timer, ListChecks, Filter, CheckSquare, Square, FileEdit, Receipt, GripVertical, User, Save, Minus, Scan, QrCode, Layers, PackagePlus } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Order, CartItem, Product, AppView } from '../types';
 import { printOrderInvoice, printProductionSummary, printProductionTicket, printProductionMasterList } from '../utils/printService';
 
+// ... (OrderCard, SurplusModal, QrScannerModal components remain unchanged) ...
 // --- MEMOIZED ORDER CARD ---
 const OrderCard = React.memo(({ 
     order, 
@@ -115,7 +116,6 @@ const OrderCard = React.memo(({
     );
 });
 
-// --- SURPLUS MODAL COMPONENT ---
 const SurplusModal = ({ order, onClose, onConfirm }: { order: Order, onClose: () => void, onConfirm: (items: {itemId: string, variantId?: string, qty: number}[]) => void }) => {
     const [quantities, setQuantities] = useState<Record<string, string>>({});
 
@@ -197,7 +197,6 @@ const SurplusModal = ({ order, onClose, onConfirm }: { order: Order, onClose: ()
     );
 };
 
-// --- QR SCANNER MODAL COMPONENT ---
 const QrScannerModal = ({ onClose, onScanSuccess }: { onClose: () => void, onScanSuccess: (id: string) => void }) => {
     const scannerRef = useRef<any>(null);
 
@@ -250,6 +249,7 @@ interface OrdersProps {
 
 export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     const { orders, products, customers, addOrder, updateOrder, updateOrderStatus, deleteOrder, settings, sendOrderToPOS, btDevice, sendBtData, notify, adjustStock } = useStore();
+    // ... (state declarations remain same)
     const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
     const [mobileCreateStep, setMobileCreateStep] = useState<'CATALOG' | 'DETAILS'>('CATALOG');
     
@@ -630,7 +630,8 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         e.preventDefault();
         const orderId = e.dataTransfer.getData("orderId");
         setDragOverColumn(null);
-        if (orderId) updateOrderStatus(orderId, newStatus);
+        // FIX: Cast string to valid order status
+        if (orderId) updateOrderStatus(orderId, newStatus as Order['status']);
     };
 
     const handleDragLeave = () => setDragOverColumn(null);
@@ -743,7 +744,8 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             if (finalStatus) {
                 const order = orders.find(o => o.id === orderId);
                 if (order && order.status !== finalStatus) {
-                    updateOrderStatus(orderId, finalStatus);
+                    // FIX: Cast string status to Order['status']
+                    updateOrderStatus(orderId, finalStatus as Order['status']);
                     if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
                 }
             }
@@ -996,8 +998,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                     </div>
                 )}
 
-                {/* ... (Rest of modal content: Create Tab, Edit Modal, Delete Modal) */}
-                {/* --- RESTORED CREATE TAB CONTENT --- */}
+                {/* ... (Create and Edit Modals omitted for brevity, keeping original logic) ... */}
                 {activeTab === 'CREATE' && (
                     <div className="flex flex-col lg:flex-row gap-6 h-full overflow-hidden pb-4 relative">
                         {/* (Keep existing CREATE content same as before) */}
