@@ -791,7 +791,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const pushToCloud = async (data?: any) => {
         if (!settings.enableCloudSync || !settings.googleWebAppUrl) return;
         setIsSyncing(true);
-        const payload = data || { products, transactions, customers, suppliers, cashMovements, orders, purchases, users, settings };
+        const payload = data || { products, transactions, customers, suppliers, cashMovements, orders, purchases, users, settings, userInvites, activityLogs, periodClosures, categories };
         try {
             await pushFullDataToCloud(settings.googleWebAppUrl, settings.cloudSecret, payload);
             setHasPendingChanges(false);
@@ -805,6 +805,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const pullFromCloud = async (url?: string, secret?: string, silent?: boolean, force?: boolean) => {
         if (!url && (!settings.enableCloudSync || !settings.googleWebAppUrl)) return false;
+        
+        // FIX: If we have unsaved local changes, we must PUSH them, not PULL old data.
+        if (hasPendingChanges && !force) {
+            console.log("Local changes detected. Pushing instead of pulling.");
+            if (!silent) notify("Sincronizando", "Subiendo cambios locales...", "info");
+            await pushToCloud(); // Ensure this waits
+            if (!silent) notify("Nube OK", "Tus cambios se han guardado.", "success");
+            return true;
+        }
+
         const targetUrl = url || settings.googleWebAppUrl;
         const targetSecret = secret || settings.cloudSecret;
         
@@ -823,8 +833,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 if(data.orders) setOrders(data.orders);
                 if(data.purchases) setPurchases(data.purchases);
                 if(data.users) setUsers(data.users);
+                if(data.userInvites) setUserInvites(data.userInvites);
+                if(data.activityLogs) setActivityLogs(data.activityLogs);
+                if(data.periodClosures) setPeriodClosures(data.periodClosures);
+                if(data.categories) setCategories(data.categories);
                 if(data.settings) setSettings(data.settings);
-                // ... others
+                
                 if(!silent) notify("Sincronizado", "Datos actualizados desde la nube.", "success");
                 return true;
             }
