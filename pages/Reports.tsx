@@ -245,34 +245,43 @@ export const Reports: React.FC = () => {
 
   const distMetrics = useMemo(() => {
       const { start, end } = getPeriodDates(selectedPeriodOffset);
-      const relevantTx = transactions.filter((t: Transaction) => {
-          const d = new Date(t.date);
-          return t.status !== 'cancelled' && t.paymentStatus === 'paid' && d >= start && d <= end;
+      
+      // FIX LÓGICA PRESUPUESTO: 
+      // Calculamos ingresos basándonos estrictamente en el Flujo de Caja (Cash Movements tipo DEPOSIT).
+      // Esto asegura que si una venta vieja se paga hoy, el dinero cuenta para el presupuesto de HOY.
+      const relevantIncomeMovs = cashMovements.filter((m: CashMovement) => {
+          const d = new Date(m.date);
+          return m.type === 'DEPOSIT' && d >= start && d <= end;
       });
+
+      const income = relevantIncomeMovs.reduce((sum, m) => sum + m.amount, 0);
+
+      // Gastos y Retiros (mismo rango de fechas)
       const relevantMovs = cashMovements.filter((m: CashMovement) => {
           const d = new Date(m.date);
           return d >= start && d <= end;
       });
 
-      let income = 0;
-      relevantTx.forEach((t: Transaction) => {
-          t.items.forEach((i: any) => {
-              if (i.isConsignment !== true) income += (i.price * i.quantity);
-          });
-      });
-      
       const actualOpEx = relevantMovs.filter((m: CashMovement) => m.type === 'EXPENSE').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       const actualProfitTaken = relevantMovs.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s: number, m: CashMovement) => s + m.amount, 0);
+      
       const config = settings.budgetConfig;
       const targetOpEx = income * (config.expensesPercentage / 100);
       let actualInvestment = Math.max(0, income - (actualOpEx + actualProfitTaken));
       const expenseSurplus = Math.max(0, targetOpEx - actualOpEx);
       const targetProfit = income * (config.profitPercentage / 100);
       const targetInvestment = income * (config.investmentPercentage / 100);
+      
       const now = new Date();
       const timeDiff = end.getTime() - now.getTime();
       const daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
       const isCurrentPeriod = selectedPeriodOffset === 0;
+
+      // Mantenemos relevantTx solo para mostrar "Top Productos" (Actividad de venta, no flujo de caja)
+      const relevantTx = transactions.filter((t: Transaction) => {
+          const d = new Date(t.date);
+          return t.status !== 'cancelled' && d >= start && d <= end;
+      });
 
       const periodProducts = new Map<string, {name:string, qty:number, total:number}>();
       relevantTx.forEach((t: Transaction) => t.items.forEach((i: any) => {
