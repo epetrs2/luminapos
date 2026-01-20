@@ -221,6 +221,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     useEffect(() => { if (initialized.current) localStorage.setItem('periodClosures', JSON.stringify(periodClosures)); }, [periodClosures]);
     useEffect(() => { if (initialized.current) localStorage.setItem('settings', JSON.stringify(settings)); }, [settings]);
 
+    // --- AUTO-DISCOVER CATEGORIES ---
+    // Automatically adds missing categories to the list if they exist in products
+    useEffect(() => {
+        if (products.length > 0) {
+            const uniqueProductCats = Array.from(new Set(products.map(p => p.category).filter(c => c && c.trim() !== '')));
+            
+            setCategories(prevCats => {
+                const missing = uniqueProductCats.filter(c => !prevCats.includes(c));
+                if (missing.length > 0) {
+                    return [...prevCats, ...missing];
+                }
+                return prevCats;
+            });
+        }
+    }, [products]);
+
     useEffect(() => {
         if (currentUser) localStorage.setItem('currentUser', JSON.stringify(currentUser));
         else localStorage.removeItem('currentUser');
