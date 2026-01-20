@@ -385,19 +385,57 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
         }
 
-        // Register cash movement automatically if Cash and option is true (default true)
+        // Register cash movement automatically
         const shouldAffectCash = options?.shouldAffectCash ?? true;
-        if (shouldAffectCash && t.paymentMethod === 'cash' && (t.amountPaid || 0) > 0) {
-            addCashMovement({
-                id: crypto.randomUUID(),
-                type: 'DEPOSIT',
-                amount: t.amountPaid || 0,
-                description: `Venta #${t.id}`,
-                date: t.date,
-                category: 'SALES',
-                channel: 'CASH',
-                customerId: t.customerId
-            });
+        if (shouldAffectCash && (t.amountPaid || 0) > 0) {
+            if (t.paymentMethod === 'cash') {
+                addCashMovement({
+                    id: crypto.randomUUID(),
+                    type: 'DEPOSIT',
+                    amount: t.amountPaid || 0,
+                    description: `Venta #${t.id}`,
+                    date: t.date,
+                    category: 'SALES',
+                    channel: 'CASH',
+                    customerId: t.customerId
+                });
+            } else if (t.paymentMethod === 'card' || t.paymentMethod === 'transfer') {
+                addCashMovement({
+                    id: crypto.randomUUID(),
+                    type: 'DEPOSIT',
+                    amount: t.amountPaid || 0,
+                    description: `Venta #${t.id} (${t.paymentMethod === 'card' ? 'Tarjeta' : 'Transf.'})`,
+                    date: t.date,
+                    category: 'SALES',
+                    channel: 'VIRTUAL',
+                    customerId: t.customerId
+                });
+            } else if (t.paymentMethod === 'split' && t.splitDetails) {
+                if (t.splitDetails.cash > 0) {
+                    addCashMovement({
+                        id: crypto.randomUUID(),
+                        type: 'DEPOSIT',
+                        amount: t.splitDetails.cash,
+                        description: `Venta #${t.id} (Efectivo)`,
+                        date: t.date,
+                        category: 'SALES',
+                        channel: 'CASH',
+                        customerId: t.customerId
+                    });
+                }
+                if (t.splitDetails.other > 0) {
+                    addCashMovement({
+                        id: crypto.randomUUID(),
+                        type: 'DEPOSIT',
+                        amount: t.splitDetails.other,
+                        description: `Venta #${t.id} (Virtual)`,
+                        date: t.date,
+                        category: 'SALES',
+                        channel: 'VIRTUAL',
+                        customerId: t.customerId
+                    });
+                }
+            }
         }
 
         // Update sequences
@@ -436,18 +474,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Mark cancelled
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled' } : t));
         
-        // Add movement refund if it was cash
+        // Add movement refund if it was paid
         const tx = transactions.find(t => t.id === id);
-        if (tx && tx.amountPaid && tx.amountPaid > 0 && tx.paymentMethod === 'cash') {
-            addCashMovement({
-                id: crypto.randomUUID(),
-                type: 'WITHDRAWAL',
-                amount: tx.amountPaid,
-                description: `Devolución por anulación #${id}`,
-                date: new Date().toISOString(),
-                category: 'SALES',
-                channel: 'CASH'
-            });
+        if (tx && tx.amountPaid && tx.amountPaid > 0) {
+            const isCash = tx.paymentMethod === 'cash' || (tx.paymentMethod === 'split' && tx.splitDetails?.cash && tx.splitDetails.cash > 0);
+            const isVirtual = tx.paymentMethod === 'card' || tx.paymentMethod === 'transfer' || (tx.paymentMethod === 'split' && tx.splitDetails?.other && tx.splitDetails.other > 0);
+            
+            if (isCash) {
+                addCashMovement({
+                    id: crypto.randomUUID(),
+                    type: 'WITHDRAWAL',
+                    amount: tx.paymentMethod === 'split' ? (tx.splitDetails?.cash || 0) : tx.amountPaid,
+                    description: `Devolución por anulación #${id} (Efec)`,
+                    date: new Date().toISOString(),
+                    category: 'SALES',
+                    channel: 'CASH'
+                });
+            }
+            if (isVirtual) {
+                addCashMovement({
+                    id: crypto.randomUUID(),
+                    type: 'WITHDRAWAL',
+                    amount: tx.paymentMethod === 'split' ? (tx.splitDetails?.other || 0) : tx.amountPaid,
+                    description: `Devolución por anulación #${id} (Virtual)`,
+                    date: new Date().toISOString(),
+                    category: 'SALES',
+                    channel: 'VIRTUAL'
+                });
+            }
         }
 
         flagChange();
@@ -469,7 +523,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setCustomers(prev => prev.map(c => c.id === tx.customerId ? { ...c, currentDebt: Math.max(0, c.currentDebt - amount) } : c));
         }
 
-        // Add Cash Movement if Cash
+        // Add Cash Movement
         if (method === 'cash') {
             addCashMovement({
                 id: crypto.randomUUID(),
@@ -479,6 +533,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 date: new Date().toISOString(),
                 category: 'SALES',
                 channel: 'CASH',
+                customerId: tx.customerId
+            });
+        } else {
+             addCashMovement({
+                id: crypto.randomUUID(),
+                type: 'DEPOSIT',
+                amount: amount,
+                description: `Abono Venta #${id} (${method === 'card' ? 'Tarjeta' : 'Transf.'})`,
+                date: new Date().toISOString(),
+                category: 'SALES',
+                channel: 'VIRTUAL',
                 customerId: tx.customerId
             });
         }
@@ -790,6 +855,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return true;
         } catch(e) { return false; }
     };
+
+    // --- AUTO SYNC ---
+    useEffect(() => {
+        if (settings.enableCloudSync && hasPendingChanges && !isSyncing) {
+            const timer = setTimeout(() => {
+                pushToCloud(); 
+            }, 30000);
+            return () => clearTimeout(timer);
+        }
+    }, [hasPendingChanges, settings.enableCloudSync, isSyncing, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, settings]);
 
     return (
         <StoreContext.Provider value={{
