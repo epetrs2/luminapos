@@ -306,6 +306,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setTransactions(prev => [t, ...prev]);
         
         if (options?.shouldAffectCash !== false) {
+            // FIX: Usar el monto pagado real. NO usar t.total como respaldo si amountPaid es 0 (Venta Pendiente).
             const amount = t.amountPaid !== undefined ? t.amountPaid : 0;
             
             if (amount > 0) {
