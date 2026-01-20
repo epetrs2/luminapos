@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo } from 'react';
-import { Plus, Edit2, Trash2, Search, Users, Mail, Phone, DollarSign, Wallet, Infinity, Building2, User, Clock, FileText, ArrowRight, X, Hash, ShoppingBag, CheckCircle, ChevronRight, Filter, ArrowDownAZ, ArrowUpNarrowWide, AlertCircle } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Users, Mail, Phone, DollarSign, Wallet, Infinity, Building2, User, Clock, FileText, ArrowRight, X, Hash, ShoppingBag, CheckCircle, ChevronRight, Filter, ArrowDownAZ, ArrowUpNarrowWide, AlertCircle, Package, Calendar, TrendingUp } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Customer } from '../types';
 
@@ -22,6 +21,7 @@ export const Customers: React.FC = () => {
 
   // History Modal
   const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
+  const [historyTab, setHistoryTab] = useState<'TIMELINE' | 'PRODUCTS'>('TIMELINE');
 
   // Counts for tabs
   const counts = useMemo(() => {
@@ -61,6 +61,51 @@ export const Customers: React.FC = () => {
       return result;
   }, [customers, searchTerm, filterType, sortBy]);
 
+  // --- NEW: Calculate Product Consumption Stats ---
+  const customerProductStats = useMemo(() => {
+      if (!historyCustomer) return { products: [], totalSpent: 0, monthlySpent: 0 };
+
+      const stats: Record<string, { id: string, name: string, qty: number, total: number, lastDate: string, category: string }> = {};
+      let totalSpent = 0;
+      let monthlySpent = 0;
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+
+      transactions
+          .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled')
+          .forEach(t => {
+              const tDate = new Date(t.date);
+              const isThisMonth = tDate.getMonth() === currentMonth && tDate.getFullYear() === currentYear;
+              
+              if (isThisMonth) monthlySpent += t.total;
+              totalSpent += t.total;
+
+              t.items.forEach(i => {
+                  if (!stats[i.id]) {
+                      stats[i.id] = { 
+                          id: i.id, 
+                          name: i.name, 
+                          qty: 0, 
+                          total: 0, 
+                          lastDate: t.date,
+                          category: i.category 
+                      };
+                  }
+                  stats[i.id].qty += i.quantity;
+                  stats[i.id].total += (i.price * i.quantity);
+                  if (new Date(t.date) > new Date(stats[i.id].lastDate)) {
+                      stats[i.id].lastDate = t.date;
+                  }
+              });
+          });
+
+      return {
+          products: Object.values(stats).sort((a, b) => b.qty - a.qty), // Sort by most consumed
+          totalSpent,
+          monthlySpent
+      };
+  }, [historyCustomer, transactions]);
+
   const handleOpenModal = (customer?: Customer) => {
     if (customer) {
       setEditingCustomer(customer);
@@ -80,6 +125,7 @@ export const Customers: React.FC = () => {
 
   const handleOpenHistory = (customer: Customer) => {
       setHistoryCustomer(customer);
+      setHistoryTab('TIMELINE');
   };
 
   const handleSendReminder = (customer: Customer) => {
@@ -528,7 +574,7 @@ El equipo de LuminaPOS`;
       {/* History Modal - "Expediente del Cliente" */}
       {historyCustomer && (
           <div className="fixed inset-0 bg-black/60 z-[100] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4">
-              <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-4xl h-[90vh] md:h-auto md:max-h-[90vh] flex flex-col overflow-hidden animate-[slideUp_0.3s_ease-out]">
+              <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-4xl h-[95vh] md:h-auto md:max-h-[90vh] flex flex-col overflow-hidden animate-[slideUp_0.3s_ease-out]">
                   {/* Header */}
                   <div className="p-6 md:p-8 bg-slate-50 dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 flex justify-between items-start">
                       <div className="flex items-center gap-4">
@@ -551,7 +597,7 @@ El equipo de LuminaPOS`;
                   </div>
 
                   {/* Summary Cards */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 divide-x divide-slate-100 dark:divide-slate-800 border-b border-slate-100 dark:border-slate-800">
+                  <div className="grid grid-cols-2 md:grid-cols-3 divide-x divide-slate-100 dark:divide-slate-800 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
                       <div className="p-4 md:p-6 text-center">
                           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Deuda</p>
                           <p className={`text-2xl md:text-3xl font-black ${historyCustomer.currentDebt > 0 ? 'text-red-500' : 'text-slate-800 dark:text-white'}`}>
@@ -581,108 +627,180 @@ El equipo de LuminaPOS`;
                       </div>
                   </div>
 
-                  {/* History Timeline */}
+                  {/* Tabs */}
+                  <div className="flex border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                      <button 
+                        onClick={() => setHistoryTab('TIMELINE')}
+                        className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors flex items-center justify-center gap-2 ${historyTab === 'TIMELINE' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                      >
+                          <Clock className="w-4 h-4" /> Historial Financiero
+                      </button>
+                      <button 
+                        onClick={() => setHistoryTab('PRODUCTS')}
+                        className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors flex items-center justify-center gap-2 ${historyTab === 'PRODUCTS' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                      >
+                          <Package className="w-4 h-4" /> Productos Consumidos
+                      </button>
+                  </div>
+
+                  {/* Content */}
                   <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-4 md:p-6">
-                      <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                          <Clock className="w-5 h-5 text-indigo-500" /> Historial
-                      </h3>
                       
-                      {(() => {
-                          const customerTransactions = transactions
-                              .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled')
-                              .map(t => {
-                                  const isDebt = t.paymentStatus === 'pending' || t.paymentStatus === 'partial';
-                                  const isManual = t.id.includes('manual');
-                                  
-                                  return {
-                                      id: t.id,
-                                      date: t.date,
-                                      type: isDebt ? 'DEBT' : 'SALE',
-                                      amount: t.total,
-                                      pendingAmount: t.total - (t.amountPaid || 0),
-                                      details: `${isManual ? 'Nota' : 'Ticket'} #${t.id} • ${t.items.length} items`,
-                                      raw: t
-                                  };
-                              });
+                      {historyTab === 'TIMELINE' && (
+                          (() => {
+                              const customerTransactions = transactions
+                                  .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled')
+                                  .map(t => {
+                                      const isDebt = t.paymentStatus === 'pending' || t.paymentStatus === 'partial';
+                                      const isManual = t.id.includes('manual');
+                                      
+                                      return {
+                                          id: t.id,
+                                          date: t.date,
+                                          type: isDebt ? 'DEBT' : 'SALE',
+                                          amount: t.total,
+                                          pendingAmount: t.total - (t.amountPaid || 0),
+                                          details: `${isManual ? 'Nota' : 'Ticket'} #${t.id} • ${t.items.length} items`,
+                                          raw: t
+                                      };
+                                  });
 
-                          const payments = cashMovements
-                              .filter(m => m.customerId === historyCustomer.id && m.type === 'DEPOSIT')
-                              .map(m => ({
-                                  id: m.id,
-                                  date: m.date,
-                                  type: 'PAYMENT',
-                                  amount: m.amount,
-                                  details: m.description,
-                                  raw: m
-                              }));
+                              const payments = cashMovements
+                                  .filter(m => m.customerId === historyCustomer.id && m.type === 'DEPOSIT')
+                                  .map(m => ({
+                                      id: m.id,
+                                      date: m.date,
+                                      type: 'PAYMENT',
+                                      amount: m.amount,
+                                      details: m.description,
+                                      raw: m
+                                  }));
 
-                          const timeline = [...customerTransactions, ...payments].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                              const timeline = [...customerTransactions, ...payments].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-                          if (timeline.length === 0) {
+                              if (timeline.length === 0) {
+                                  return (
+                                      <div className="text-center py-12 text-slate-400">
+                                          <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                          <p>No hay historial de movimientos.</p>
+                                      </div>
+                                  );
+                              }
+
                               return (
-                                  <div className="text-center py-12 text-slate-400">
-                                      <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                                      <p>No hay historial de movimientos.</p>
+                                  <div className="space-y-3">
+                                      {timeline.map((item) => {
+                                          const isDebt = item.type === 'DEBT';
+                                          const isPayment = item.type === 'PAYMENT';
+                                          
+                                          let icon = <ShoppingBag className="w-5 h-5" />;
+                                          let bgColor = 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400';
+                                          let title = 'Compra Contado';
+                                          let amountColor = 'text-slate-800 dark:text-white';
+                                          let sign = '';
+
+                                          if (isDebt) {
+                                              bgColor = 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400';
+                                              title = 'Nota Pendiente';
+                                              amountColor = 'text-red-500';
+                                              sign = '+'; 
+                                          } else if (isPayment) {
+                                              icon = <DollarSign className="w-5 h-5" />;
+                                              bgColor = 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400';
+                                              title = 'Abono / Pago';
+                                              amountColor = 'text-emerald-500';
+                                              sign = '-'; 
+                                          }
+
+                                          return (
+                                              <div key={item.id} className="bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-3 animate-[fadeIn_0.2s]">
+                                                  <div className="flex items-start gap-3">
+                                                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${bgColor}`}>
+                                                          {icon}
+                                                      </div>
+                                                      <div>
+                                                          <p className="font-bold text-slate-800 dark:text-white text-sm">{title}</p>
+                                                          <p className="text-xs text-slate-500 dark:text-slate-400">{item.details}</p>
+                                                          <p className="text-[10px] text-slate-400 mt-0.5">{new Date(item.date).toLocaleString()}</p>
+                                                      </div>
+                                                  </div>
+                                                  <div className="flex justify-between items-center md:block text-right pl-14 md:pl-0">
+                                                      <span className="md:hidden text-xs font-bold text-slate-400">Monto:</span>
+                                                      <div>
+                                                        <p className={`text-base font-black ${amountColor}`}>
+                                                            {sign}${item.amount.toFixed(2)}
+                                                        </p>
+                                                        {isDebt && (item as any).pendingAmount > 0 && (
+                                                            <span className="text-[10px] font-bold text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded">
+                                                                Debiendo: ${(item as any).pendingAmount.toFixed(2)}
+                                                            </span>
+                                                        )}
+                                                      </div>
+                                                  </div>
+                                              </div>
+                                          );
+                                      })}
                                   </div>
                               );
-                          }
+                          })()
+                      )}
 
-                          return (
-                              <div className="space-y-3">
-                                  {timeline.map((item) => {
-                                      const isDebt = item.type === 'DEBT';
-                                      const isPayment = item.type === 'PAYMENT';
-                                      
-                                      let icon = <ShoppingBag className="w-5 h-5" />;
-                                      let bgColor = 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400';
-                                      let title = 'Compra Contado';
-                                      let amountColor = 'text-slate-800 dark:text-white';
-                                      let sign = '';
-
-                                      if (isDebt) {
-                                          bgColor = 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400';
-                                          title = 'Nota Pendiente';
-                                          amountColor = 'text-red-500';
-                                          sign = '+'; 
-                                      } else if (isPayment) {
-                                          icon = <DollarSign className="w-5 h-5" />;
-                                          bgColor = 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400';
-                                          title = 'Abono / Pago';
-                                          amountColor = 'text-emerald-500';
-                                          sign = '-'; 
-                                      }
-
-                                      return (
-                                          <div key={item.id} className="bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                                              <div className="flex items-start gap-3">
-                                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${bgColor}`}>
-                                                      {icon}
-                                                  </div>
-                                                  <div>
-                                                      <p className="font-bold text-slate-800 dark:text-white text-sm">{title}</p>
-                                                      <p className="text-xs text-slate-500 dark:text-slate-400">{item.details}</p>
-                                                      <p className="text-[10px] text-slate-400 mt-0.5">{new Date(item.date).toLocaleString()}</p>
-                                                  </div>
-                                              </div>
-                                              <div className="flex justify-between items-center md:block text-right pl-14 md:pl-0">
-                                                  <span className="md:hidden text-xs font-bold text-slate-400">Monto:</span>
-                                                  <div>
-                                                    <p className={`text-base font-black ${amountColor}`}>
-                                                        {sign}${item.amount.toFixed(2)}
-                                                    </p>
-                                                    {isDebt && (item as any).pendingAmount > 0 && (
-                                                        <span className="text-[10px] font-bold text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded">
-                                                            Debiendo: ${(item as any).pendingAmount.toFixed(2)}
-                                                        </span>
-                                                    )}
-                                                  </div>
-                                              </div>
-                                          </div>
-                                      );
-                                  })}
+                      {historyTab === 'PRODUCTS' && (
+                          <div className="space-y-6">
+                              {/* Stats Summary */}
+                              <div className="grid grid-cols-2 gap-4">
+                                  <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800">
+                                      <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase mb-1">Total Histórico</p>
+                                      <p className="text-2xl font-black text-slate-800 dark:text-white">${customerProductStats.totalSpent.toFixed(2)}</p>
+                                  </div>
+                                  <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                                      <p className="text-xs font-bold text-slate-500 uppercase mb-1">Consumo Este Mes</p>
+                                      <p className="text-2xl font-black text-slate-800 dark:text-white">${customerProductStats.monthlySpent.toFixed(2)}</p>
+                                  </div>
                               </div>
-                          );
-                      })()}
+
+                              <div className="space-y-3">
+                                  {customerProductStats.products.length > 0 ? (
+                                      customerProductStats.products.map((p, idx) => {
+                                          const maxQty = customerProductStats.products[0].qty;
+                                          const percent = (p.qty / maxQty) * 100;
+                                          
+                                          return (
+                                              <div key={idx} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm animate-[slideInRight_0.3s_ease-out]" style={{animationDelay: `${idx * 0.05}s`}}>
+                                                  <div className="flex justify-between items-start mb-2">
+                                                      <div>
+                                                          <p className="font-bold text-sm text-slate-800 dark:text-white">{p.name}</p>
+                                                          <p className="text-[10px] text-slate-400 font-bold uppercase">{p.category}</p>
+                                                      </div>
+                                                      <div className="text-right">
+                                                          <p className="font-black text-sm text-indigo-600 dark:text-indigo-400">${p.total.toFixed(2)}</p>
+                                                          <p className="text-[10px] text-slate-400">Total gastado</p>
+                                                      </div>
+                                                  </div>
+                                                  
+                                                  <div className="flex items-center gap-3">
+                                                      <div className="flex-1 bg-slate-100 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                                                          <div className="h-full bg-indigo-500 rounded-full" style={{width: `${percent}%`}}></div>
+                                                      </div>
+                                                      <span className="text-xs font-bold text-slate-600 dark:text-slate-300 min-w-[60px] text-right">{p.qty} un.</span>
+                                                  </div>
+                                                  
+                                                  <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between text-[10px] text-slate-400">
+                                                      <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> Última compra:</span>
+                                                      <span>{new Date(p.lastDate).toLocaleDateString()}</span>
+                                                  </div>
+                                              </div>
+                                          );
+                                      })
+                                  ) : (
+                                      <div className="text-center py-12 text-slate-400">
+                                          <Package className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                          <p>El cliente aún no ha comprado productos.</p>
+                                      </div>
+                                  )}
+                              </div>
+                          </div>
+                      )}
                   </div>
               </div>
           </div>
