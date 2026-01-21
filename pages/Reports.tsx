@@ -202,8 +202,6 @@ export const Reports: React.FC = () => {
       return { filteredTransactions: validTx, filteredMovements: validMovs, chartData: chartDataArray, summaryMetrics: { totalSales, totalMoneyOut, avgTicket, transactionCount, netEstimate }, thirdPartyMetrics: { total: thirdPartySales, own: ownSales }, topProducts: topProductsArray, categoryData: categoryArray, expenseCategoryData: expenseCategoryArray, zReportHistory: zHistory, paymentChartData };
   }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
-  // ... (Rest of logic: getPeriodDates, distMetrics, currentPeriodClosure, inventoryMetrics, handleSmartAnalysis, etc.) ...
-  // (Keep exactly as original code, just omitting for brevity in this snippet as they don't change)
   const getPeriodDates = (offset: number) => {
       const config = settings.budgetConfig;
       const startDateStr = config.fiscalStartDate || new Date().toISOString().split('T')[0];
@@ -246,17 +244,20 @@ export const Reports: React.FC = () => {
   const distMetrics = useMemo(() => {
       const { start, end } = getPeriodDates(selectedPeriodOffset);
       
-      // FIX LÓGICA PRESUPUESTO: 
-      // Calculamos ingresos basándonos estrictamente en el Flujo de Caja (Cash Movements tipo DEPOSIT).
-      // Esto asegura que si una venta vieja se paga hoy, el dinero cuenta para el presupuesto de HOY.
+      // LOGICA CORREGIDA: INGRESO REAL POR VENTAS
+      // Solo contamos movimientos de tipo 'DEPOSIT' que sean de categoría 'SALES'.
+      // Esto incluye: Ventas en efectivo, Pagos de tarjeta (Virtual), Transferencias (Virtual).
+      // Y, crucialmente, PAGOS DE DEUDAS ANTIGUAS realizados en este periodo.
+      // Excluye 'EQUITY' (Aportes de dueño) y 'OTHER' para no inflar artificialmente el rendimiento de ventas.
       const relevantIncomeMovs = cashMovements.filter((m: CashMovement) => {
           const d = new Date(m.date);
-          return m.type === 'DEPOSIT' && d >= start && d <= end;
+          return m.type === 'DEPOSIT' && m.category === 'SALES' && d >= start && d <= end;
       });
 
       const income = relevantIncomeMovs.reduce((sum, m) => sum + m.amount, 0);
 
-      // Gastos y Retiros (mismo rango de fechas)
+      // GASTOS OPERATIVOS REALES
+      // Sumamos TODOS los gastos (EXPENSE), sin importar si salieron de Caja Física o Cuenta Virtual.
       const relevantMovs = cashMovements.filter((m: CashMovement) => {
           const d = new Date(m.date);
           return d >= start && d <= end;
@@ -277,7 +278,6 @@ export const Reports: React.FC = () => {
       const daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
       const isCurrentPeriod = selectedPeriodOffset === 0;
 
-      // Mantenemos relevantTx solo para mostrar "Top Productos" (Actividad de venta, no flujo de caja)
       const relevantTx = transactions.filter((t: Transaction) => {
           const d = new Date(t.date);
           return t.status !== 'cancelled' && d >= start && d <= end;

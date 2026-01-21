@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2, Loader2, DollarSign, Activity, CheckCircle2, TrendingUp, Briefcase, User, Calculator, Save, KeyRound, Printer, RefreshCw, AlertTriangle, Tag, List, Repeat, CreditCard, Wallet } from 'lucide-react';
@@ -98,6 +97,11 @@ export const CashRegister: React.FC = () => {
   // Totals for today (Cash Flow)
   const incomeToday = todaysMovements.filter(m => m.type === 'OPEN' || m.type === 'DEPOSIT').reduce((a, b) => a + b.amount, 0);
   const expenseToday = todaysMovements.filter(m => m.type === 'EXPENSE' || m.type === 'WITHDRAWAL').reduce((a, b) => a + b.amount, 0);
+  
+  // Specific Virtual Today Expense Breakdown for visibility
+  const virtualExpenseToday = todaysMovements
+    .filter(m => m.channel === 'VIRTUAL' && (m.type === 'EXPENSE' || m.type === 'WITHDRAWAL'))
+    .reduce((a, b) => a + b.amount, 0);
 
   // --- DETAILED CHART DATA (By Category) ---
   const categoryData = useMemo(() => {
@@ -297,6 +301,12 @@ export const CashRegister: React.FC = () => {
                         <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1"><ArrowUpCircle className="w-4 h-4"/> ${incomeToday.toFixed(0)}</span>
                         <span className="text-red-600 dark:text-red-400 font-bold flex items-center gap-1"><ArrowDownCircle className="w-4 h-4"/> ${expenseToday.toFixed(0)}</span>
                     </div>
+                    {virtualExpenseToday > 0 && (
+                        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                            <span className="text-[10px] text-blue-500 font-bold uppercase">Gastos Virtuales</span>
+                            <span className="text-xs font-bold text-blue-600 dark:text-blue-400">-${virtualExpenseToday.toFixed(0)}</span>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
