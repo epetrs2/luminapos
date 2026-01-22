@@ -57,7 +57,11 @@ export const CashRegister: React.FC = () => {
   }, [cashMovements]);
 
   // --- LOGIC TO FIND CURRENT SHIFT BALANCE ---
-  const sortedMovements = [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  // Memoize sorted movements to prevent re-sorting on every render and fix table order
+  const sortedMovements = useMemo(() => {
+      return [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [cashMovements]);
+
   const lastCloseIndex = sortedMovements.findIndex(m => m.type === 'CLOSE');
   
   let currentSessionMovements: CashMovement[] = [];
@@ -452,7 +456,7 @@ export const CashRegister: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {cashMovements.map((movement) => {
+                {sortedMovements.map((movement) => {
                     const isEquity = movement.category === 'EQUITY';
                     const isThirdParty = movement.category === 'THIRD_PARTY';
                     const isLoan = movement.category === 'LOAN';
@@ -463,7 +467,7 @@ export const CashRegister: React.FC = () => {
                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">{new Date(movement.date).toLocaleDateString()} {new Date(movement.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${movement.isZCut ? 'bg-indigo-100 text-indigo-700' : isExpense ? 'bg-red-100 text-red-700' : isLoan ? 'bg-violet-100 text-violet-700' : isThirdParty ? 'bg-orange-100 text-orange-700' : isEquity ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {movement.isZCut ? 'CORTE Z' : isEquity ? 'APORTE' : isLoan ? 'REEMBOLSO' : isThirdParty ? 'LIQ. 3RO' : movement.type}
+                            {movement.isZCut ? 'CORTE Z' : isEquity ? 'APORTE' : isLoan ? 'REEMBOLSO' : isThirdParty ? 'LIQ. 3RO' : movement.type === 'DEPOSIT' ? 'INGRESO' : movement.type === 'WITHDRAWAL' ? 'RETIRO' : 'GASTO'}
                           </span>
                         </td>
                         <td className="px-6 py-4">
@@ -496,7 +500,7 @@ export const CashRegister: React.FC = () => {
         </div>
       </div>
 
-      {/* Delete Confirmation Modal (Same as before) */}
+      {/* Delete Confirmation Modal */}
       {deleteId && (
           <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800">
@@ -517,7 +521,7 @@ export const CashRegister: React.FC = () => {
           </div>
       )}
 
-      {/* Open Register Modal (Same as before) */}
+      {/* Open Register Modal */}
       {openRegisterModalOpen && (
           <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800">
@@ -557,7 +561,7 @@ export const CashRegister: React.FC = () => {
           </div>
       )}
 
-      {/* Z-Cut Modal (Same as before) */}
+      {/* Z-Cut Modal */}
       {zCutModalOpen && (
           <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 dark:border-slate-800">
