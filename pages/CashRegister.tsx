@@ -1,10 +1,9 @@
-
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { CashMovement, BudgetCategory } from '../types';
-import { Plus, Search, Trash2, Printer, DollarSign, CreditCard, Wallet, X, AlertTriangle, Archive, Lock, TrendingUp } from 'lucide-react';
+import { Plus, Search, Trash2, Printer, DollarSign, CreditCard, Wallet, X, AlertTriangle, Archive, Lock, TrendingUp, PieChart as PieIcon } from 'lucide-react';
 import { printZCutTicket } from '../utils/printService';
-import { AreaChart, Area, Tooltip, ResponsiveContainer, YAxis } from 'recharts';
+import { AreaChart, Area, Tooltip, ResponsiveContainer, YAxis, BarChart, Bar, CartesianGrid, XAxis, Legend } from 'recharts';
 
 export const CashRegister: React.FC = () => {
   const { cashMovements, addCashMovement, deleteCashMovement, settings, btDevice, sendBtData, notify, transactions, periodClosures } = useStore();
@@ -38,7 +37,7 @@ export const CashRegister: React.FC = () => {
       );
   }, [cashMovements, searchTerm, filterType]);
 
-  const { currentBalance, virtualBalance, sessionStart, chartData } = useMemo(() => {
+  const { currentBalance, virtualBalance, sessionStart, breakdownData } = useMemo(() => {
       const allSorted = [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       const lastZIndex = allSorted.findIndex(m => m.isZCut);
       
@@ -46,14 +45,18 @@ export const CashRegister: React.FC = () => {
       const activeMovements = lastZIndex === -1 ? allSorted : allSorted.slice(0, lastZIndex);
       const sessionStart = lastZIndex === -1 ? null : allSorted[lastZIndex].date;
 
-      // Chronological for chart calculation
-      const chronoMovements = [...activeMovements].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
       let runCash = 0;
       let runVirtual = 0;
-      const dataPoints: any[] = [];
+      
+      // Breakdown logic
+      const breakdown = {
+          income: 0,
+          expense: 0,
+          categories: {} as Record<string, number>
+      };
 
-      chronoMovements.forEach(m => {
+      activeMovements.forEach(m => {
+          // Balances
           if (m.channel === 'CASH') {
               if (m.type === 'DEPOSIT' || m.type === 'OPEN') runCash += m.amount;
               else if (m.type === 'WITHDRAWAL' || m.type === 'EXPENSE') runCash -= m.amount;
@@ -61,19 +64,28 @@ export const CashRegister: React.FC = () => {
               if (m.type === 'DEPOSIT' || m.type === 'OPEN') runVirtual += m.amount;
               else if (m.type === 'WITHDRAWAL' || m.type === 'EXPENSE') runVirtual -= m.amount;
           }
-          
-          dataPoints.push({
-              name: new Date(m.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-              cash: runCash,
-              virtual: runVirtual
-          });
+
+          // Visual Stats (Combined Cash + Virtual)
+          if (m.type === 'DEPOSIT') {
+              breakdown.income += m.amount;
+          } else if (m.type === 'EXPENSE' || m.type === 'WITHDRAWAL') {
+              breakdown.expense += m.amount;
+              // Category grouping
+              const catName = m.category === 'OPERATIONAL' ? 'Operativo' : m.category === 'THIRD_PARTY' ? 'Terceros' : m.category === 'PROFIT' ? 'Retiros' : 'Otros';
+              breakdown.categories[catName] = (breakdown.categories[catName] || 0) + m.amount;
+          }
       });
+
+      const chartData = [
+          { name: 'Ingresos', value: breakdown.income, fill: '#10b981' },
+          ...Object.entries(breakdown.categories).map(([name, value]) => ({ name, value, fill: '#ef4444' }))
+      ];
 
       return { 
           currentBalance: runCash, 
           virtualBalance: runVirtual, 
           sessionStart,
-          chartData: dataPoints
+          breakdownData: chartData
       };
   }, [cashMovements]);
 
@@ -234,25 +246,26 @@ export const CashRegister: React.FC = () => {
                 </div>
             </div>
 
-            {/* CHART CARD */}
+            {/* BREAKDOWN CHART CARD */}
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col">
                 <div className="flex items-center gap-2 mb-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500"/>
-                    <span className="text-xs font-bold text-slate-500 uppercase">Flujo de Caja</span>
+                    <PieIcon className="w-4 h-4 text-slate-500"/>
+                    <span className="text-xs font-bold text-slate-500 uppercase">Resumen Sesión Actual</span>
                 </div>
-                <div className="flex-1 min-h-[100px]">
+                <div className="flex-1 min-h-[120px]">
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData}>
-                            <defs>
-                                <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                                </linearGradient>
-                            </defs>
-                            <Tooltip contentStyle={{borderRadius: '8px', border: 'none', fontSize: '12px'}} />
-                            <YAxis hide domain={['auto', 'auto']} />
-                            <Area type="monotone" dataKey="cash" stroke="#10b981" fillOpacity={1} fill="url(#colorCash)" strokeWidth={2} />
-                        </AreaChart>
+                        <BarChart data={breakdownData} layout="vertical">
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                            <XAxis type="number" hide />
+                            <YAxis dataKey="name" type="category" width={70} tick={{fontSize: 10, fill: '#64748b'}} interval={0} />
+                            <Tooltip 
+                                contentStyle={{borderRadius: '8px', border: 'none', fontSize: '11px', padding: '8px'}} 
+                                formatter={(value: number) => `$${value.toFixed(2)}`}
+                            />
+                            <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={16}>
+                                {/* Colors are handled by data payload but we default to bar config if not needed, here we use payload */}
+                            </Bar>
+                        </BarChart>
                     </ResponsiveContainer>
                 </div>
             </div>
