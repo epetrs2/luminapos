@@ -242,14 +242,16 @@ export const Reports: React.FC = () => {
       return { start, end };
   }, [selectedPeriodOffset, settings.budgetConfig]);
 
-  // 2. CHECK IF CLOSED (SNAPSHOT EXISTS)
+  // 2. CHECK IF CLOSED (SNAPSHOT EXISTS) - IMPROVED ROBUST DATE CHECK
   const currentPeriodClosure = useMemo(() => {
-      const pStart = periodDates.start.toISOString().split('T')[0];
-      const pEnd = periodDates.end.toISOString().split('T')[0];
       return periodClosures.find(c => {
-          const cStart = new Date(c.periodStart).toISOString().split('T')[0];
-          const cEnd = new Date(c.periodEnd).toISOString().split('T')[0];
-          return cStart === pStart && cEnd === pEnd;
+          const cDate = new Date(c.periodStart);
+          const pDate = periodDates.start;
+          
+          // Robust comparison: Check matching Year, Month, Day in local time
+          return cDate.getFullYear() === pDate.getFullYear() &&
+                 cDate.getMonth() === pDate.getMonth() &&
+                 cDate.getDate() === pDate.getDate();
       });
   }, [periodClosures, periodDates]);
 
@@ -706,9 +708,9 @@ export const Reports: React.FC = () => {
                     currentPeriodClosure ? (
                         <button 
                             onClick={() => { setViewOnlyMode(true); setIsMonthEndModalOpen(true); }} 
-                            className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all mr-2"
+                            className="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all mr-2 opacity-90"
                         >
-                            <Lock className="w-4 h-4" /> Ver Reporte Histórico
+                            <Lock className="w-4 h-4" /> Ciclo Cerrado / Ver Detalles
                         </button>
                     ) : (
                         <button 
@@ -1051,7 +1053,7 @@ export const Reports: React.FC = () => {
                     )
                 )}
 
-                <div className={`grid grid-cols-1 lg:grid-cols-2 gap-8 ${currentPeriodClosure ? 'opacity-75 grayscale-[0.5] pointer-events-none' : ''}`}>
+                <div className={`grid grid-cols-1 lg:grid-cols-2 gap-8 ${currentPeriodClosure ? 'opacity-75 grayscale-[0.5] pointer-events-none select-none' : ''}`}>
                     {/* Visual Comparison Cards */}
                     <div className="space-y-6">
                         {/* OpEx Card */}
