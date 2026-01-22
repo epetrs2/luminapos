@@ -242,16 +242,21 @@ export const Reports: React.FC = () => {
       return { start, end };
   }, [selectedPeriodOffset, settings.budgetConfig]);
 
-  // 2. CHECK IF CLOSED (SNAPSHOT EXISTS) - IMPROVED ROBUST DATE CHECK
+  // 2. CHECK IF CLOSED (SNAPSHOT EXISTS) - IMPROVED DATE COMPONENT COMPARISON
   const currentPeriodClosure = useMemo(() => {
+      // Robust comparison: Check matching Year, Month, Day in local time to avoid timezone slips
+      const isSameDay = (d1: Date, d2: Date) => {
+          return d1.getFullYear() === d2.getFullYear() &&
+                 d1.getMonth() === d2.getMonth() &&
+                 d1.getDate() === d2.getDate();
+      };
+
       return periodClosures.find(c => {
-          const cDate = new Date(c.periodStart);
-          const pDate = periodDates.start;
+          const closureStart = new Date(c.periodStart);
+          const closureEnd = new Date(c.periodEnd);
           
-          // Robust comparison: Check matching Year, Month, Day in local time
-          return cDate.getFullYear() === pDate.getFullYear() &&
-                 cDate.getMonth() === pDate.getMonth() &&
-                 cDate.getDate() === pDate.getDate();
+          // Match if start AND end dates align closely with the calculated period
+          return isSameDay(closureStart, periodDates.start) && isSameDay(closureEnd, periodDates.end);
       });
   }, [periodClosures, periodDates]);
 
@@ -708,9 +713,9 @@ export const Reports: React.FC = () => {
                     currentPeriodClosure ? (
                         <button 
                             onClick={() => { setViewOnlyMode(true); setIsMonthEndModalOpen(true); }} 
-                            className="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all mr-2 opacity-90"
+                            className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all mr-2"
                         >
-                            <Lock className="w-4 h-4" /> Ciclo Cerrado / Ver Detalles
+                            <Lock className="w-4 h-4" /> Ver Reporte Histórico
                         </button>
                     ) : (
                         <button 
