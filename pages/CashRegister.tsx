@@ -2,11 +2,12 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { CashMovement, BudgetCategory } from '../types';
-import { Plus, Search, Filter, Trash2, Printer, DollarSign, CreditCard, Wallet, ArrowRight, X, Save, AlertTriangle, Archive, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, Search, Trash2, Printer, DollarSign, CreditCard, Wallet, X, AlertTriangle, Archive, Lock, TrendingUp } from 'lucide-react';
 import { printZCutTicket } from '../utils/printService';
+import { AreaChart, Area, Tooltip, ResponsiveContainer, YAxis } from 'recharts';
 
 export const CashRegister: React.FC = () => {
-  const { cashMovements, addCashMovement, deleteCashMovement, settings, btDevice, sendBtData, notify, transactions } = useStore();
+  const { cashMovements, addCashMovement, deleteCashMovement, settings, btDevice, sendBtData, notify, transactions, periodClosures } = useStore();
   
   // UI State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -37,22 +38,54 @@ export const CashRegister: React.FC = () => {
       );
   }, [cashMovements, searchTerm, filterType]);
 
-  const { currentBalance, sessionStart } = useMemo(() => {
-      const sorted = [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      const lastZIndex = sorted.findIndex(m => m.isZCut);
+  const { currentBalance, virtualBalance, sessionStart, chartData } = useMemo(() => {
+      const allSorted = [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const lastZIndex = allSorted.findIndex(m => m.isZCut);
       
-      const activeMovements = lastZIndex === -1 ? sorted : sorted.slice(0, lastZIndex);
-      const sessionStart = lastZIndex === -1 ? null : sorted[lastZIndex].date;
+      // Get movements for current session (since last Z cut)
+      const activeMovements = lastZIndex === -1 ? allSorted : allSorted.slice(0, lastZIndex);
+      const sessionStart = lastZIndex === -1 ? null : allSorted[lastZIndex].date;
 
-      const balance = activeMovements.reduce((acc, m) => {
-          if (m.channel !== 'CASH') return acc;
-          if (m.type === 'DEPOSIT' || m.type === 'OPEN') return acc + m.amount;
-          if (m.type === 'WITHDRAWAL' || m.type === 'EXPENSE') return acc - m.amount;
-          return acc;
-      }, 0);
+      // Chronological for chart calculation
+      const chronoMovements = [...activeMovements].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      return { currentBalance: balance, sessionStart };
+      let runCash = 0;
+      let runVirtual = 0;
+      const dataPoints: any[] = [];
+
+      chronoMovements.forEach(m => {
+          if (m.channel === 'CASH') {
+              if (m.type === 'DEPOSIT' || m.type === 'OPEN') runCash += m.amount;
+              else if (m.type === 'WITHDRAWAL' || m.type === 'EXPENSE') runCash -= m.amount;
+          } else {
+              if (m.type === 'DEPOSIT' || m.type === 'OPEN') runVirtual += m.amount;
+              else if (m.type === 'WITHDRAWAL' || m.type === 'EXPENSE') runVirtual -= m.amount;
+          }
+          
+          dataPoints.push({
+              name: new Date(m.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+              cash: runCash,
+              virtual: runVirtual
+          });
+      });
+
+      return { 
+          currentBalance: runCash, 
+          virtualBalance: runVirtual, 
+          sessionStart,
+          chartData: dataPoints
+      };
   }, [cashMovements]);
+
+  // Check if current period is closed
+  const isPeriodClosed = useMemo(() => {
+      const today = new Date().toISOString().split('T')[0];
+      return periodClosures.some(p => {
+          const start = new Date(p.periodStart).toISOString().split('T')[0];
+          const end = new Date(p.periodEnd).toISOString().split('T')[0];
+          return today >= start && today <= end;
+      });
+  }, [periodClosures]);
 
   const handleSave = () => {
     if (!amount || !description) return;
@@ -89,16 +122,15 @@ export const CashRegister: React.FC = () => {
       const expected = currentBalance;
       const difference = declared - expected;
       
-      // Calculate Session Metrics for Z Report
+      // Calculate Session Metrics
       const sessionDateStart = sessionStart ? new Date(sessionStart) : new Date(0);
       const sessionTx = transactions.filter(t => new Date(t.date) > sessionDateStart && t.status !== 'cancelled');
       
       const cashSales = sessionTx.filter(t => t.paymentMethod === 'cash').reduce((s, t) => s + (t.amountPaid || 0), 0);
       const cardSales = sessionTx.filter(t => t.paymentMethod === 'card').reduce((s, t) => s + (t.amountPaid || 0), 0);
       const transferSales = sessionTx.filter(t => t.paymentMethod === 'transfer').reduce((s, t) => s + (t.amountPaid || 0), 0);
-      const creditSales = sessionTx.filter(t => t.paymentMethod === 'credit').reduce((s, t) => s + t.total, 0); // Total booked as credit
+      const creditSales = sessionTx.filter(t => t.paymentMethod === 'credit').reduce((s, t) => s + t.total, 0);
       
-      // Expenses in Cash
       const sessionExpenses = cashMovements
         .filter(m => new Date(m.date) > sessionDateStart && m.channel === 'CASH' && m.type === 'EXPENSE')
         .reduce((s, m) => s + m.amount, 0);
@@ -108,12 +140,9 @@ export const CashRegister: React.FC = () => {
         .reduce((s, m) => s + m.amount, 0);
 
       const zReportData = {
-          openingFund: 0, // TODO: Track opening fund separately
+          openingFund: 0,
           grossSales: sessionTx.reduce((s, t) => s + t.total, 0),
-          cashSales,
-          cardSales,
-          transferSales,
-          creditSales,
+          cashSales, cardSales, transferSales, creditSales,
           expenses: sessionExpenses,
           withdrawals: sessionWithdrawals,
           expectedCash: expected,
@@ -125,7 +154,7 @@ export const CashRegister: React.FC = () => {
       const movement: CashMovement = {
           id: crypto.randomUUID(),
           type: 'CLOSE',
-          amount: expected, // Reset cash drawer logic usually implies taking money out or verifying it
+          amount: expected,
           description: `Corte de Caja Z #${cashMovements.filter(m=>m.isZCut).length + 1}`,
           date: new Date().toISOString(),
           category: 'OPERATIONAL',
@@ -138,8 +167,6 @@ export const CashRegister: React.FC = () => {
       setIsZModalOpen(false);
       setDeclaredCash('');
       notify("Corte Z Realizado", "La caja se ha cerrado.", "success");
-      
-      // Auto Print
       printZCutTicket(movement, settings, btDevice ? sendBtData : undefined);
   };
 
@@ -150,10 +177,12 @@ export const CashRegister: React.FC = () => {
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+        
+        {/* Header & Period Warning */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
             <h2 className="text-3xl font-bold text-slate-800 dark:text-white">Caja Chica</h2>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">Control de flujo de efectivo y cortes.</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">Control de flujo de efectivo y cuentas.</p>
           </div>
           <div className="flex gap-3">
               <button 
@@ -171,19 +200,65 @@ export const CashRegister: React.FC = () => {
           </div>
         </div>
 
+        {isPeriodClosed && (
+            <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-center gap-3 animate-pulse">
+                <Lock className="w-5 h-5 text-red-600 dark:text-red-400" />
+                <div>
+                    <h4 className="font-bold text-red-800 dark:text-red-300">Periodo Cerrado</h4>
+                    <p className="text-sm text-red-600 dark:text-red-400">Las operaciones actuales pertenecen a un ciclo fiscal ya cerrado en reportes.</p>
+                </div>
+            </div>
+        )}
+
+        {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {/* CASH CARD */}
             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
                 <div>
                     <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">En Caja (Efectivo)</p>
                     <h3 className={`text-3xl font-black ${currentBalance >= 0 ? 'text-slate-800 dark:text-white' : 'text-red-500'}`}>${currentBalance.toFixed(2)}</h3>
                 </div>
                 <div className="mt-4 flex items-center gap-2 text-xs text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1.5 rounded-lg w-fit">
-                    <Wallet className="w-4 h-4"/> Disponible
+                    <Wallet className="w-4 h-4"/> Disponible Física
                 </div>
             </div>
-            {/* Add more stats if needed */}
+
+            {/* VIRTUAL CARD */}
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
+                <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Cuenta Virtual</p>
+                    <h3 className={`text-3xl font-black ${virtualBalance >= 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-red-500'}`}>${virtualBalance.toFixed(2)}</h3>
+                </div>
+                <div className="mt-4 flex items-center gap-2 text-xs text-indigo-600 font-bold bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1.5 rounded-lg w-fit">
+                    <CreditCard className="w-4 h-4"/> Banco / Digital
+                </div>
+            </div>
+
+            {/* CHART CARD */}
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col">
+                <div className="flex items-center gap-2 mb-2">
+                    <TrendingUp className="w-4 h-4 text-emerald-500"/>
+                    <span className="text-xs font-bold text-slate-500 uppercase">Flujo de Caja</span>
+                </div>
+                <div className="flex-1 min-h-[100px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={chartData}>
+                            <defs>
+                                <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                </linearGradient>
+                            </defs>
+                            <Tooltip contentStyle={{borderRadius: '8px', border: 'none', fontSize: '12px'}} />
+                            <YAxis hide domain={['auto', 'auto']} />
+                            <Area type="monotone" dataKey="cash" stroke="#10b981" fillOpacity={1} fill="url(#colorCash)" strokeWidth={2} />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
         </div>
 
+        {/* Movements Table */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row gap-4 items-center">
                 <div className="relative flex-1 w-full">
