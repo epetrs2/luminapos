@@ -202,7 +202,8 @@ export const Reports: React.FC = () => {
       return { filteredTransactions: validTx, filteredMovements: validMovs, chartData: chartDataArray, summaryMetrics: { totalSales, totalMoneyOut, avgTicket, transactionCount, netEstimate }, thirdPartyMetrics: { total: thirdPartySales, own: ownSales }, topProducts: topProductsArray, categoryData: categoryArray, expenseCategoryData: expenseCategoryArray, zReportHistory: zHistory, paymentChartData };
   }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
-  const getPeriodDates = (offset: number) => {
+  // 1. DETERMINE DATE RANGE
+  const periodDates = useMemo(() => {
       const config = settings.budgetConfig;
       const startDateStr = config.fiscalStartDate || new Date().toISOString().split('T')[0];
       const cycleType = config.cycleType || 'MONTHLY';
@@ -221,7 +222,7 @@ export const Reports: React.FC = () => {
           const timeSinceStart = now.getTime() - fiscalStart.getTime();
           let currentCycleIndex = Math.floor(timeSinceStart / cycleDurationMs);
           if (timeSinceStart < 0) currentCycleIndex = Math.floor(timeSinceStart / cycleDurationMs);
-          const targetIndex = currentCycleIndex - offset;
+          const targetIndex = currentCycleIndex - selectedPeriodOffset;
           start = new Date(fiscalStart.getTime() + (targetIndex * cycleDurationMs));
           end = new Date(start.getTime() + cycleDurationMs - 1); 
       } else {
@@ -230,7 +231,7 @@ export const Reports: React.FC = () => {
           if (now.getDate() < startDay) {
               anchorMonth.setMonth(anchorMonth.getMonth() - 1);
           }
-          anchorMonth.setMonth(anchorMonth.getMonth() - offset);
+          anchorMonth.setMonth(anchorMonth.getMonth() - selectedPeriodOffset);
           start = new Date(anchorMonth);
           start.setHours(0,0,0,0);
           end = new Date(start);
@@ -239,16 +240,60 @@ export const Reports: React.FC = () => {
           end.setHours(23, 59, 59, 999);
       }
       return { start, end };
-  };
+  }, [selectedPeriodOffset, settings.budgetConfig]);
 
+  // 2. CHECK IF CLOSED (SNAPSHOT EXISTS)
+  const currentPeriodClosure = useMemo(() => {
+      const pStart = periodDates.start.toISOString().split('T')[0];
+      const pEnd = periodDates.end.toISOString().split('T')[0];
+      return periodClosures.find(c => {
+          const cStart = new Date(c.periodStart).toISOString().split('T')[0];
+          const cEnd = new Date(c.periodEnd).toISOString().split('T')[0];
+          return cStart === pStart && cEnd === pEnd;
+      });
+  }, [periodClosures, periodDates]);
+
+  // 3. CALCULATE OR RETRIEVE METRICS
   const distMetrics = useMemo(() => {
-      const { start, end } = getPeriodDates(selectedPeriodOffset);
+      // SCENARIO A: PERIOD IS CLOSED (USE SNAPSHOT DATA ONLY)
+      if (currentPeriodClosure) {
+          const savedData = currentPeriodClosure.reportData;
+          const savedConfig = savedData.config || settings.budgetConfig;
+          
+          // Reconstruct calculations from saved totals to ensure UI consistency
+          // (Even if we saved raw numbers, we recalculate derived percentages to match the UI bars)
+          const income = savedData.income;
+          const targetOpEx = income * (savedConfig.expensesPercentage / 100);
+          const targetProfit = income * (savedConfig.profitPercentage / 100);
+          const targetInvestment = income * (savedConfig.investmentPercentage / 100);
+          const expenseSurplus = Math.max(0, targetOpEx - savedData.actualOpEx);
+
+          return {
+              income: income,
+              actual: { 
+                  opEx: savedData.actualOpEx, 
+                  profit: savedData.actualProfit, 
+                  investment: savedData.actualInvestment 
+              },
+              target: { 
+                  opEx: targetOpEx, 
+                  profit: targetProfit, 
+                  investment: targetInvestment 
+              },
+              expenseSurplus: expenseSurplus,
+              config: savedConfig, 
+              periodStart: periodDates.start,
+              periodEnd: periodDates.end,
+              daysRemaining: 0,
+              isCurrentPeriod: false,
+              topPeriodProducts: savedData.topPeriodProducts || [], // Fallback if missing in old snapshots
+              topPeriodCustomers: savedData.topPeriodCustomers || [] // Fallback if missing
+          };
+      }
+
+      // SCENARIO B: PERIOD IS OPEN (CALCULATE LIVE)
+      const { start, end } = periodDates;
       
-      // LOGICA CORREGIDA: INGRESO REAL POR VENTAS
-      // Solo contamos movimientos de tipo 'DEPOSIT' que sean de categoría 'SALES'.
-      // Esto incluye: Ventas en efectivo, Pagos de tarjeta (Virtual), Transferencias (Virtual).
-      // Y, crucialmente, PAGOS DE DEUDAS ANTIGUAS realizados en este periodo.
-      // Excluye 'EQUITY' (Aportes de dueño) y 'OTHER' para no inflar artificialmente el rendimiento de ventas.
       const relevantIncomeMovs = cashMovements.filter((m: CashMovement) => {
           const d = new Date(m.date);
           return m.type === 'DEPOSIT' && m.category === 'SALES' && d >= start && d <= end;
@@ -256,8 +301,6 @@ export const Reports: React.FC = () => {
 
       const income = relevantIncomeMovs.reduce((sum, m) => sum + m.amount, 0);
 
-      // GASTOS OPERATIVOS REALES
-      // Sumamos TODOS los gastos (EXPENSE), sin importar si salieron de Caja Física o Cuenta Virtual.
       const relevantMovs = cashMovements.filter((m: CashMovement) => {
           const d = new Date(m.date);
           return d >= start && d <= end;
@@ -313,18 +356,9 @@ export const Reports: React.FC = () => {
           topPeriodProducts,
           topPeriodCustomers
       };
-  }, [selectedPeriodOffset, transactions, cashMovements, settings.budgetConfig, customers]);
+  }, [currentPeriodClosure, periodDates, transactions, cashMovements, settings.budgetConfig, customers, selectedPeriodOffset]);
 
-  const currentPeriodClosure = useMemo(() => {
-      const pStart = distMetrics.periodStart.toISOString().split('T')[0];
-      const pEnd = distMetrics.periodEnd.toISOString().split('T')[0];
-      return periodClosures.find(c => {
-          const cStart = new Date(c.periodStart).toISOString().split('T')[0];
-          const cEnd = new Date(c.periodEnd).toISOString().split('T')[0];
-          return cStart === pStart && cEnd === pEnd;
-      });
-  }, [periodClosures, distMetrics.periodStart, distMetrics.periodEnd]);
-
+  // ... (REST OF THE COMPONENT REMAINS EXACTLY THE SAME) ...
   const inventoryMetrics = useMemo(() => {
     let totalStockValue = 0;
     let totalPotentialRevenue = 0;
@@ -531,7 +565,9 @@ export const Reports: React.FC = () => {
               actualInvestment: distMetrics.actual.investment,
               config: distMetrics.config,
               checks: monthEndChecks,
-              net: distMetrics.income - distMetrics.actual.opEx
+              net: distMetrics.income - distMetrics.actual.opEx,
+              topPeriodProducts: distMetrics.topPeriodProducts, // Added to snapshot
+              topPeriodCustomers: distMetrics.topPeriodCustomers // Added to snapshot
           };
 
           const newClosure: PeriodClosure = {
