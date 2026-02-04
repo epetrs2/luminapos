@@ -240,7 +240,7 @@ export const Reports: React.FC = () => {
           end.setHours(23, 59, 59, 999);
       }
       return { start, end };
-  }, [selectedPeriodOffset, settings.budgetConfig]);
+  }, [selectedPeriodOffset, settings]); // Changed dependency to full settings
 
   // 2. CHECK IF CLOSED (SNAPSHOT EXISTS) - IMPROVED DATE COMPONENT COMPARISON
   const currentPeriodClosure = useMemo(() => {
@@ -363,7 +363,7 @@ export const Reports: React.FC = () => {
           topPeriodProducts,
           topPeriodCustomers
       };
-  }, [currentPeriodClosure, periodDates, transactions, cashMovements, settings.budgetConfig, customers, selectedPeriodOffset]);
+  }, [currentPeriodClosure, periodDates, transactions, cashMovements, settings, customers, selectedPeriodOffset]); // Changed dependency to full settings
 
   // ... (REST OF THE COMPONENT REMAINS EXACTLY THE SAME) ...
   const inventoryMetrics = useMemo(() => {
