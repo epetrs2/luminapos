@@ -240,7 +240,7 @@ export const Reports: React.FC = () => {
           end.setHours(23, 59, 59, 999);
       }
       return { start, end };
-  }, [selectedPeriodOffset, settings]); // CHANGED: Depends on entire settings object to catch deep updates
+  }, [selectedPeriodOffset, settings]); // CHANGED: Depends on entire settings object
 
   // 2. CHECK IF CLOSED (SNAPSHOT EXISTS) - IMPROVED DATE COMPONENT COMPARISON
   const currentPeriodClosure = useMemo(() => {
@@ -267,8 +267,6 @@ export const Reports: React.FC = () => {
           const savedData = currentPeriodClosure.reportData;
           const savedConfig = savedData.config || settings.budgetConfig;
           
-          // Reconstruct calculations from saved totals to ensure UI consistency
-          // (Even if we saved raw numbers, we recalculate derived percentages to match the UI bars)
           const income = savedData.income;
           const targetOpEx = income * (savedConfig.expensesPercentage / 100);
           const targetProfit = income * (savedConfig.profitPercentage / 100);
@@ -293,8 +291,8 @@ export const Reports: React.FC = () => {
               periodEnd: periodDates.end,
               daysRemaining: 0,
               isCurrentPeriod: false,
-              topPeriodProducts: savedData.topPeriodProducts || [], // Fallback if missing in old snapshots
-              topPeriodCustomers: savedData.topPeriodCustomers || [] // Fallback if missing
+              topPeriodProducts: savedData.topPeriodProducts || [], 
+              topPeriodCustomers: savedData.topPeriodCustomers || [] 
           };
       }
 
@@ -317,11 +315,20 @@ export const Reports: React.FC = () => {
       const actualProfitTaken = relevantMovs.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       
       const config = settings.budgetConfig;
+      
+      // Targets based on Config
       const targetOpEx = income * (config.expensesPercentage / 100);
-      let actualInvestment = Math.max(0, income - (actualOpEx + actualProfitTaken));
-      const expenseSurplus = Math.max(0, targetOpEx - actualOpEx);
       const targetProfit = income * (config.profitPercentage / 100);
       const targetInvestment = income * (config.investmentPercentage / 100);
+
+      // Variances
+      const expenseSurplus = Math.max(0, targetOpEx - actualOpEx);
+      const opExOverrun = Math.max(0, actualOpEx - targetOpEx);
+      const profitOverrun = Math.max(0, actualProfitTaken - targetProfit);
+
+      // Actual Investment = Allocated + Savings - Overruns (Protecting cash flow reality)
+      let actualInvestment = (targetInvestment + expenseSurplus) - opExOverrun - profitOverrun;
+      actualInvestment = Math.max(0, actualInvestment);
       
       const now = new Date();
       const timeDiff = end.getTime() - now.getTime();
@@ -363,9 +370,9 @@ export const Reports: React.FC = () => {
           topPeriodProducts,
           topPeriodCustomers
       };
-  }, [currentPeriodClosure, periodDates, transactions, cashMovements, settings, customers, selectedPeriodOffset]); // CHANGED: Depends on entire settings object
+  }, [currentPeriodClosure, periodDates, transactions, cashMovements, settings, customers, selectedPeriodOffset]); // Changed dependency to full settings
 
-  // ... (rest of the file remains exactly the same as provided) ...
+  // ... (REST OF THE COMPONENT REMAINS EXACTLY THE SAME) ...
   const inventoryMetrics = useMemo(() => {
     let totalStockValue = 0;
     let totalPotentialRevenue = 0;
