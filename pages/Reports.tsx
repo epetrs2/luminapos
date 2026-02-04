@@ -240,7 +240,7 @@ export const Reports: React.FC = () => {
           end.setHours(23, 59, 59, 999);
       }
       return { start, end };
-  }, [selectedPeriodOffset, settings]); // CHANGED: Depends on entire settings object to catch deep updates
+  }, [selectedPeriodOffset, settings]); // CHANGED: Depends on entire settings object
 
   // 2. CHECK IF CLOSED (SNAPSHOT EXISTS) - IMPROVED DATE COMPONENT COMPARISON
   const currentPeriodClosure = useMemo(() => {
@@ -265,36 +265,23 @@ export const Reports: React.FC = () => {
       // SCENARIO A: PERIOD IS CLOSED (USE SNAPSHOT DATA ONLY)
       if (currentPeriodClosure) {
           const savedData = currentPeriodClosure.reportData;
-          const savedConfig = savedData.config || settings.budgetConfig;
-          
-          // Reconstruct calculations from saved totals to ensure UI consistency
-          // (Even if we saved raw numbers, we recalculate derived percentages to match the UI bars)
-          const income = savedData.income;
-          const targetOpEx = income * (savedConfig.expensesPercentage / 100);
-          const targetProfit = income * (savedConfig.profitPercentage / 100);
-          const targetInvestment = income * (savedConfig.investmentPercentage / 100);
-          const expenseSurplus = Math.max(0, targetOpEx - savedData.actualOpEx);
-
           return {
-              income: income,
-              actual: { 
-                  opEx: savedData.actualOpEx, 
-                  profit: savedData.actualProfit, 
-                  investment: savedData.actualInvestment 
-              },
+              income: savedData.income,
+              actual: { opEx: savedData.actualOpEx, profit: savedData.actualProfit, investment: savedData.actualInvestment },
               target: { 
-                  opEx: targetOpEx, 
-                  profit: targetProfit, 
-                  investment: targetInvestment 
+                  opEx: savedData.income * (savedData.config.expensesPercentage / 100), 
+                  profit: savedData.income * (savedData.config.profitPercentage / 100), 
+                  investment: savedData.income * (savedData.config.investmentPercentage / 100) 
               },
-              expenseSurplus: expenseSurplus,
-              config: savedConfig, 
+              expenseSurplus: Math.max(0, (savedData.income * (savedData.config.expensesPercentage / 100)) - savedData.actualOpEx),
+              config: savedData.config, 
               periodStart: periodDates.start,
               periodEnd: periodDates.end,
               daysRemaining: 0,
               isCurrentPeriod: false,
-              topPeriodProducts: savedData.topPeriodProducts || [], // Fallback if missing in old snapshots
-              topPeriodCustomers: savedData.topPeriodCustomers || [] // Fallback if missing
+              topPeriodProducts: savedData.topPeriodProducts || [], 
+              topPeriodCustomers: savedData.topPeriodCustomers || [],
+              display: savedData.display || { investment: savedData.actualInvestment, profit: savedData.actualProfit } // Fallback for old snapshots
           };
       }
 
@@ -317,12 +304,45 @@ export const Reports: React.FC = () => {
       const actualProfitTaken = relevantMovs.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       
       const config = settings.budgetConfig;
+      
+      // Targets based on Config
       const targetOpEx = income * (config.expensesPercentage / 100);
-      let actualInvestment = Math.max(0, income - (actualOpEx + actualProfitTaken));
-      const expenseSurplus = Math.max(0, targetOpEx - actualOpEx);
       const targetProfit = income * (config.profitPercentage / 100);
       const targetInvestment = income * (config.investmentPercentage / 100);
+
+      // Calculations for INTERNAL logic (Overruns, etc)
+      const expenseSurplus = Math.max(0, targetOpEx - actualOpEx);
+      const opExOverrun = Math.max(0, actualOpEx - targetOpEx);
+      const profitOverrun = Math.max(0, actualProfitTaken - targetProfit);
+
+      // Total Liquid Cash (Income - Expenses - Withdrawals)
+      // This is the "Big Number" the user wants to see assigned to their main bucket
+      const totalLiquidity = Math.max(0, income - actualOpEx - actualProfitTaken);
+
+      // Actual Investment (Strict accounting for internal logic)
+      let actualInvestment = (targetInvestment + expenseSurplus) - opExOverrun - profitOverrun;
+      actualInvestment = Math.max(0, actualInvestment);
       
+      // DISPLAY LOGIC: SWAP BIG NUMBER BASED ON PRIORITY
+      let displayInvestment = 0;
+      let displayProfitValue = 0; // Value for the big number
+      let displayProfitLimit = 0; // Value for the small number (Limit)
+
+      if (config.investmentPercentage >= config.profitPercentage) {
+          // Standard Mode: Investment is the "Savings" bucket (gets the big residual number)
+          displayInvestment = totalLiquidity; 
+          displayProfitValue = actualProfitTaken;
+          displayProfitLimit = targetProfit;
+      } else {
+          // Profit Mode: Profit is the "Savings" bucket (gets the big residual number)
+          // The user wants to see the total cash available as "Profit"
+          displayProfitValue = totalLiquidity; 
+          displayProfitLimit = 0; // Hide limit or make it huge? User implies they want to see the big number here.
+          
+          // Investment shows just its target allocation (virtual)
+          displayInvestment = targetInvestment;
+      }
+
       const now = new Date();
       const timeDiff = end.getTime() - now.getTime();
       const daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
@@ -361,11 +381,17 @@ export const Reports: React.FC = () => {
           daysRemaining: isCurrentPeriod ? daysRemaining : 0,
           isCurrentPeriod,
           topPeriodProducts,
-          topPeriodCustomers
+          topPeriodCustomers,
+          display: {
+              investment: displayInvestment,
+              profitValue: displayProfitValue,
+              profitLimit: displayProfitLimit,
+              isProfitMain: config.profitPercentage > config.investmentPercentage
+          }
       };
-  }, [currentPeriodClosure, periodDates, transactions, cashMovements, settings, customers, selectedPeriodOffset]); // CHANGED: Depends on entire settings object
+  }, [currentPeriodClosure, periodDates, transactions, cashMovements, settings, customers, selectedPeriodOffset]); // Changed dependency to full settings
 
-  // ... (rest of the file remains exactly the same as provided) ...
+  // ... (REST OF THE COMPONENT REMAINS EXACTLY THE SAME) ...
   const inventoryMetrics = useMemo(() => {
     let totalStockValue = 0;
     let totalPotentialRevenue = 0;
@@ -1091,8 +1117,13 @@ export const Reports: React.FC = () => {
                                 <span className="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded font-bold">{distMetrics.config.profitPercentage}% Asignado</span>
                             </div>
                             <div className="flex items-end gap-2 mb-2">
-                                <span className={`text-2xl font-black ${distMetrics.actual.profit > distMetrics.target.profit ? 'text-orange-500' : 'text-slate-800 dark:text-white'}`}>${distMetrics.actual.profit.toFixed(0)}</span>
-                                <span className="text-sm text-slate-400 mb-1">/ ${distMetrics.target.profit.toFixed(0)} disponibles</span>
+                                <span className={`text-2xl font-black ${distMetrics.actual.profit > distMetrics.target.profit ? 'text-orange-500' : 'text-slate-800 dark:text-white'}`}>
+                                    ${(distMetrics.display?.profitValue ?? distMetrics.actual.profit).toFixed(0)}
+                                </span>
+                                <span className="text-sm text-slate-400 mb-1">
+                                    / ${(distMetrics.display?.profitLimit ?? distMetrics.target.profit).toFixed(0)} 
+                                    {distMetrics.display?.isProfitMain ? ' en Caja' : ' disponibles'}
+                                </span>
                             </div>
                             <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden">
                                 <div 
@@ -1112,8 +1143,12 @@ export const Reports: React.FC = () => {
                                 <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">{distMetrics.config.investmentPercentage}% Base</span>
                             </div>
                             <div className="flex items-end gap-2 mb-2 relative z-10">
-                                <span className="text-3xl font-black text-blue-600 dark:text-blue-400">${distMetrics.actual.investment.toFixed(0)}</span>
-                                <span className="text-sm text-slate-400 mb-1">acumulado</span>
+                                <span className="text-3xl font-black text-blue-600 dark:text-blue-400">
+                                    ${(distMetrics.display?.investment ?? distMetrics.actual.investment).toFixed(0)}
+                                </span>
+                                <span className="text-sm text-slate-400 mb-1">
+                                    {distMetrics.display?.isProfitMain ? 'base' : 'acumulado'}
+                                </span>
                             </div>
                             <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden relative z-10">
                                 <div 
@@ -1122,7 +1157,9 @@ export const Reports: React.FC = () => {
                                 ></div>
                             </div>
                             <p className="text-[10px] text-slate-400 mt-2 relative z-10">
-                                Incluye el % base de inversión MÁS cualquier sobrante de gastos no utilizados.
+                                {distMetrics.display?.isProfitMain 
+                                    ? "El sobrante de caja se asignó a Ganancias por ser el porcentaje mayor." 
+                                    : "Incluye el % base de inversión MÁS cualquier sobrante de gastos no utilizados."}
                             </p>
                         </div>
                     </div>
