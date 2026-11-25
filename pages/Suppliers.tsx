@@ -584,24 +584,40 @@ export const Suppliers: React.FC = () => {
                                         {productSearch && (
                                             <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto">
                                                 {filteredProducts.map(p => (
-                                                    <button 
-                                                        key={p.id} 
-                                                        onClick={() => {
-                                                            if(!p.hasVariants) {
-                                                                addToPurchaseCart(p);
-                                                            }
-                                                        }}
-                                                        className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800 last:border-0 flex justify-between items-center group"
-                                                    >
-                                                        <div>
-                                                            <p className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
+                                                    p.hasVariants && p.variants && p.variants.length > 0 ? (
+                                                        <div key={p.id} className="p-3 border-b border-slate-100 dark:border-slate-800 last:border-0">
+                                                            <p className="font-bold text-sm text-slate-800 dark:text-white mb-2 flex items-center gap-2">
                                                                 {p.name}
-                                                                {p.type === 'SUPPLY' && <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 rounded border border-orange-200">INSUMO</span>}
+                                                                <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 rounded">VARIANTES</span>
                                                             </p>
-                                                            <p className="text-xs text-slate-500">SKU: {p.sku}</p>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {p.variants.map(v => (
+                                                                    <button
+                                                                        key={v.id}
+                                                                        onClick={() => addToPurchaseCart(p, v.id)}
+                                                                        className="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-700 dark:text-slate-200 transition-colors"
+                                                                    >
+                                                                        + {v.name} (Stock: {v.stock})
+                                                                    </button>
+                                                                ))}
+                                                            </div>
                                                         </div>
-                                                        <Plus className="w-5 h-5 text-slate-300 group-hover:text-indigo-600" />
-                                                    </button>
+                                                    ) : (
+                                                        <button 
+                                                            key={p.id} 
+                                                            onClick={() => addToPurchaseCart(p)}
+                                                            className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800 last:border-0 flex justify-between items-center group"
+                                                        >
+                                                            <div>
+                                                                <p className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
+                                                                    {p.name}
+                                                                    {p.type === 'SUPPLY' && <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 rounded border border-orange-200">INSUMO</span>}
+                                                                </p>
+                                                                <p className="text-xs text-slate-500">SKU: {p.sku}</p>
+                                                            </div>
+                                                            <Plus className="w-5 h-5 text-slate-300 group-hover:text-indigo-600" />
+                                                        </button>
+                                                    )
                                                 ))}
                                                 {filteredProducts.length === 0 && (
                                                     <div className="p-3 text-center text-sm text-slate-400">No se encontraron coincidencias</div>

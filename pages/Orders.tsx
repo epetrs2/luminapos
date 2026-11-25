@@ -471,17 +471,11 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
     const handleDeliverToPOS = useCallback((orderId: string) => {
         const order = orders.find(o => o.id === orderId);
         if (order) {
-            // FIX: AUTOMATICALLY ADD STOCK (IN) SO POS DOESN'T COMPLAIN ABOUT INSUFFICIENT STOCK
-            // This assumes "Delivering" means production is complete and items are added to inventory.
-            order.items.forEach(item => {
-                adjustStock(item.id, item.quantity, 'IN', item.variantId);
-            });
-            
-            // Then send to POS where they will be sold (Stock OUT)
+            // Send directly to POS without inflating inventory on repeated clicks
             sendOrderToPOS(order);
             if (setView) setView(AppView.POS);
         }
-    }, [orders, sendOrderToPOS, setView, adjustStock]);
+    }, [orders, sendOrderToPOS, setView]);
 
     const handlePrintOrder = useCallback((order: Order) => {
         const customer = customers.find(c => c.id === order.customerId);

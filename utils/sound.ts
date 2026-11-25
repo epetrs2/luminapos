@@ -1,36 +1,53 @@
 
 import { SoundType } from '../types';
 
-// Generates satisfying UI sounds using Web Audio API
-// No external files required, zero loading time, works offline.
+let sharedAudioCtx: AudioContext | null = null;
+
+const getAudioContext = (): AudioContext | null => {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+        sharedAudioCtx = new AudioCtx();
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+        sharedAudioCtx.resume().catch(() => {});
+    }
+    return sharedAudioCtx;
+};
+
+// Generates satisfying UI sounds using Web Audio API (singleton context, no leaks)
 export const playSystemSound = (type: SoundType, volume: number = 0.5) => {
-    if (type === 'NONE') return;
+    if (type === 'NONE' || !Number.isFinite(volume) || volume <= 0) return;
+
+    const safeVolume = Math.min(1, Math.max(0.01, volume));
 
     try {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
-
-        const ctx = new AudioContext();
+        const ctx = getAudioContext();
+        if (!ctx) return;
         const now = ctx.currentTime;
         
-        // Helper to create simple oscillators
         const createOsc = (
             freq: number, 
-            type: OscillatorType, 
+            oscType: OscillatorType, 
             startTime: number, 
             duration: number, 
-            vol: number = volume
+            vol: number = safeVolume
         ) => {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
-            osc.type = type;
+            osc.type = oscType;
             osc.frequency.setValueAtTime(freq, startTime);
             
-            gain.gain.setValueAtTime(vol, startTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+            const clampedVol = Math.max(0.01, vol);
+            gain.gain.setValueAtTime(clampedVol, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
             
             osc.connect(gain);
             gain.connect(ctx.destination);
+            osc.onended = () => {
+                osc.disconnect();
+                gain.disconnect();
+            };
             
             osc.start(startTime);
             osc.stop(startTime + duration);
@@ -118,12 +135,6 @@ export const playSystemSound = (type: SoundType, volume: number = 0.5) => {
                 createOsc(1318.51, 'square', now + 0.1, 0.3, volume * 0.3); // E6
                 break;
         }
-
-        // Close context after sound finishes to save resources
-        setTimeout(() => {
-            if(ctx.state !== 'closed') ctx.close();
-        }, 2500);
-
     } catch (e) {
         console.error("Audio error", e);
     }

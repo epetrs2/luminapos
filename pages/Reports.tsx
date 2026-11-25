@@ -5,6 +5,7 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { Sparkles, TrendingUp, DollarSign, Activity, Calendar, ArrowUpRight, ArrowDownRight, Package, PieChart as PieIcon, AlertCircle, Filter, X, Handshake, Tag, PieChart as SplitIcon, RefreshCw, Printer, FileText, Lock, Target, AlertTriangle, CheckCircle2, Lightbulb, Box, Layers, TrendingDown, ClipboardList, Factory, ArrowLeft, ArrowRight, Wallet, Clock, Archive, Check, CreditCard, Banknote } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { printFinancialReport, printZCutTicket, printMonthEndTicket, printMonthEndReportPDF } from '../utils/printService';
+import { parseLocalDate, formatLocalDateInput, addLocalDays, addMonthsClamped, safePercent, roundCurrency, generateId } from '../utils/financeHelpers';
 import { Transaction, CashMovement, PeriodClosure } from '../types';
 
 // --- COLORS FOR CHARTS ---
@@ -94,7 +95,7 @@ export const Reports: React.FC = () => {
 
       const validTx = transactions.filter((t: Transaction) => {
           const isDateInRange = isInRange(t.date);
-          const isNotCancelled = t.status !== 'cancelled';
+          const isNotCancelled = t.status !== 'cancelled' && t.status !== 'returned';
           const matchesPayment = paymentMethodFilter === 'ALL' || t.paymentMethod === paymentMethodFilter;
           return isDateInRange && isNotCancelled && matchesPayment;
       });
@@ -104,35 +105,49 @@ export const Reports: React.FC = () => {
 
       const daysMap = new Map<string, { date: string, rawDate: number, sales: number, expenses: number, profit: number }>();
       const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-      
-      if (diffDays <= 60) {
+      const groupByMonth = diffDays > 60;
+
+      const getBucketKey = (d: Date) =>
+          groupByMonth
+              ? `${d.getFullYear()}-${d.getMonth()}`
+              : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
+      if (!groupByMonth) {
           const iterDate = new Date(startDate);
           while (iterDate <= endDate) {
               const label = iterDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
-              const key = `${iterDate.getFullYear()}-${iterDate.getMonth()}-${iterDate.getDate()}`; 
+              const key = getBucketKey(iterDate);
               daysMap.set(key, { date: label, rawDate: iterDate.getTime(), sales: 0, expenses: 0, profit: 0 });
               iterDate.setDate(iterDate.getDate() + 1);
+          }
+      } else {
+          const iterDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+          while (iterDate <= endDate) {
+              const label = iterDate.toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
+              const key = getBucketKey(iterDate);
+              daysMap.set(key, { date: label, rawDate: iterDate.getTime(), sales: 0, expenses: 0, profit: 0 });
+              iterDate.setMonth(iterDate.getMonth() + 1);
           }
       }
 
       validTx.forEach((t: Transaction) => {
           const d = new Date(t.date);
-          const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+          const key = getBucketKey(d);
           if (daysMap.has(key)) {
               const entry = daysMap.get(key)!;
-              entry.sales += t.total;
-              entry.profit += t.total; // Start with sales
+              entry.sales = roundCurrency(entry.sales + t.total);
+              entry.profit = roundCurrency(entry.profit + t.total);
           }
       });
 
       validMovs.forEach((m: CashMovement) => {
           if (m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')) {
               const d = new Date(m.date);
-              const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+              const key = getBucketKey(d);
               if (daysMap.has(key)) {
                   const entry = daysMap.get(key)!;
-                  entry.expenses += m.amount;
-                  entry.profit -= m.amount; // Subtract expenses
+                  entry.expenses = roundCurrency(entry.expenses + m.amount);
+                  entry.profit = roundCurrency(entry.profit - m.amount);
               }
           }
       });
@@ -202,45 +217,39 @@ export const Reports: React.FC = () => {
       return { filteredTransactions: validTx, filteredMovements: validMovs, chartData: chartDataArray, summaryMetrics: { totalSales, totalMoneyOut, avgTicket, transactionCount, netEstimate }, thirdPartyMetrics: { total: thirdPartySales, own: ownSales }, topProducts: topProductsArray, categoryData: categoryArray, expenseCategoryData: expenseCategoryArray, zReportHistory: zHistory, paymentChartData };
   }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
 
-  // 1. DETERMINE DATE RANGE
+  // 1. DETERMINE DATE RANGE (Strict local calendar math: no UTC shift, no DST drift, no month-end overflow)
   const periodDates = useMemo(() => {
       const config = settings.budgetConfig;
-      const startDateStr = config.fiscalStartDate || new Date().toISOString().split('T')[0];
+      const startDateStr = config.fiscalStartDate || formatLocalDateInput(new Date());
       const cycleType = config.cycleType || 'MONTHLY';
-      const fiscalStart = new Date(startDateStr);
-      fiscalStart.setHours(0,0,0,0);
+      const fiscalStart = parseLocalDate(startDateStr);
       const now = new Date();
-      now.setHours(0,0,0,0);
+      now.setHours(0, 0, 0, 0);
 
       let start: Date;
       let end: Date;
 
       if (cycleType === 'FIXED_DAYS') {
-          const daysPerCycle = config.cycleLength || 30;
-          const msPerDay = 1000 * 60 * 60 * 24;
-          const cycleDurationMs = daysPerCycle * msPerDay;
-          const timeSinceStart = now.getTime() - fiscalStart.getTime();
-          let currentCycleIndex = Math.floor(timeSinceStart / cycleDurationMs);
-          if (timeSinceStart < 0) currentCycleIndex = Math.floor(timeSinceStart / cycleDurationMs);
+          const daysPerCycle = Math.max(1, config.cycleLength || 30);
+          const daysSinceStart = Math.round((now.getTime() - fiscalStart.getTime()) / (1000 * 60 * 60 * 24));
+          const currentCycleIndex = Math.floor(daysSinceStart / daysPerCycle);
           const targetIndex = currentCycleIndex - selectedPeriodOffset;
-          start = new Date(fiscalStart.getTime() + (targetIndex * cycleDurationMs));
-          end = new Date(start.getTime() + cycleDurationMs - 1); 
+          start = addLocalDays(fiscalStart, targetIndex * daysPerCycle);
+          const nextStart = addLocalDays(start, daysPerCycle);
+          end = new Date(nextStart.getTime() - 1);
       } else {
-          const startDay = fiscalStart.getDate(); 
-          let anchorMonth = new Date(now.getFullYear(), now.getMonth(), startDay);
+          const startDay = fiscalStart.getDate();
+          let monthOffset = 0;
           if (now.getDate() < startDay) {
-              anchorMonth.setMonth(anchorMonth.getMonth() - 1);
+              monthOffset -= 1;
           }
-          anchorMonth.setMonth(anchorMonth.getMonth() - selectedPeriodOffset);
-          start = new Date(anchorMonth);
-          start.setHours(0,0,0,0);
-          end = new Date(start);
-          end.setMonth(end.getMonth() + 1);
-          end.setDate(end.getDate() - 1);
-          end.setHours(23, 59, 59, 999);
+          monthOffset -= selectedPeriodOffset;
+          start = addMonthsClamped(now.getFullYear(), now.getMonth(), startDay, monthOffset);
+          const nextStart = addMonthsClamped(now.getFullYear(), now.getMonth(), startDay, monthOffset + 1);
+          end = new Date(nextStart.getTime() - 1);
       }
       return { start, end };
-  }, [selectedPeriodOffset, settings]); // CHANGED: Depends on entire settings object
+  }, [selectedPeriodOffset, settings.budgetConfig.fiscalStartDate, settings.budgetConfig.cycleType, settings.budgetConfig.cycleLength]);
 
   // 2. CHECK IF CLOSED (SNAPSHOT EXISTS) - IMPROVED DATE COMPONENT COMPARISON
   const currentPeriodClosure = useMemo(() => {
@@ -281,24 +290,30 @@ export const Reports: React.FC = () => {
               isCurrentPeriod: false,
               topPeriodProducts: savedData.topPeriodProducts || [], 
               topPeriodCustomers: savedData.topPeriodCustomers || [],
-              display: savedData.display || { investment: savedData.actualInvestment, profit: savedData.actualProfit } // Fallback for old snapshots
+              display: savedData.display || {
+                  investment: savedData.actualInvestment || 0,
+                  profitValue: savedData.actualProfit || 0,
+                  profitLimit: 0,
+                  isProfitMain: false
+              }
           };
       }
 
       // SCENARIO B: PERIOD IS OPEN (CALCULATE LIVE)
       const { start, end } = periodDates;
       
-      const relevantIncomeMovs = cashMovements.filter((m: CashMovement) => {
-          const d = new Date(m.date);
-          return m.type === 'DEPOSIT' && m.category === 'SALES' && d >= start && d <= end;
-      });
-
-      const income = relevantIncomeMovs.reduce((sum, m) => sum + m.amount, 0);
-
       const relevantMovs = cashMovements.filter((m: CashMovement) => {
           const d = new Date(m.date);
           return d >= start && d <= end;
       });
+
+      const grossSalesDeposits = relevantMovs
+          .filter((m: CashMovement) => m.type === 'DEPOSIT' && m.category === 'SALES')
+          .reduce((sum, m) => sum + m.amount, 0);
+      const salesRefundWithdrawals = relevantMovs
+          .filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'SALES')
+          .reduce((sum, m) => sum + m.amount, 0);
+      const income = roundCurrency(Math.max(0, grossSalesDeposits - salesRefundWithdrawals));
 
       const actualOpEx = relevantMovs.filter((m: CashMovement) => m.type === 'EXPENSE').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       const actualProfitTaken = relevantMovs.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'PROFIT').reduce((s: number, m: CashMovement) => s + m.amount, 0);
@@ -497,12 +512,13 @@ export const Reports: React.FC = () => {
   const handlePrintFinancialReport = () => {
       const opExp = filteredMovements.filter((m: CashMovement) => m.type === 'EXPENSE').reduce((s: number, m: CashMovement) => s + m.amount, 0);
       const tpPayouts = filteredMovements.filter((m: CashMovement) => m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY').reduce((s: number, m: CashMovement) => s + m.amount, 0);
-      const startDateObj = dateRange === 'CUSTOM' && customStart ? new Date(customStart) : new Date();
-      if(dateRange !== 'CUSTOM') startDateObj.setDate(startDateObj.getDate() - (dateRange === 'WEEK' ? 7 : dateRange === 'MONTH' ? 30 : 0));
+      const startDateObj = dateRange === 'CUSTOM' && customStart ? parseLocalDate(customStart) : new Date();
+      if (dateRange !== 'CUSTOM') startDateObj.setDate(startDateObj.getDate() - (dateRange === 'WEEK' ? 6 : dateRange === 'MONTH' ? 29 : 0));
+      const endDateObj = dateRange === 'CUSTOM' && customEnd ? parseLocalDate(customEnd) : new Date();
 
       printFinancialReport(
           startDateObj,
-          new Date(),
+          endDateObj,
           [{ name: 'Ventas', value: summaryMetrics.totalSales }, ...expenseCategoryData],
           {
               totalSales: summaryMetrics.totalSales,
@@ -516,9 +532,14 @@ export const Reports: React.FC = () => {
 
   const handleGenerateInsight = async () => {
     setLoadingAi(true);
-    const result = await generateBusinessInsight(products, filteredTransactions, filteredMovements);
-    setInsight(result.text);
-    setLoadingAi(false);
+    try {
+      const result = await generateBusinessInsight(products, filteredTransactions, filteredMovements);
+      setInsight(result.text);
+    } catch (e) {
+      setInsight("No se pudo generar el análisis en este momento.");
+    } finally {
+      setLoadingAi(false);
+    }
   };
 
   // --- NEW MONTH END LOGIC (LOCAL & FAST) ---
@@ -534,20 +555,21 @@ export const Reports: React.FC = () => {
           actualInvestment: distMetrics.actual.investment,
           config: distMetrics.config,
           checks: monthEndChecks,
-          net: distMetrics.income - distMetrics.actual.opEx // Simple Net
+          net: roundCurrency(distMetrics.income - distMetrics.actual.opEx)
       };
 
       if (mode === 'THERMAL') {
           if (!btDevice) { alert("Conecta impresora Bluetooth."); setGeneratingReport(false); return; }
           await printMonthEndTicket(reportData, settings, sendBtData);
       } else {
-          // GENERATE PDF WITH LOCAL ANALYSIS (NO AI - FAST & RELIABLE)
-          const income = reportData.income || 1; // Avoid div by zero
-          const opExPct = (reportData.actualOpEx / income) * 100;
+          const income = reportData.income || 0;
+          const opExPct = safePercent(reportData.actualOpEx, income);
           const targetOpEx = reportData.config.expensesPercentage;
           
-          let financialSummary = `El periodo cerró con un ingreso total de **$${reportData.income.toLocaleString()}**. `;
-          if (opExPct > targetOpEx) {
+          let financialSummary = `El periodo cerró con un ingreso total de **$${income.toLocaleString()}**. `;
+          if (income <= 0) {
+              financialSummary += `No se registraron ingresos por ventas durante este periodo.`;
+          } else if (opExPct > targetOpEx) {
               financialSummary += `Los gastos operativos (${opExPct.toFixed(1)}%) superaron el presupuesto del ${targetOpEx}%. Se recomienda revisar costos fijos y variables.`;
           } else {
               financialSummary += `Control de gastos óptimo: ${opExPct.toFixed(1)}% (Meta: ${targetOpEx}%). Esto permitió maximizar la utilidad y la inversión.`;
@@ -557,7 +579,7 @@ export const Reports: React.FC = () => {
           const topP = distMetrics.topPeriodProducts;
           if (topP.length > 0) {
               const top = topP[0];
-              const topPct = (top.total / income) * 100;
+              const topPct = safePercent(top.total, income);
               salesAnalysis = `El producto líder en ventas fue **${top.name}**, generando $${top.total.toLocaleString()} (${topPct.toFixed(1)}% del ingreso total). `;
               if (topP.length >= 3) {
                   salesAnalysis += `Junto con ${topP[1].name} y ${topP[2].name}, forman la base principal de ingresos del negocio.`;
@@ -567,7 +589,7 @@ export const Reports: React.FC = () => {
           }
 
           let recommendations = "";
-          const investPct = (reportData.actualInvestment / income) * 100;
+          const investPct = safePercent(reportData.actualInvestment, income);
           if (investPct < reportData.config.investmentPercentage) {
               recommendations = `La inversión retenida (${investPct.toFixed(1)}%) estuvo por debajo del objetivo (${reportData.config.investmentPercentage}%). Para el próximo mes, intente reducir los retiros personales si es posible.`;
           } else {
@@ -598,13 +620,14 @@ export const Reports: React.FC = () => {
               actualInvestment: distMetrics.actual.investment,
               config: distMetrics.config,
               checks: monthEndChecks,
-              net: distMetrics.income - distMetrics.actual.opEx,
-              topPeriodProducts: distMetrics.topPeriodProducts, // Added to snapshot
-              topPeriodCustomers: distMetrics.topPeriodCustomers // Added to snapshot
+              net: roundCurrency(distMetrics.income - distMetrics.actual.opEx),
+              topPeriodProducts: distMetrics.topPeriodProducts,
+              topPeriodCustomers: distMetrics.topPeriodCustomers,
+              display: distMetrics.display
           };
 
           const newClosure: PeriodClosure = {
-              id: crypto.randomUUID(),
+              id: generateId(),
               periodStart: distMetrics.periodStart.toISOString(),
               periodEnd: distMetrics.periodEnd.toISOString(),
               closedAt: new Date().toISOString(),

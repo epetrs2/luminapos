@@ -2,35 +2,42 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
 import { Product, CartItem, Transaction, Order } from '../types';
-import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle, Scale, Edit2, ClipboardList, Check, AlertTriangle, Clock, ChevronLeft, Copy } from 'lucide-react';
+import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle, Scale, Edit2, ClipboardList, Check, AlertTriangle, Clock, ChevronLeft, Copy, Bluetooth } from 'lucide-react';
 import { printThermalTicket, printInvoice } from '../utils/printService';
+import { roundCurrency, roundQty } from '../utils/financeHelpers';
 
 export const POS: React.FC = () => {
-    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice, incomingOrder, clearIncomingOrder, completeOrder } = useStore();
+    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice, connectBtPrinter, incomingOrder, clearIncomingOrder, completeOrder, posDraft, setPosDraft, clearPosDraft } = useStore();
     
-    // State
+    // Persistent draft state (survives switching tabs to Settings/CashRegister/etc.)
+    const { cart, selectedCustomerId, discountValue, discountType, shippingCost, sourceOrderId } = posDraft;
+    const setCart = (updater: CartItem[] | ((prev: CartItem[]) => CartItem[])) => {
+        setPosDraft(prev => ({ ...prev, cart: typeof updater === 'function' ? updater(prev.cart) : updater }));
+    };
+    const setSelectedCustomerId = (val: string) => setPosDraft(prev => ({ ...prev, selectedCustomerId: val }));
+    const setDiscountValue = (val: string) => setPosDraft(prev => ({ ...prev, discountValue: val }));
+    const setDiscountType = (val: 'PERCENT' | 'FIXED') => setPosDraft(prev => ({ ...prev, discountType: val }));
+    const setShippingCost = (val: string) => setPosDraft(prev => ({ ...prev, shippingCost: val }));
+    const setSourceOrderId = (val: string | null) => setPosDraft(prev => ({ ...prev, sourceOrderId: val }));
+
+    // Local UI State
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('ALL');
-    const [cart, setCart] = useState<CartItem[]>([]);
-    const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
     const [viewMode, setViewMode] = useState<'GRID' | 'LIST'>('GRID');
+    const [isSubmitting, setIsSubmitting] = useState(false);
     
     // Mobile UX State
     const [mobileTab, setMobileTab] = useState<'CATALOG' | 'CART'>('CATALOG');
-    
-    // Calculations State (Discounts, Shipping)
-    const [discountValue, setDiscountValue] = useState<string>('0');
-    const [discountType, setDiscountType] = useState<'PERCENT' | 'FIXED'>('PERCENT');
-    const [shippingCost, setShippingCost] = useState<string>('');
 
     // Inline Price Editing State
     const [editingItemId, setEditingItemId] = useState<string | null>(null);
     const [tempPrice, setTempPrice] = useState<string>('');
     const editInputRef = useRef<HTMLInputElement>(null);
 
-    // Weight/Decimal Input State
+    // Weight/Decimal Input State (preserves variantId too!)
     const [weightModalOpen, setWeightModalOpen] = useState(false);
     const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+    const [pendingVariantId, setPendingVariantId] = useState<string | undefined>(undefined);
     const [decimalQty, setDecimalQty] = useState('');
 
     // Stock Shortage Logic
@@ -44,47 +51,69 @@ export const POS: React.FC = () => {
     const [amountPaid, setAmountPaid] = useState<string>('');
     const [splitCash, setSplitCash] = useState<string>('');
     const [splitOther, setSplitOther] = useState<string>('');
-    const [isPendingPayment, setIsPendingPayment] = useState(false); // New: Allow marking any sale as pending
+    const [isPendingPayment, setIsPendingPayment] = useState(false);
     const [lastTransaction, setLastTransaction] = useState<Transaction | null>(null);
     const [showCopyBtn, setShowCopyBtn] = useState(false);
-    
-    // Track Order Source for auto-completion
-    const [sourceOrderId, setSourceOrderId] = useState<string | null>(null);
 
-    // Computed
-    const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-    const taxAmount = settings.enableTax ? cart.reduce((acc, item) => {
-        const rate = item.taxRate !== undefined ? item.taxRate : settings.taxRate;
-        return acc + ((item.price * item.quantity) * (rate / 100));
-    }, 0) : 0;
+    // Computed (safe currency math, tax applied after discount)
+    const subtotal = useMemo(() => roundCurrency(cart.reduce((acc, item) => acc + (item.price * item.quantity), 0)), [cart]);
 
     const discountAmount = useMemo(() => {
-        const val = parseFloat(discountValue) || 0;
-        if (discountType === 'PERCENT') return subtotal * (val / 100);
-        return val;
+        const raw = parseFloat(discountValue);
+        if (!Number.isFinite(raw) || raw <= 0) return 0;
+        if (discountType === 'PERCENT') {
+            const pct = Math.min(100, raw);
+            return roundCurrency(subtotal * (pct / 100));
+        }
+        return roundCurrency(Math.min(subtotal, raw));
     }, [subtotal, discountValue, discountType]);
 
-    const total = Math.max(0, subtotal + taxAmount + (parseFloat(shippingCost) || 0) - discountAmount);
-    const totalItems = cart.reduce((acc, item) => acc + item.quantity, 0);
+    const taxAmount = useMemo(() => {
+        if (!settings.enableTax || subtotal <= 0) return 0;
+        const discountRatio = Math.max(0, (subtotal - discountAmount) / subtotal);
+        return roundCurrency(cart.reduce((acc, item) => {
+            const rate = item.taxRate !== undefined ? item.taxRate : settings.taxRate;
+            return acc + ((item.price * item.quantity * discountRatio) * (rate / 100));
+        }, 0));
+    }, [cart, settings.enableTax, settings.taxRate, subtotal, discountAmount]);
 
-    const filteredProducts = products.filter(p => {
-        if (p.type === 'SUPPLY') return false;
-        if (p.isActive === false) return false; // HIDE INACTIVE
+    const parsedShipping = useMemo(() => {
+        const raw = parseFloat(shippingCost);
+        return Number.isFinite(raw) && raw > 0 ? roundCurrency(raw) : 0;
+    }, [shippingCost]);
 
-        const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku.includes(searchTerm);
-        const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
-        return matchesSearch && matchesCategory;
-    });
+    const total = roundCurrency(Math.max(0, subtotal - discountAmount + taxAmount + parsedShipping));
+    const totalItems = roundQty(cart.reduce((acc, item) => acc + item.quantity, 0));
+
+    const filteredProducts = useMemo(() => {
+        const q = searchTerm.trim().toLowerCase();
+        return products.filter(p => {
+            if (p.type === 'SUPPLY') return false;
+            if (p.isActive === false) return false;
+
+            const matchesSearch = !q ||
+                (p.name || '').toLowerCase().includes(q) ||
+                (p.sku || '').toLowerCase().includes(q) ||
+                (p.variants?.some(v => (v.sku || '').toLowerCase().includes(q) || (v.name || '').toLowerCase().includes(q)) ?? false);
+            const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
+            return matchesSearch && matchesCategory;
+        });
+    }, [products, searchTerm, selectedCategory]);
 
     // --- HANDLE INCOMING ORDERS ---
     useEffect(() => {
         if (incomingOrder) {
-            setCart(incomingOrder.items);
-            setSelectedCustomerId(incomingOrder.customerId || '');
-            setSourceOrderId(incomingOrder.id); // TRACK SOURCE ID
-            setShowCheckoutModal(true); // Auto open checkout
-            setMobileTab('CART'); // Switch to cart view on mobile
-            clearIncomingOrder(); // Clear from context
+            setPosDraft({
+                cart: incomingOrder.items,
+                selectedCustomerId: incomingOrder.customerId || '',
+                discountValue: '0',
+                discountType: 'PERCENT',
+                shippingCost: '',
+                sourceOrderId: incomingOrder.id
+            });
+            setShowCheckoutModal(true);
+            setMobileTab('CART');
+            clearIncomingOrder();
             notify("Pedido Cargado", "El pedido se ha transferido listo para cobrar.", "success");
         }
     }, [incomingOrder]);
@@ -110,20 +139,24 @@ export const POS: React.FC = () => {
     }, [editingItemId]);
 
     const addToCart = (product: Product, variantId?: string, forceQty?: number) => {
-        if (product.unit && product.unit !== 'PIECE' && !forceQty) {
+        if (product.unit && product.unit !== 'PIECE' && (forceQty === undefined || !Number.isFinite(forceQty))) {
             setPendingProduct(product);
+            setPendingVariantId(variantId);
             setDecimalQty('');
             setWeightModalOpen(true);
             return;
         }
+        if (forceQty !== undefined && (!Number.isFinite(forceQty) || forceQty <= 0)) {
+            return;
+        }
 
         setCart(prev => {
-            const qtyToAdd = forceQty || 1;
+            const qtyToAdd = roundQty(forceQty || 1);
             const existing = prev.find(i => i.id === product.id && i.variantId === variantId);
             
             if (existing) {
                 return prev.map(i => i.id === product.id && i.variantId === variantId 
-                    ? { ...i, quantity: i.quantity + qtyToAdd } 
+                    ? { ...i, quantity: roundQty(i.quantity + qtyToAdd) } 
                     : i
                 );
             }
@@ -132,20 +165,23 @@ export const POS: React.FC = () => {
             return [...prev, {
                 ...product,
                 isConsignment: product.isConsignment === true, 
-                price: variant ? variant.price : product.price,
+                price: roundCurrency(variant ? variant.price : product.price),
                 quantity: qtyToAdd,
                 variantId: variant?.id,
                 variantName: variant?.name
             }];
         });
         setWeightModalOpen(false);
-        // Optional: Provide feedback or stay in catalog
+        setPendingVariantId(undefined);
     };
 
     const updateQty = (itemId: string, variantId: string | undefined, delta: number) => {
         setCart(prev => prev.map(item => {
             if (item.id === itemId && item.variantId === variantId) {
-                const newQty = item.unit === 'PIECE' ? Math.max(1, item.quantity + delta) : Math.max(0.001, item.quantity + delta);
+                const isPiece = !item.unit || item.unit === 'PIECE';
+                const newQty = isPiece
+                    ? Math.max(1, Math.round(item.quantity + delta))
+                    : roundQty(Math.max(0.001, item.quantity + delta));
                 return { ...item, quantity: newQty };
             }
             return item;
@@ -252,13 +288,16 @@ export const POS: React.FC = () => {
 
     const initiatePayment = (method: typeof paymentMethod) => {
         setPaymentMethod(method);
-        setIsPendingPayment(false); 
-        
+        setIsPendingPayment(false);
+        setAmountPaid('');
+        setIsSubmitting(false);
+
         if (method === 'split') {
-            const half = (total / 2).toFixed(2);
-            setSplitCash(half);
-            setSplitOther(half);
-        } 
+            const half = roundCurrency(total / 2);
+            const other = roundCurrency(total - half);
+            setSplitCash(half.toFixed(2));
+            setSplitOther(other.toFixed(2));
+        }
         if (method === 'credit') {
             if (!selectedCustomerId) {
                 alert("Debes seleccionar un cliente para vender a crédito.");
@@ -266,20 +305,26 @@ export const POS: React.FC = () => {
             }
             setIsPendingPayment(true);
         }
-        
+
         setCheckoutStep('PAYMENT');
     };
 
     const finalizeSale = () => {
+        if (isSubmitting || cart.length === 0) return;
+
         let finalAmountPaid = 0;
         let tenderedAmount = 0;
         let paymentStatus: Transaction['paymentStatus'] = 'paid';
 
         if (isPendingPayment || paymentMethod === 'credit') {
-            const enteredAmount = parseFloat(amountPaid) || 0;
-            if (enteredAmount >= total) {
+            const rawEntered = parseFloat(amountPaid);
+            const enteredAmount = Number.isFinite(rawEntered) && rawEntered > 0 ? roundCurrency(rawEntered) : 0;
+            if (enteredAmount >= total - 0.005) {
                 paymentStatus = 'paid';
                 finalAmountPaid = total;
+                if (paymentMethod === 'cash' && enteredAmount > total) {
+                    tenderedAmount = enteredAmount;
+                }
             } else if (enteredAmount > 0) {
                 paymentStatus = 'partial';
                 finalAmountPaid = enteredAmount;
@@ -287,70 +332,89 @@ export const POS: React.FC = () => {
                 paymentStatus = 'pending';
                 finalAmountPaid = 0;
             }
-            
-            if (!selectedCustomerId && finalAmountPaid < total) {
+
+            const pendingBalance = roundCurrency(Math.max(0, total - finalAmountPaid));
+            if (!selectedCustomerId && pendingBalance > 0) {
                 alert("Para dejar una cuenta pendiente, debes seleccionar un Cliente registrado.");
                 return;
             }
+
+            // Enforce customer credit limit (unless unlimited)
+            if (selectedCustomerId && pendingBalance > 0) {
+                const customer = customers.find(c => c.id === selectedCustomerId);
+                if (customer && !customer.hasUnlimitedCredit && (customer.creditLimit || 0) > 0) {
+                    const projectedDebt = roundCurrency((customer.currentDebt || 0) + pendingBalance);
+                    if (projectedDebt > customer.creditLimit + 0.01) {
+                        const available = roundCurrency(Math.max(0, customer.creditLimit - (customer.currentDebt || 0)));
+                        alert(`Límite de crédito excedido para ${customer.name}.\nDisponible: $${available.toFixed(2)} | Pendiente de esta venta: $${pendingBalance.toFixed(2)}`);
+                        return;
+                    }
+                }
+            }
         } else {
             if (paymentMethod === 'cash') {
-                const received = parseFloat(amountPaid) || 0;
-                if (received < total) { alert("El monto recibido es menor al total. Marca 'Pago Pendiente' si deseas dejar deuda."); return; }
-                finalAmountPaid = total; // We register paid as total, but tendered is real amount
-                tenderedAmount = received; 
-            } else if (paymentMethod === 'split') {
-                const c = parseFloat(splitCash) || 0;
-                const o = parseFloat(splitOther) || 0;
-                if (Math.abs((c + o) - total) > 0.1) { alert("La suma de pagos no coincide con el total."); return; }
+                const received = roundCurrency(parseFloat(amountPaid) || 0);
+                if (received < total - 0.005) { alert("El monto recibido es menor al total. Marca 'Pago Pendiente' si deseas dejar deuda."); return; }
                 finalAmountPaid = total;
-                tenderedAmount = c + o;
+                tenderedAmount = received;
+            } else if (paymentMethod === 'split') {
+                const c = roundCurrency(parseFloat(splitCash) || 0);
+                const o = roundCurrency(parseFloat(splitOther) || 0);
+                if (c < 0 || o < 0) { alert("Los montos divididos no pueden ser negativos."); return; }
+                if (Math.abs(roundCurrency(c + o) - total) > 0.01) { alert("La suma de pagos no coincide exactamente con el total."); return; }
+                finalAmountPaid = total;
+                tenderedAmount = roundCurrency(c + o);
             } else {
                 finalAmountPaid = total;
             }
         }
 
+        setIsSubmitting(true);
+
         const currentMaxId = transactions.reduce((max, curr) => {
-            const idNum = parseInt(curr.id);
-            return !isNaN(idNum) && idNum > max ? idNum : max;
-        }, settings.sequences.ticketStart - 1);
+            const idNum = parseInt(curr.id, 10);
+            return /^\d+$/.test(curr.id) && !isNaN(idNum) && idNum > max ? idNum : max;
+        }, (settings.sequences.ticketStart || 1) - 1);
         const nextId = (currentMaxId + 1).toString();
 
         const transaction: Transaction = {
-            id: nextId, 
+            id: nextId,
             date: new Date().toISOString(),
             subtotal,
             taxAmount,
             discount: discountAmount,
-            shipping: parseFloat(shippingCost) || 0,
+            shipping: parsedShipping,
             total,
             items: cart,
             paymentMethod,
             paymentStatus,
             amountPaid: finalAmountPaid,
-            tenderedAmount: tenderedAmount > 0 ? tenderedAmount : undefined, // STORE TENDERED AMOUNT
+            tenderedAmount: tenderedAmount > 0 ? tenderedAmount : undefined,
             customerId: selectedCustomerId || undefined,
             status: 'completed',
-            splitDetails: paymentMethod === 'split' ? { cash: parseFloat(splitCash)||0, other: parseFloat(splitOther)||0 } : undefined
+            splitDetails: paymentMethod === 'split' ? { cash: roundCurrency(parseFloat(splitCash) || 0), other: roundCurrency(parseFloat(splitOther) || 0) } : undefined
         };
 
         addTransaction(transaction);
         updateStockAfterSale(cart);
-        
-        // --- COMPLETE SOURCE ORDER IF EXISTS ---
+
         if (sourceOrderId) {
             completeOrder(sourceOrderId);
         }
 
+        // Clear persistent draft immediately once sale is finalized
+        clearPosDraft();
         setLastTransaction(transaction);
         setCheckoutStep('SUCCESS');
+        setIsSubmitting(false);
     };
 
     const handlePrintTicket = () => {
         if (!lastTransaction) return;
-        
+
         const config = settings.printConfig?.customerCopyBehavior || 'ASK';
-        const customerName = customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador';
-        
+        const customerName = customers.find(c => c.id === lastTransaction.customerId)?.name || 'Mostrador';
+
         if (config === 'ALWAYS') {
             printThermalTicket(lastTransaction, customerName, settings, btDevice ? sendBtData : undefined, 'BOTH');
         } else {
@@ -363,24 +427,20 @@ export const POS: React.FC = () => {
 
     const handlePrintCopy = () => {
         if (!lastTransaction) return;
-        const customerName = customers.find(c => c.id === selectedCustomerId)?.name || 'Mostrador';
-        
-        // Fix: Explicitly ask for COPY mode only
+        const customerName = customers.find(c => c.id === lastTransaction.customerId)?.name || 'Mostrador';
+
         printThermalTicket(lastTransaction, customerName, settings, btDevice ? sendBtData : undefined, 'COPY');
-        setShowCopyBtn(false); // Hide after printing
+        setShowCopyBtn(false);
     };
 
     const resetSale = () => {
-        setCart([]);
+        clearPosDraft();
         setAmountPaid('');
-        setSelectedCustomerId('');
-        setSourceOrderId(null); // Reset source order tracking
         setShowCheckoutModal(false);
         setCheckoutStep('SELECT');
-        setDiscountValue('0');
-        setShippingCost('');
         setIsPendingPayment(false);
-        setMobileTab('CATALOG'); // Go back to products on mobile
+        setIsSubmitting(false);
+        setMobileTab('CATALOG');
     };
 
     return (
@@ -488,9 +548,9 @@ export const POS: React.FC = () => {
                         return (
                             <div key={uniqueKey} className="flex items-center gap-3 group bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
                                 <div className="flex flex-col items-center gap-1">
-                                    <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? 1 : 0.1)} className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center transition-colors shadow-sm"><Plus className="w-4 h-4"/></button>
-                                    <span className={`text-xs font-black w-10 text-center ${item.unit && item.unit !== 'PIECE' ? 'text-indigo-600' : 'text-slate-700 dark:text-slate-300'}`}>{item.quantity} {(item.unit && item.unit !== 'PIECE') ? item.unit.slice(0,2).toLowerCase() : ''}</span>
-                                    <button onClick={() => updateQty(item.id, item.variantId, item.unit === 'PIECE' ? -1 : -0.1)} className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors shadow-sm"><Minus className="w-4 h-4"/></button>
+                                    <button onClick={() => updateQty(item.id, item.variantId, (!item.unit || item.unit === 'PIECE') ? 1 : 0.1)} className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center transition-colors shadow-sm"><Plus className="w-4 h-4"/></button>
+                                    <span className={`text-xs font-black w-10 text-center ${item.unit && item.unit !== 'PIECE' ? 'text-indigo-600' : 'text-slate-700 dark:text-slate-300'}`}>{roundQty(item.quantity)} {(item.unit && item.unit !== 'PIECE') ? item.unit.slice(0,2).toLowerCase() : ''}</span>
+                                    <button onClick={() => updateQty(item.id, item.variantId, (!item.unit || item.unit === 'PIECE') ? -1 : -0.1)} className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-colors shadow-sm"><Minus className="w-4 h-4"/></button>
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{item.name}</h4>
@@ -535,9 +595,9 @@ export const POS: React.FC = () => {
                 <div className="p-6 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 shadow-[0_-4px_10px_-1px_rgba(0,0,0,0.05)] z-20 pb-safe">
                     <div className="space-y-1 mb-4 px-1 text-xs text-slate-500 dark:text-slate-400">
                         <div className="flex justify-between"><span>Subtotal</span><span className="font-medium">${subtotal.toFixed(2)}</span></div>
-                        <div className="flex justify-between items-center py-1"><div className="flex items-center gap-1"><span className="flex items-center gap-1.5 font-bold text-slate-600 dark:text-slate-300"><Percent className="w-3.5 h-3.5"/> Desc.</span><select className="bg-transparent border-none text-xs outline-none text-indigo-600 font-bold cursor-pointer" value={discountType} onChange={(e) => setDiscountType(e.target.value as any)}><option value="PERCENT">%</option><option value="FIXED">$</option></select></div><input type="number" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="w-16 text-right border-b border-slate-200 bg-transparent outline-none focus:border-indigo-500 text-red-500 font-bold"/></div>
+                        <div className="flex justify-between items-center py-1"><div className="flex items-center gap-1"><span className="flex items-center gap-1.5 font-bold text-slate-600 dark:text-slate-300"><Percent className="w-3.5 h-3.5"/> Desc.</span><select className="bg-transparent border-none text-xs outline-none text-indigo-600 font-bold cursor-pointer" value={discountType} onChange={(e) => setDiscountType(e.target.value as any)}><option value="PERCENT">%</option><option value="FIXED">$</option></select></div><input type="number" min="0" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="w-16 text-right border-b border-slate-200 bg-transparent outline-none focus:border-indigo-500 text-red-500 font-bold"/></div>
                         {settings.enableTax && (<div className="flex justify-between"><span>Impuestos Totales</span><span className="font-medium">${taxAmount.toFixed(2)}</span></div>)}
-                        <div className="flex justify-between items-center py-1"><span className="flex items-center gap-1.5 font-bold text-slate-600 dark:text-slate-300"><Truck className="w-3.5 h-3.5"/> Envío</span><div className="relative w-20"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400">$</span><input type="number" value={shippingCost} onChange={(e) => setShippingCost(e.target.value)} className="w-full pl-5 pr-2 py-1 text-right border border-slate-200 rounded-md dark:bg-slate-800 dark:border-slate-700 outline-none focus:border-indigo-500 text-slate-800 dark:text-white font-bold" placeholder="0" /></div></div>
+                        <div className="flex justify-between items-center py-1"><span className="flex items-center gap-1.5 font-bold text-slate-600 dark:text-slate-300"><Truck className="w-3.5 h-3.5"/> Envío</span><div className="relative w-20"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400">$</span><input type="number" min="0" value={shippingCost} onChange={(e) => setShippingCost(e.target.value)} className="w-full pl-5 pr-2 py-1 text-right border border-slate-200 rounded-md dark:bg-slate-800 dark:border-slate-700 outline-none focus:border-indigo-500 text-slate-800 dark:text-white font-bold" placeholder="0" /></div></div>
                     </div>
                     <div className="flex justify-between items-end mb-4"><div><p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Total a Pagar</p><h3 className="text-3xl font-black text-slate-900 dark:text-white leading-none">${total.toFixed(2)}</h3></div>
                     <button onClick={handleCheckStock} disabled={cart.length === 0} className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex items-center gap-2">Cobrar <ArrowRight className="w-5 h-5" /></button></div>
@@ -558,10 +618,16 @@ export const POS: React.FC = () => {
                             <input 
                                 type="number" 
                                 step="0.001"
+                                min="0.001"
                                 autoFocus
                                 value={decimalQty}
                                 onChange={(e) => setDecimalQty(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && addToCart(pendingProduct, undefined, parseFloat(decimalQty))}
+                                onKeyDown={(e) => {
+                                    const parsed = parseFloat(decimalQty);
+                                    if (e.key === 'Enter' && Number.isFinite(parsed) && parsed > 0) {
+                                        addToCart(pendingProduct, pendingVariantId, parsed);
+                                    }
+                                }}
                                 className="w-full text-center text-4xl font-black py-4 rounded-2xl border-2 border-indigo-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white outline-none focus:border-indigo-500"
                                 placeholder="0.000"
                             />
@@ -572,8 +638,8 @@ export const POS: React.FC = () => {
                         </div>
 
                         <div className="flex gap-3">
-                            <button onClick={() => setWeightModalOpen(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl">Cancelar</button>
-                            <button onClick={() => addToCart(pendingProduct, undefined, parseFloat(decimalQty))} disabled={!decimalQty || parseFloat(decimalQty) <= 0} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 disabled:opacity-50">Confirmar</button>
+                            <button onClick={() => { setWeightModalOpen(false); setPendingVariantId(undefined); }} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl">Cancelar</button>
+                            <button onClick={() => addToCart(pendingProduct, pendingVariantId, parseFloat(decimalQty))} disabled={!decimalQty || parseFloat(decimalQty) <= 0} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 disabled:opacity-50">Confirmar</button>
                         </div>
                     </div>
                 </div>
@@ -713,7 +779,7 @@ export const POS: React.FC = () => {
                                     </div>
                                 )}
 
-                                <button onClick={finalizeSale} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-all text-lg">Confirmar Venta</button>
+                                <button onClick={finalizeSale} disabled={isSubmitting} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all text-lg">{isSubmitting ? 'Procesando...' : 'Confirmar Venta'}</button>
                             </div>
                         )}
 
@@ -725,20 +791,29 @@ export const POS: React.FC = () => {
                                 <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2">¡Venta Exitosa!</h2>
                                 <p className="text-slate-500 mb-6">La transacción ha sido registrada.</p>
 
-                                {(paymentMethod === 'cash' || paymentMethod === 'split') && !isPendingPayment && (parseFloat(amountPaid) > total || splitCash) && (
+                                {lastTransaction && lastTransaction.tenderedAmount && lastTransaction.tenderedAmount > lastTransaction.total && (
                                     <div className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl mb-6">
                                         <p className="text-xs text-slate-500 uppercase tracking-wider font-bold mb-1">Cambio a Entregar</p>
                                         <p className="text-3xl font-black text-slate-800 dark:text-white">
-                                            ${paymentMethod === 'cash' ? (parseFloat(amountPaid) - total).toFixed(2) : '0.00'}
+                                            ${roundCurrency(lastTransaction.tenderedAmount - lastTransaction.total).toFixed(2)}
                                         </p>
                                     </div>
                                 )}
 
+                                {!btDevice && (
+                                    <button
+                                        onClick={connectBtPrinter}
+                                        className="w-full mb-4 py-2.5 px-4 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors"
+                                    >
+                                        <Bluetooth className="w-4 h-4" /> Conectar Impresora Bluetooth aquí
+                                    </button>
+                                )}
+
                                 <div className="grid grid-cols-2 gap-4 w-full mb-6">
                                     <button onClick={handlePrintTicket} className="flex flex-col items-center justify-center p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-colors font-bold text-sm gap-2">
-                                        <Printer className="w-6 h-6"/> Ticket (58mm)
+                                        <Printer className="w-6 h-6"/> Ticket ({settings.ticketPaperWidth})
                                     </button>
-                                    <button onClick={() => { if(lastTransaction) printInvoice(lastTransaction, customers.find(c => c.id === selectedCustomerId), settings) }} className="flex flex-col items-center justify-center p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-xl hover:bg-blue-100 transition-colors font-bold text-sm gap-2">
+                                    <button onClick={() => { if(lastTransaction) printInvoice(lastTransaction, customers.find(c => c.id === lastTransaction.customerId), settings) }} className="flex flex-col items-center justify-center p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-xl hover:bg-blue-100 transition-colors font-bold text-sm gap-2">
                                         <FileText className="w-6 h-6"/> Nota (Carta)
                                     </button>
                                 </div>

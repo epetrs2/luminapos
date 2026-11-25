@@ -8,7 +8,7 @@ const GS = 0x1D;
 
 const COMMANDS = {
     INIT: [ESC, 0x40],
-    CODE_PAGE: [ESC, 0x74, 0x00], // PC437
+    CODE_PAGE: [ESC, 0x74, 0x10], // WPC1252 (Spanish accents, ñ, ¿, ¡)
     ALIGN_LEFT: [ESC, 0x61, 0x00],
     ALIGN_CENTER: [ESC, 0x61, 0x01],
     ALIGN_RIGHT: [ESC, 0x61, 0x02],
@@ -19,16 +19,37 @@ const COMMANDS = {
     FEED_LINES: (n: number) => [ESC, 0x64, n],
 };
 
-const normalize = (str: string) => {
-    return str
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "") // Remove accents
-        .replace(/[^\x20-\x7E\n]/g, "?"); // Replace non-ascii with ?
+// Map common Spanish / Latin-1 characters to WPC1252 single-byte values
+const WPC1252_MAP: Record<string, number> = {
+    '¡': 0xA1, '¢': 0xA2, '£': 0xA3, '°': 0xB0, '¿': 0xBF,
+    'Á': 0xC1, 'É': 0xC9, 'Í': 0xCD, 'Ñ': 0xD1, 'Ó': 0xD3, 'Ú': 0xDA, 'Ü': 0xDC,
+    'á': 0xE1, 'é': 0xE9, 'í': 0xED, 'ñ': 0xF1, 'ó': 0xF3, 'ú': 0xFA, 'ü': 0xFC,
+    '€': 0x80, '–': 0x2D, '—': 0x2D, '•': 0x2A, '“': 0x22, '”': 0x22, '‘': 0x27, '’': 0x27,
 };
 
-const encode = (str: string) => {
-    const encoder = new TextEncoder();
-    return encoder.encode(normalize(str));
+const normalize = (str: string | undefined | null) => {
+    if (str === undefined || str === null) return '';
+    return String(str);
+};
+
+const encode = (str: string | undefined | null): Uint8Array => {
+    const safe = normalize(str);
+    const bytes: number[] = [];
+    for (let i = 0; i < safe.length; i++) {
+        const ch = safe[i];
+        const code = ch.charCodeAt(0);
+        if ((code >= 0x20 && code <= 0x7E) || code === 0x0A || code === 0x0D) {
+            bytes.push(code);
+        } else if (WPC1252_MAP[ch] !== undefined) {
+            bytes.push(WPC1252_MAP[ch]);
+        } else {
+            // Fallback strip diacritic to ASCII if possible
+            const ascii = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const c = ascii.charCodeAt(0);
+            bytes.push(c >= 0x20 && c <= 0x7E ? c : 0x3F);
+        }
+    }
+    return new Uint8Array(bytes);
 };
 
 // --- HELPER: STRICT FIXED WIDTH COLUMNS ---

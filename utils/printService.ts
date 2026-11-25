@@ -139,7 +139,6 @@ const PRODUCTION_CSS = `
 `;
 
 const openPrintWindow = (content: string) => {
-    // Utilizar un iframe invisible para evitar bloqueos de pop-up y asegurar impresión
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
     iframe.style.right = '0';
@@ -149,24 +148,39 @@ const openPrintWindow = (content: string) => {
     iframe.style.border = '0';
     document.body.appendChild(iframe);
 
+    const cleanup = () => {
+        if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+        }
+    };
+
     const doc = iframe.contentWindow?.document;
     if (doc) {
         doc.open();
         doc.write(content);
         doc.close();
 
-        // Dar tiempo a que los estilos carguen y ejecutar impresión
-        setTimeout(() => {
-            iframe.contentWindow?.focus();
-            iframe.contentWindow?.print();
-            
-            // Limpiar el iframe después de un tiempo prudente
-            setTimeout(() => {
-                if (document.body.contains(iframe)) {
-                    document.body.removeChild(iframe);
-                }
-            }, 5000);
-        }, 500);
+        const triggerPrint = () => {
+            try {
+                const win = iframe.contentWindow;
+                if (!win) return cleanup();
+                win.onafterprint = cleanup;
+                win.focus();
+                win.print();
+                // Fallback cleanup after 60s in case browser does not fire onafterprint
+                setTimeout(cleanup, 60000);
+            } catch {
+                cleanup();
+            }
+        };
+
+        if (doc.readyState === 'complete') {
+            setTimeout(triggerPrint, 300);
+        } else {
+            iframe.onload = () => setTimeout(triggerPrint, 250);
+        }
+    } else {
+        cleanup();
     }
 };
 
