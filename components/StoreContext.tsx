@@ -33,6 +33,7 @@ import {
     sbUpdateMyPassword,
     sbVerifyCurrentUserPassword,
     sbTouchUserActivity,
+    sbPurgeOldCancelledTransactions,
     sbLogActivity,
 } from '../services/supabaseWrites';
 import { roundCurrency, roundQty, generateId } from '../utils/financeHelpers';
@@ -1569,6 +1570,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
         const interval = setInterval(beat, 2 * 60 * 1000);
         return () => clearInterval(interval);
+    }, [currentUser?.id]);
+
+    // --- AUTO-PURGE CANCELLED TRANSACTIONS OLDER THAN 30 DAYS (Never touches completed/returned) ---
+    useEffect(() => {
+        if (!currentUser) return;
+        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+        const cutoffMs = Date.now() - THIRTY_DAYS_MS;
+
+        setTransactions(prev => {
+            const next = prev.filter(t => {
+                if (t.status !== 'cancelled') return true;
+                const ts = new Date(t.date).getTime();
+                return !Number.isFinite(ts) || ts >= cutoffMs;
+            });
+            return next.length === prev.length ? prev : next;
+        });
+
+        if (currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER') {
+            sbPurgeOldCancelledTransactions(30);
+        }
     }, [currentUser?.id]);
 
     // --- LEGACY GOOGLE SHEETS AUTO SYNC (Disabled automatically when Supabase is active) ---

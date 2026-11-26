@@ -471,6 +471,22 @@ export const sbTouchUserActivity = async (isLogin = false) => {
   }
 };
 
+export const sbPurgeOldCancelledTransactions = async (days = 30): Promise<number> => {
+  if (!supabase || !(await isSignedIn())) return 0;
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('status', 'cancelled')
+    .lt('date', cutoff)
+    .select('id');
+  if (error) {
+    console.warn('sbPurgeOldCancelledTransactions skipped:', error.message);
+    return 0;
+  }
+  return data?.length || 0;
+};
+
 export const sbLogActivity = async (
   action: string,
   details: string,
