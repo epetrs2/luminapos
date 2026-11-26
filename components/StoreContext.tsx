@@ -9,6 +9,25 @@ import { verify2FAToken } from '../utils/twoFactor';
 import { pushFullDataToCloud, fetchFullDataFromCloud } from '../services/syncService';
 import { supabase } from '../services/supabaseClient';
 import { fetchAllFromSupabase, subscribeToSupabaseRealtime } from '../services/supabaseSync';
+import {
+    sbAddCategory,
+    sbRemoveCategory,
+    sbUpsertProduct,
+    sbDeleteProduct,
+    sbUpsertCustomer,
+    sbDeleteCustomer,
+    sbUpsertSupplier,
+    sbDeleteSupplier,
+    sbSaveTransaction,
+    sbUpdateTransaction,
+    sbSaveCashMovement,
+    sbDeleteCashMovement,
+    sbUpsertOrder,
+    sbUpdateOrderStatus,
+    sbDeleteOrder,
+    sbSavePurchase,
+    sbUpdateSettings,
+} from '../services/supabaseWrites';
 import { roundCurrency, roundQty, generateId } from '../utils/financeHelpers';
 
 export interface PosDraft {
@@ -108,6 +127,9 @@ interface StoreContextType {
     updateSettings: (s: BusinessSettings) => void;
 
     login: (u: string, p: string, code?: string) => Promise<string>;
+    loginWithSupabase: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
+    signUpWithSupabase: (email: string, password: string, fullName: string) => Promise<{ ok: boolean; message?: string }>;
+    syncFromSupabase: (silent?: boolean) => Promise<boolean>;
     logout: () => void;
     manualLockApp: () => void;
     unlockApp: (password: string) => Promise<boolean>;
@@ -467,12 +489,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const id = p.id || String(maxNum + 1);
         const newProduct = { ...p, id };
         setProducts(prev => [...prev, newProduct]);
+        sbUpsertProduct(newProduct);
         notify("Producto", "Agregado correctamente", "success");
         flagChange();
     };
 
     const updateProduct = (p: Product) => {
         setProducts(prev => prev.map(prod => prod.id === p.id ? p : prod));
+        sbUpsertProduct(p);
         notify("Producto", "Actualizado", "success");
         flagChange();
     };
@@ -480,6 +504,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const deleteProduct = (id: string) => {
         if (confirm("¿Eliminar producto?")) {
             setProducts(prev => prev.filter(p => p.id !== id));
+            sbDeleteProduct(id);
             notify("Producto", "Eliminado", "info");
             flagChange();
         }
@@ -489,6 +514,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!Number.isFinite(qty) || qty <= 0) return;
         setProducts(prev => prev.map(p => {
             if (p.id !== id) return p;
+            let updated: Product;
             if (variantId && p.variants) {
                 const newVariants = p.variants.map(v =>
                     v.id === variantId
@@ -496,9 +522,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         : v
                 );
                 const totalStock = roundQty(newVariants.reduce((s, v) => s + v.stock, 0));
-                return { ...p, variants: newVariants, stock: totalStock };
+                updated = { ...p, variants: newVariants, stock: totalStock };
+            } else {
+                updated = { ...p, stock: roundQty(type === 'IN' ? p.stock + qty : Math.max(0, p.stock - qty)) };
             }
-            return { ...p, stock: roundQty(type === 'IN' ? p.stock + qty : Math.max(0, p.stock - qty)) };
+            sbUpsertProduct(updated);
+            return updated;
         }));
         logActivity('INVENTORY', `${type === 'IN' ? 'Entrada' : 'Salida'} de ${qty} un. en producto ID ${id}`);
         flagChange();
@@ -515,16 +544,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             amountPaid: roundCurrency(t.amountPaid || 0),
         };
         setTransactions(prev => [...prev, cleanTx]);
+        sbSaveTransaction(cleanTx);
 
         // Update customer debt if pending or partial
         if (cleanTx.paymentStatus === 'pending' || cleanTx.paymentStatus === 'partial') {
             const pendingAmount = roundCurrency(Math.max(0, cleanTx.total - (cleanTx.amountPaid || 0)));
             if (cleanTx.customerId && pendingAmount > 0) {
-                setCustomers(prev => prev.map(c =>
-                    c.id === cleanTx.customerId
-                        ? { ...c, currentDebt: roundCurrency((c.currentDebt || 0) + pendingAmount) }
-                        : c
-                ));
+                setCustomers(prev => prev.map(c => {
+                    if (c.id !== cleanTx.customerId) return c;
+                    const updated = { ...c, currentDebt: roundCurrency((c.currentDebt || 0) + pendingAmount) };
+                    sbUpsertCustomer(updated);
+                    return updated;
+                }));
             }
         }
 
@@ -602,6 +633,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const updateTransaction = (id: string, updates: Partial<Transaction>) => {
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+        sbUpdateTransaction(id, updates);
         flagChange();
     };
 
@@ -647,6 +679,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         // Mark cancelled
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled' } : t));
+        sbUpdateTransaction(id, { status: 'cancelled' });
 
         // Add cash withdrawal refund if it was paid
         if (tx.amountPaid && tx.amountPaid > 0) {
@@ -743,7 +776,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
 
             const totalDelta = matchingItems.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
-            return { ...prod, stock: roundQty(prod.stock - totalDelta) };
+            const updatedProd = { ...prod, stock: roundQty(prod.stock - totalDelta) };
+            sbUpsertProduct(updatedProd);
+            return updatedProd;
         }));
         flagChange();
     };
@@ -756,13 +791,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return n > max ? n : max;
         }, (settings.sequences.customerStart || 1) - 1);
         const id = c.id || `C${(maxNum + 1).toString().padStart(4, '0')}`;
-        setCustomers(prev => [...prev, { ...c, id, currentDebt: roundCurrency(c.currentDebt || 0), creditLimit: roundCurrency(Math.max(0, c.creditLimit || 0)) }]);
+        const newCust = { ...c, id, currentDebt: roundCurrency(c.currentDebt || 0), creditLimit: roundCurrency(Math.max(0, c.creditLimit || 0)) };
+        setCustomers(prev => [...prev, newCust]);
+        sbUpsertCustomer(newCust);
         notify("Cliente", "Registrado", "success");
         flagChange();
     };
 
     const updateCustomer = (c: Customer) => {
-        setCustomers(prev => prev.map(cust => cust.id === c.id ? { ...c, currentDebt: roundCurrency(c.currentDebt || 0), creditLimit: roundCurrency(Math.max(0, c.creditLimit || 0)) } : cust));
+        const cleanCust = { ...c, currentDebt: roundCurrency(c.currentDebt || 0), creditLimit: roundCurrency(Math.max(0, c.creditLimit || 0)) };
+        setCustomers(prev => prev.map(cust => cust.id === c.id ? cleanCust : cust));
+        sbUpsertCustomer(cleanCust);
         notify("Cliente", "Actualizado", "success");
         flagChange();
     };
@@ -775,6 +814,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         if (confirm("¿Eliminar cliente?")) {
             setCustomers(prev => prev.filter(c => c.id !== id));
+            sbDeleteCustomer(id);
             flagChange();
         }
     };
@@ -842,11 +882,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // Suppliers
-    const addSupplier = (s: Supplier) => { setSuppliers(prev => [...prev, s]); flagChange(); };
-    const updateSupplier = (s: Supplier) => { setSuppliers(prev => prev.map(sup => sup.id === s.id ? s : sup)); flagChange(); };
+    const addSupplier = (s: Supplier) => { setSuppliers(prev => [...prev, s]); sbUpsertSupplier(s); flagChange(); };
+    const updateSupplier = (s: Supplier) => { setSuppliers(prev => prev.map(sup => sup.id === s.id ? s : sup)); sbUpsertSupplier(s); flagChange(); };
     const deleteSupplier = (id: string) => {
         if (confirm("¿Eliminar proveedor? Las compras históricas conservarán su registro.")) {
             setSuppliers(prev => prev.filter(s => s.id !== id));
+            sbDeleteSupplier(id);
             flagChange();
         }
     };
@@ -854,25 +895,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Cash
     const addCashMovement = (m: CashMovement) => {
         if (!Number.isFinite(m.amount) || m.amount < 0) return;
-        setCashMovements(prev => [...prev, { ...m, amount: roundCurrency(m.amount) }]);
+        const cleanM = { ...m, amount: roundCurrency(m.amount) };
+        setCashMovements(prev => [...prev, cleanM]);
+        sbSaveCashMovement(cleanM);
         flagChange();
     };
-    const deleteCashMovement = (id: string) => { setCashMovements(prev => prev.filter(m => m.id !== id)); flagChange(); };
+    const deleteCashMovement = (id: string) => { setCashMovements(prev => prev.filter(m => m.id !== id)); sbDeleteCashMovement(id); flagChange(); };
 
     // Orders
     const addOrder = (o: Order) => {
         const id = o.id || `ORD-${Date.now().toString().slice(-6)}`;
-        setOrders(prev => [...prev, { ...o, id }]);
+        const newOrder = { ...o, id };
+        setOrders(prev => [...prev, newOrder]);
+        sbUpsertOrder(newOrder);
         notify("Pedido", "Creado exitosamente", "success");
         flagChange();
     };
-    const updateOrder = (o: Order) => { setOrders(prev => prev.map(ord => ord.id === o.id ? o : ord)); flagChange(); };
+    const updateOrder = (o: Order) => { setOrders(prev => prev.map(ord => ord.id === o.id ? o : ord)); sbUpsertOrder(o); flagChange(); };
     const updateOrderStatus = (id: string, status: Order['status']) => {
         setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
+        sbUpdateOrderStatus(id, status);
         notify("Estado", "Actualizado", "info");
         flagChange();
     };
-    const deleteOrder = (id: string) => { setOrders(prev => prev.filter(o => o.id !== id)); flagChange(); };
+    const deleteOrder = (id: string) => { setOrders(prev => prev.filter(o => o.id !== id)); sbDeleteOrder(id); flagChange(); };
     const completeOrder = (id: string) => updateOrderStatus(id, 'COMPLETED');
     const sendOrderToPOS = (order: Order) => {
         setIncomingOrder(order);
@@ -884,6 +930,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const addPurchase = (p: Purchase, channel: 'CASH' | 'VIRTUAL' = 'CASH') => {
         const cleanPurchase: Purchase = { ...p, total: roundCurrency(p.total) };
         setPurchases(prev => [...prev, cleanPurchase]);
+        sbSavePurchase(cleanPurchase, channel);
 
         // Update stock and last purchase cost immutably
         setProducts(prev => prev.map(prod => {
@@ -1015,16 +1062,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const clean = cat.trim();
         if (clean && !categories.includes(clean)) {
             setCategories(prev => [...prev, clean]);
+            sbAddCategory(clean);
             flagChange();
         }
     };
     const removeCategory = (cat: string) => {
         setCategories(prev => prev.filter(c => c !== cat));
+        sbRemoveCategory(cat);
         flagChange();
     };
 
     const addPeriodClosure = (pc: PeriodClosure) => { setPeriodClosures(prev => [...prev, pc]); flagChange(); };
-    const updateSettings = (s: BusinessSettings) => { setSettings(s); flagChange(); };
+    const updateSettings = (s: BusinessSettings) => { setSettings(s); sbUpdateSettings(s); flagChange(); };
 
     // Auth (with real 2FA verification and failed-attempt lockout)
     const login = async (u: string, p: string, code?: string) => {
@@ -1058,8 +1107,82 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return 'SUCCESS';
     };
 
+    const syncFromSupabase = async (silent = true): Promise<boolean> => {
+        if (!supabase) return false;
+        try {
+            const snap = await fetchAllFromSupabase();
+            if (!snap) return false;
+            if (snap.categories.length > 0) setCategories(snap.categories);
+            if (snap.products.length > 0) setProducts(snap.products);
+            if (snap.customers.length > 0) setCustomers(snap.customers);
+            if (snap.suppliers.length > 0) setSuppliers(snap.suppliers);
+            if (snap.transactions.length > 0) setTransactions(snap.transactions);
+            if (snap.cashMovements.length > 0) setCashMovements(snap.cashMovements);
+            if (snap.orders.length > 0) setOrders(snap.orders);
+            if (snap.purchases.length > 0) setPurchases(snap.purchases);
+            if (snap.settingsPartial) setSettings(prev => mergeSettings({ ...prev, ...snap.settingsPartial }));
+            if (!silent) notify("Nube Sincronizada", "Datos actualizados desde Supabase.", "success");
+            return true;
+        } catch (e) {
+            console.warn('syncFromSupabase error:', e);
+            return false;
+        }
+    };
+
+    const hydrateUserFromSupabaseSession = async (sessionUser: any) => {
+        if (!supabase || !sessionUser) return;
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('id, username, full_name, role, active')
+            .eq('id', sessionUser.id)
+            .maybeSingle();
+
+        const email = sessionUser.email || 'usuario@luminapos.app';
+        const sbUser: User = {
+            id: sessionUser.id,
+            username: profile?.username || email.split('@')[0],
+            fullName: profile?.full_name || sessionUser.user_metadata?.full_name || email.split('@')[0],
+            role: (profile?.role as UserRole) || 'ADMIN',
+            active: profile?.active !== false,
+            passwordHash: '',
+            salt: '',
+            lastLogin: new Date().toISOString(),
+        };
+        setCurrentUser(sbUser);
+    };
+
+    const loginWithSupabase = async (email: string, password: string): Promise<{ ok: boolean; message?: string }> => {
+        if (!supabase) return { ok: false, message: 'Supabase no configurado.' };
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error || !data.session) {
+            return { ok: false, message: error?.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos' : (error?.message || 'Error al iniciar sesión') };
+        }
+        await hydrateUserFromSupabaseSession(data.user);
+        await syncFromSupabase(true);
+        return { ok: true };
+    };
+
+    const signUpWithSupabase = async (email: string, password: string, fullName: string): Promise<{ ok: boolean; message?: string }> => {
+        if (!supabase) return { ok: false, message: 'Supabase no configurado.' };
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: { data: { full_name: fullName } },
+        });
+        if (error) return { ok: false, message: error.message };
+        if (data.session && data.user) {
+            await hydrateUserFromSupabaseSession(data.user);
+            await syncFromSupabase(true);
+            return { ok: true, message: '¡Cuenta creada y sesión iniciada!' };
+        }
+        return { ok: true, message: 'Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.' };
+    };
+
     const logout = () => {
         setIsLoggingOut(true);
+        if (supabase) {
+            supabase.auth.signOut().catch(() => {});
+        }
         setTimeout(() => {
             setCurrentUser(null);
             setIsAppLocked(false);
@@ -1219,7 +1342,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } catch (e) { return false; }
     };
 
-    // --- SUPABASE REALTIME MULTI-DEVICE SYNC ---
+    // --- SUPABASE REALTIME MULTI-DEVICE SYNC & AUTO-SESSION ---
     useEffect(() => {
         const client = supabase;
         if (!client) return;
@@ -1228,21 +1351,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const setupRealtime = async () => {
             const { data } = await client.auth.getSession();
             if (!data.session) return;
+            await hydrateUserFromSupabaseSession(data.session.user);
+            await syncFromSupabase(true);
             unsubscribeRealtime = subscribeToSupabaseRealtime(async () => {
-                try {
-                    const snap = await fetchAllFromSupabase();
-                    if (!snap) return;
-                    if (snap.categories.length > 0) setCategories(snap.categories);
-                    if (snap.products.length > 0) setProducts(snap.products);
-                    if (snap.customers.length > 0) setCustomers(snap.customers);
-                    if (snap.suppliers.length > 0) setSuppliers(snap.suppliers);
-                    if (snap.transactions.length > 0) setTransactions(snap.transactions);
-                    if (snap.cashMovements.length > 0) setCashMovements(snap.cashMovements);
-                    if (snap.orders.length > 0) setOrders(snap.orders);
-                    if (snap.settingsPartial) setSettings(prev => mergeSettings({ ...prev, ...snap.settingsPartial }));
-                } catch (e) {
-                    console.warn('Supabase realtime refresh skipped:', e);
-                }
+                await syncFromSupabase(true);
             });
         };
 
@@ -1252,7 +1364,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 unsubscribeRealtime();
                 unsubscribeRealtime = null;
             }
-            if (session) setupRealtime();
+            if (session) {
+                setupRealtime();
+            }
         });
 
         return () => {
@@ -1287,7 +1401,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             addCategory, removeCategory,
             addPeriodClosure,
             updateSettings,
-            login, logout, manualLockApp, unlockApp, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
+            login, loginWithSupabase, signUpWithSupabase, syncFromSupabase, logout, manualLockApp, unlockApp, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
             pushToCloud, pullFromCloud, hardReset, importData,
             notify, removeToast, flagChange, logActivity,
             connectBtPrinter, disconnectBtPrinter, sendBtData

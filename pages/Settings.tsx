@@ -312,9 +312,10 @@ export const Settings: React.FC = () => {
               transactions: snap.transactions,
               cashMovements: snap.cashMovements,
               orders: snap.orders,
+              purchases: snap.purchases,
               settings: snap.settingsPartial ? { ...formData, ...snap.settingsPartial } : formData
           });
-          const msg = `Descargados: ${snap.products.length} productos, ${snap.customers.length} clientes, ${snap.transactions.length} ventas.`;
+          const msg = `Descargados: ${snap.products.length} productos, ${snap.customers.length} clientes, ${snap.transactions.length} ventas, ${snap.orders.length} pedidos.`;
           setSupabaseStatus(msg);
           notify('Sincronizado desde Supabase', msg, 'success');
       } catch (err: any) {
@@ -329,11 +330,21 @@ export const Settings: React.FC = () => {
           notify('Supabase', 'Inicia sesión en Supabase arriba antes de migrar tus datos.', 'warning');
           return;
       }
-      if (!confirm('¿Migrar tus categorías, productos, variantes, clientes, proveedores y configuración actuales hacia Supabase PostgreSQL?')) return;
+      if (!confirm('¿Migrar toda tu base de datos (productos, clientes, proveedores, ventas, caja, pedidos, compras y configuración) hacia Supabase PostgreSQL?')) return;
       setMigratingSupabase(true);
       try {
-          const report = await migrateLocalDataToSupabase({ categories, products, customers, suppliers, settings: formData });
-          const summary = `Migrados: ${report.categories} categorías, ${report.products} productos, ${report.variants} variantes, ${report.customers} clientes, ${report.suppliers} proveedores.`;
+          const report = await migrateLocalDataToSupabase({
+              categories,
+              products,
+              customers,
+              suppliers,
+              transactions,
+              cashMovements,
+              orders,
+              purchases,
+              settings: formData,
+          });
+          const summary = `Migrados: ${report.products} prod, ${report.customers} clientes, ${report.transactions} ventas, ${report.cashMovements} mov. caja, ${report.orders} pedidos, ${report.purchases} compras.`;
           setSupabaseStatus(report.errors.length > 0 ? `${summary} (${report.errors.length} avisos)` : summary);
           notify('Migración Supabase', summary, report.errors.length > 0 ? 'warning' : 'success');
       } catch (err: any) {

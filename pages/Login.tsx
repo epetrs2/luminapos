@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Store, User, Lock, AlertCircle, Loader2, ShieldCheck, ArrowLeft, Smartphone, RefreshCw, Settings, Save, Link as LinkIcon, Check, X, CloudCog, Ticket, UserPlus, HelpCircle, KeyRound, Cloud, Wifi, WifiOff, Eye, EyeOff } from 'lucide-react';
+import { Store, User, Lock, AlertCircle, Loader2, ShieldCheck, ArrowLeft, Smartphone, RefreshCw, X, Ticket, Wifi, WifiOff, Eye, EyeOff, Mail, UserPlus } from 'lucide-react';
 import { validatePasswordPolicy, verifyPassword } from '../utils/security';
 import { generate2FASecret, generateQRCode, verify2FAToken } from '../utils/twoFactor';
+import { isSupabaseConfigured } from '../services/supabaseClient';
 
 const SECURITY_QUESTIONS = [
     "¿Cuál es el nombre de tu primera mascota?",
@@ -15,13 +16,14 @@ const SECURITY_QUESTIONS = [
 ];
 
 export const Login: React.FC = () => {
-  const { login, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo, settings, updateSettings, pullFromCloud, isSyncing, users, registerWithInvite } = useStore();
-  const [view, setView] = useState<'LOGIN' | 'RECOVER_INIT' | 'RECOVER_METHOD' | 'RECOVER_RESET' | 'CONNECTION' | 'REGISTER'>('LOGIN');
+  const { login, loginWithSupabase, signUpWithSupabase, recoverAccount, getUserPublicInfo, settings, users, registerWithInvite } = useStore();
+  const [view, setView] = useState<'LOGIN' | 'SIGNUP_CLOUD' | 'RECOVER_INIT' | 'RECOVER_METHOD' | 'RECOVER_RESET' | 'REGISTER'>('LOGIN');
   const [step, setStep] = useState<'CREDENTIALS' | '2FA'>('CREDENTIALS');
   
   // Login State
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [fullNameCloud, setFullNameCloud] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState('');
   
@@ -49,10 +51,6 @@ export const Login: React.FC = () => {
   const [reg2FACode, setReg2FACode] = useState(''); // Verification Input
   const [show2FASetup, setShow2FASetup] = useState(false);
 
-  // Settings State
-  const [tempUrl, setTempUrl] = useState('');
-  const [tempSecret, setTempSecret] = useState('');
-  
   // Validation State
   const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -62,25 +60,8 @@ export const Login: React.FC = () => {
   // Initial Sync State
   const [isInitialSyncing, setIsInitialSyncing] = useState(false);
 
-  // Status check
-  const isCloudConfigured = !!settings.googleWebAppUrl && settings.enableCloudSync;
-
-  // AUTO-SYNC ON MOUNT
-  useEffect(() => {
-      const initSystem = async () => {
-          if (settings.googleWebAppUrl && settings.enableCloudSync) {
-              setIsInitialSyncing(true);
-              try {
-                  await pullFromCloud(undefined, undefined, true); // Silent pull
-              } catch (e) {
-                  console.error("Error en auto-sync:", e);
-              } finally {
-                  setIsInitialSyncing(false);
-              }
-          }
-      };
-      initSystem();
-  }, []); 
+  // Status check: Supabase Cloud is built-in
+  const isCloudConfigured = isSupabaseConfigured();
 
   useEffect(() => {
       if (view === 'RECOVER_RESET') {
@@ -93,13 +74,6 @@ export const Login: React.FC = () => {
       }
   }, [newPass, regPass, view]);
 
-  useEffect(() => {
-      if (view === 'CONNECTION') {
-          setTempUrl(settings.googleWebAppUrl || '');
-          setTempSecret(settings.cloudSecret || '');
-      }
-  }, [view, settings.googleWebAppUrl, settings.cloudSecret]);
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) {
@@ -109,8 +83,22 @@ export const Login: React.FC = () => {
 
     setLoading(true);
     setError('');
+    setSuccessMsg('');
 
     try {
+      // Unified Supabase Cloud Auth when configured and input looks like an email
+      if (isCloudConfigured && username.includes('@')) {
+        setIsInitialSyncing(true);
+        const res = await loginWithSupabase(username.trim(), password);
+        setIsInitialSyncing(false);
+        if (!res.ok) {
+          setError(res.message || 'Credenciales inválidas');
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Fallback local login (for offline / non-email usernames)
       const status = await login(username, password);
       
       if (status === 'SUCCESS') {
@@ -123,12 +111,36 @@ export const Login: React.FC = () => {
           setError('Cuenta bloqueada temporalmente');
           setLoading(false);
       } else {
-          setError('Credenciales inválidas');
+          setError(isCloudConfigured ? 'Usa tu correo y contraseña de la nube' : 'Credenciales inválidas');
           setLoading(false);
       }
     } catch (err) {
       setError('Error al iniciar sesión');
       setLoading(false);
+      setIsInitialSyncing(false);
+    }
+  };
+
+  const handleCloudSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username || !password || !fullNameCloud.trim()) {
+      setError('Completa tu nombre, correo y contraseña');
+      return;
+    }
+    if (password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    setSuccessMsg('');
+    const res = await signUpWithSupabase(username.trim(), password, fullNameCloud.trim());
+    setLoading(false);
+    if (res.ok) {
+      setSuccessMsg(res.message || 'Cuenta creada. Revisa tu correo o inicia sesión.');
+      setView('LOGIN');
+    } else {
+      setError(res.message || 'No se pudo crear la cuenta');
     }
   };
 
@@ -152,40 +164,6 @@ export const Login: React.FC = () => {
       } else {
           setError('Error de autenticación');
           setLoading(false);
-      }
-  };
-
-  const handleSaveConnection = async () => {
-      if (!tempUrl.includes('script.google.com')) {
-          setError('La URL debe ser de Google Apps Script');
-          return;
-      }
-
-      setSuccessMsg('Conectando con el servidor...');
-      setError('');
-      setIsInitialSyncing(true);
-      
-      try {
-          // 1. First save settings partially to ensure context has the new URL
-          updateSettings({ 
-              ...settings, 
-              googleWebAppUrl: tempUrl, 
-              cloudSecret: tempSecret, 
-              enableCloudSync: true 
-          });
-          
-          // 2. FORCE pull data. This overrides local state with cloud state.
-          await pullFromCloud(tempUrl, tempSecret, false, true); 
-          
-          setSuccessMsg('¡Dispositivo vinculado exitosamente!');
-          setTimeout(() => {
-              setView('LOGIN');
-              setSuccessMsg('');
-          }, 1500);
-      } catch (e: any) {
-          setError(e.message || 'Error al conectar. Verifica la URL.');
-      } finally {
-          setIsInitialSyncing(false);
       }
   };
 
@@ -304,66 +282,51 @@ export const Login: React.FC = () => {
                 </div>
               )}
 
-              {/* VIEW: CONNECTION SETUP */}
-              {view === 'CONNECTION' && (
-                  <div className="space-y-6">
-                      <h2 className="text-lg font-bold text-slate-800 dark:text-white text-center">Vincular Dispositivo</h2>
-                      
-                      <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800 text-center">
-                          <p className="text-xs text-indigo-800 dark:text-indigo-300 mb-2 font-medium">Copia la URL de tu computadora:</p>
-                          <code className="text-[10px] bg-white dark:bg-slate-900 px-2 py-1 rounded border border-indigo-200 dark:border-indigo-800 block text-slate-500">Configuración {'>'} Datos {'>'} URL Script</code>
+              {/* VIEW: CLOUD SIGNUP */}
+              {view === 'SIGNUP_CLOUD' && (
+                  <form onSubmit={handleCloudSignUp} className="space-y-4">
+                      <div className="flex justify-between items-center mb-1">
+                          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Crear Cuenta en la Nube</h2>
+                          <button type="button" onClick={() => { setView('LOGIN'); setError(''); }}><X className="w-5 h-5 text-slate-400" /></button>
                       </div>
-
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">URL del Script (Google Apps Script)</label>
-                          <textarea 
-                            value={tempUrl} 
-                            onChange={(e) => setTempUrl(e.target.value)} 
-                            className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-mono" 
-                            placeholder="https://script.google.com/macros/s/..."
-                            rows={3}
-                          />
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1">Nombre Completo</label>
+                          <div className="relative">
+                              <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                              <input type="text" value={fullNameCloud} onChange={(e) => setFullNameCloud(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium" placeholder="Ej. Antonio Salem" />
+                          </div>
                       </div>
-
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Clave Secreta (Opcional)</label>
-                          <input 
-                            type="password" 
-                            value={tempSecret} 
-                            onChange={(e) => setTempSecret(e.target.value)} 
-                            className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                            placeholder="Solo si la configuraste..."
-                          />
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1">Correo Electrónico</label>
+                          <div className="relative">
+                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                              <input type="email" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium" placeholder="tu@correo.com" />
+                          </div>
                       </div>
-
-                      <div className="flex gap-3">
-                          <button onClick={() => setView('LOGIN')} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-200">Cancelar</button>
-                          <button onClick={handleSaveConnection} className="flex-[2] py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow-lg flex items-center justify-center gap-2">
-                              {isInitialSyncing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Cloud className="w-4 h-4" />}
-                              {isInitialSyncing ? 'Conectando...' : 'Sincronizar'}
-                          </button>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1">Contraseña</label>
+                          <div className="relative">
+                              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                              <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-10 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium" placeholder="Mínimo 6 caracteres" />
+                              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                              </button>
+                          </div>
                       </div>
-                  </div>
+                      <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-70">
+                          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Crear Cuenta'}
+                      </button>
+                  </form>
               )}
 
               {/* VIEW: LOGIN */}
               {view === 'LOGIN' && step === 'CREDENTIALS' && (
                  <form onSubmit={handleLogin} className="space-y-4">
-                    {!isCloudConfigured && (
-                        <button 
-                            type="button" 
-                            onClick={() => setView('CONNECTION')}
-                            className="w-full bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 p-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors mb-2 animate-pulse"
-                        >
-                            <Smartphone className="w-4 h-4" /> 📲 Vincular con Computadora
-                        </button>
-                    )}
-
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1">Usuario</label>
+                        <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1">{isCloudConfigured ? 'Correo Electrónico' : 'Usuario'}</label>
                         <div className="relative group">
-                            <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium" placeholder="Tu usuario"/>
+                            {isCloudConfigured ? <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" /> : <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />}
+                            <input type={isCloudConfigured ? "email" : "text"} value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium" placeholder={isCloudConfigured ? "tu@correo.com" : "Tu usuario"}/>
                         </div>
                     </div>
                     <div>
@@ -394,15 +357,16 @@ export const Login: React.FC = () => {
                     <div className="flex flex-col gap-3 text-center mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
                         <div className="flex justify-between items-center px-2">
                             <button type="button" onClick={() => setView('RECOVER_INIT')} className="text-xs text-slate-500 hover:text-indigo-600 font-medium">¿Olvidaste pass?</button>
-                            <button type="button" onClick={() => setView('REGISTER')} className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1">
-                                <Ticket className="w-3 h-3" /> Canjear Código
-                            </button>
+                            {isCloudConfigured ? (
+                                <button type="button" onClick={() => { setView('SIGNUP_CLOUD'); setError(''); }} className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1">
+                                    <UserPlus className="w-3 h-3" /> Crear Cuenta
+                                </button>
+                            ) : (
+                                <button type="button" onClick={() => setView('REGISTER')} className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1">
+                                    <Ticket className="w-3 h-3" /> Canjear Código
+                                </button>
+                            )}
                         </div>
-                        {isCloudConfigured && (
-                            <button type="button" onClick={() => setView('CONNECTION')} className="text-[10px] text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1 mt-2">
-                                <Settings className="w-3 h-3" /> Configurar Conexión
-                            </button>
-                        )}
                     </div>
                 </form>
               )}

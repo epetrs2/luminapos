@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { Product, Customer, Supplier, Transaction, CashMovement, Order, BusinessSettings } from '../types';
+import { Product, Customer, Supplier, Transaction, CashMovement, Order, Purchase, BusinessSettings } from '../types';
 
 export interface SupabaseSnapshot {
   categories: string[];
@@ -9,6 +9,7 @@ export interface SupabaseSnapshot {
   transactions: Transaction[];
   cashMovements: CashMovement[];
   orders: Order[];
+  purchases: Purchase[];
   settingsPartial?: Partial<BusinessSettings>;
 }
 
@@ -31,6 +32,8 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     cashRes,
     ordRes,
     ordItemRes,
+    purchRes,
+    purchItemRes,
     setRes,
   ] = await Promise.all([
     supabase.from('categories').select('name').order('name'),
@@ -43,6 +46,8 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     supabase.from('cash_movements').select('*').order('date', { ascending: false }).limit(500),
     supabase.from('orders').select('*').order('date', { ascending: false }).limit(300),
     supabase.from('order_items').select('*'),
+    supabase.from('purchases').select('*').order('date', { ascending: false }).limit(300),
+    supabase.from('purchase_items').select('*'),
     supabase.from('business_settings').select('*').eq('id', 1).maybeSingle(),
   ]);
 
@@ -185,6 +190,32 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     notes: o.notes || undefined,
   }));
 
+  const purchItemsByPurch = new Map<string, any[]>();
+  (purchItemRes.data || []).forEach(it => {
+    const list = purchItemsByPurch.get(it.purchase_id) || [];
+    list.push({
+      productId: it.product_id,
+      productName: it.name,
+      variantId: it.variant_id || undefined,
+      variantName: it.variant_name || undefined,
+      quantity: Number(it.quantity) || 1,
+      unitCost: Number(it.unit_cost) || 0,
+      total: Number(it.total) || 0,
+    });
+    purchItemsByPurch.set(it.purchase_id, list);
+  });
+
+  const purchases: Purchase[] = (purchRes.data || []).map(p => ({
+    id: p.id,
+    date: p.date,
+    supplierId: p.supplier_id || '',
+    supplierName: p.supplier_name || 'Proveedor',
+    items: purchItemsByPurch.get(p.id) || [],
+    total: Number(p.total) || 0,
+    status: p.status || 'COMPLETED',
+    notes: p.notes || undefined,
+  }));
+
   const categories = (catRes.data || []).map(c => c.name);
   const s = setRes.data;
   const settingsPartial: Partial<BusinessSettings> | undefined = s
@@ -198,6 +229,8 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
         currency: s.currency || 'MXN',
         taxRate: Number(s.tax_rate) || 0,
         enableTax: Boolean(s.enable_tax),
+        logo: s.logo_url ?? null,
+        receiptLogo: s.receipt_logo_url ?? null,
         receiptHeader: s.receipt_header || '',
         receiptFooter: s.receipt_footer || '',
         ticketPaperWidth: s.ticket_paper_width || '58mm',
@@ -211,7 +244,7 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
       }
     : undefined;
 
-  return { categories, products, customers, suppliers, transactions, cashMovements, orders, settingsPartial };
+  return { categories, products, customers, suppliers, transactions, cashMovements, orders, purchases, settingsPartial };
 };
 
 /**
@@ -229,12 +262,16 @@ export const subscribeToSupabaseRealtime = (onRemoteChange: () => void): (() => 
 
   const channel = client
     .channel('luminapos-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, trigger)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, trigger)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'product_variants' }, trigger)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, trigger)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'suppliers' }, trigger)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, trigger)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, trigger)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'cash_movements' }, trigger)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'purchases' }, trigger)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'business_settings' }, trigger)
     .subscribe();
 
   return () => {
