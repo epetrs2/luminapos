@@ -18,7 +18,8 @@ const OrderCard = React.memo(({
     onDragStart, 
     onTouchStart,
     onEdit,
-    onSurplus
+    onSurplus,
+    onRecordBatch
 }: {
     order: Order;
     statusColor: string;
@@ -32,6 +33,7 @@ const OrderCard = React.memo(({
     onTouchStart: (e: React.TouchEvent, id: string, name: string, element: HTMLElement | null) => void;
     onEdit: () => void;
     onSurplus: () => void;
+    onRecordBatch?: () => void;
 }) => {
     const cardRef = useRef<HTMLDivElement>(null);
 
@@ -92,11 +94,22 @@ const OrderCard = React.memo(({
                     <button onClick={onPrint} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-indigo-500 rounded transition-colors" title="Imprimir"><Printer className="w-4 h-4"/></button>
                     <button onClick={onEdit} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-500 rounded transition-colors" title="Editar"><Edit2 className="w-4 h-4"/></button>
                     
-                    {/* SURPLUS BUTTON - Only for IN_PROGRESS or READY */}
+                    {/* BATCH-TO-STOCK & SURPLUS BUTTONS - Only for IN_PROGRESS or READY */}
                     {(order.status === 'IN_PROGRESS' || order.status === 'READY') && (
-                        <button onClick={onSurplus} className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-slate-400 hover:text-emerald-500 rounded transition-colors" title="Registrar Sobrante Producción">
-                            <PackagePlus className="w-4 h-4"/>
-                        </button>
+                        <>
+                            {order.stockAdded ? (
+                                <span className="px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold flex items-center gap-0.5" title="Lote fabricado ya ingresado al inventario (protegido contra duplicados)">
+                                    <Check className="w-3 h-3" /> Lote OK
+                                </span>
+                            ) : onRecordBatch ? (
+                                <button onClick={onRecordBatch} className="px-2 py-1 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors border border-indigo-200/70 dark:border-indigo-800/60" title="Ingresar solo el faltante fabricado al inventario (evita stock negativo sin inflar bodega)">
+                                    <Package className="w-3 h-3" /> + Lote
+                                </button>
+                            ) : null}
+                            <button onClick={onSurplus} className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-slate-400 hover:text-emerald-500 rounded transition-colors" title="Registrar Sobrante Extra de Producción">
+                                <PackagePlus className="w-4 h-4"/>
+                            </button>
+                        </>
                     )}
 
                     <button onClick={onCancel} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 rounded transition-colors" title="Cancelar"><Trash2 className="w-4 h-4"/></button>
@@ -466,17 +479,17 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         });
     };
 
-    const updateEditQty = (itemId: string, delta: number) => {
+    const updateEditQty = (itemId: string, delta: number, variantId?: string) => {
         setEditCart(prev => prev.map(item => {
-            if (item.id === itemId) {
+            if (item.id === itemId && item.variantId === variantId) {
                 return { ...item, quantity: Math.max(1, item.quantity + delta) };
             }
             return item;
         }));
     };
 
-    const removeFromEditCart = (id: string) => {
-        setEditCart(prev => prev.filter(item => item.id !== id));
+    const removeFromEditCart = (id: string, variantId?: string) => {
+        setEditCart(prev => prev.filter(item => !(item.id === id && item.variantId === variantId)));
     };
 
     const handleSaveEditedOrder = () => {
@@ -576,15 +589,45 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
             notify("Ya registrado", "El lote fabricado de este pedido ya fue ingresado al inventario.", "info");
             return;
         }
-        if (!confirm(`¿Ingresar las ${order.items.reduce((s, i) => s + i.quantity, 0)} unidades fabricadas del pedido #${order.id} al inventario?\n\nEsto evita que el stock quede en negativo al cobrarlo en POS.`)) {
+        // Compute EXACT shortfall (never inflates existing warehouse stock!)
+        const shortfalls: { item: CartItem; makeQty: number; currentStock: number }[] = [];
+        order.items.forEach(item => {
+            const prod = products.find(p => p.id === item.id);
+            let currentStock = 0;
+            if (prod) {
+                if (item.variantId && prod.variants) {
+                    const v = prod.variants.find(vr => vr.id === item.variantId);
+                    currentStock = v ? v.stock : 0;
+                } else {
+                    currentStock = prod.stock;
+                }
+            }
+            const makeQty = Math.max(0, Number((item.quantity - Math.max(0, currentStock)).toFixed(3)));
+            if (makeQty > 0) {
+                shortfalls.push({ item, makeQty, currentStock });
+            }
+        });
+
+        if (shortfalls.length === 0) {
+            updateOrder({ ...order, stockAdded: true });
+            notify("Stock Suficiente en Bodega", "Todas las piezas ya existen en bodega; no se sumó nada extra para evitar inflar el inventario.", "info");
             return;
         }
-        order.items.forEach(item => {
-            adjustStock(item.id, item.quantity, 'IN', item.variantId, `Producción Pedido #${order.id}`);
+
+        const summaryLines = shortfalls
+            .map(s => `• +${s.makeQty} x ${s.item.name}${s.item.variantName ? ` (${s.item.variantName})` : ''} (bodega actual: ${s.currentStock})`)
+            .join('\n');
+
+        if (!confirm(`Ingresar SOLO el faltante fabricado del pedido #${order.id}:\n\n${summaryLines}\n\nAl cobrar en POS se descontará el pedido completo quedando el inventario exacto.`)) {
+            return;
+        }
+
+        shortfalls.forEach(({ item, makeQty }) => {
+            adjustStock(item.id, makeQty, 'IN', item.variantId, `Lote Fabricado Pedido #${order.id}`);
         });
         updateOrder({ ...order, stockAdded: true });
-        notify("Lote en Inventario", `Stock actualizado para el pedido #${order.id}.`, "success");
-    }, [adjustStock, updateOrder, notify]);
+        notify("Lote en Inventario", `Se ingresaron únicamente las piezas fabricadas del pedido #${order.id}.`, "success");
+    }, [products, adjustStock, updateOrder, notify]);
 
     // --- SMART PRINT WORKFLOW ---
     const confirmPrintProduction = async (type: 'SHEET' | 'THERMAL' | 'MASTER') => {
@@ -933,6 +976,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                                     onDragStart={handleDragStart}
                                                     onTouchStart={handleTouchStart}
                                                     onSurplus={() => setSurplusOrder(order)}
+                                                    onRecordBatch={() => handleRecordBatchToStock(order)}
                                                 />
                                             ))}
                                             {columnOrders.length === 0 && (
@@ -1341,19 +1385,19 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                     <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
                                         <div className="space-y-2">
                                             {editCart.map((item: CartItem) => (
-                                                <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                                                <div key={item.variantId ? `${item.id}-${item.variantId}` : item.id} className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
                                                     <div className="flex flex-col items-center gap-1">
-                                                        <button onClick={() => updateEditQty(item.id, 1)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm text-slate-500 hover:text-indigo-600 flex items-center justify-center"><Plus className="w-3 h-3"/></button>
+                                                        <button onClick={() => updateEditQty(item.id, 1, item.variantId)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm text-slate-500 hover:text-indigo-600 flex items-center justify-center"><Plus className="w-3 h-3"/></button>
                                                         <span className="text-xs font-bold w-6 text-center dark:text-white">{item.quantity}</span>
-                                                        <button onClick={() => updateEditQty(item.id, -1)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm text-slate-500 hover:text-red-600 flex items-center justify-center"><Minus className="w-3 h-3"/></button>
+                                                        <button onClick={() => updateEditQty(item.id, -1, item.variantId)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm text-slate-500 hover:text-red-600 flex items-center justify-center"><Minus className="w-3 h-3"/></button>
                                                     </div>
                                                     <div className="flex-1 min-w-0">
-                                                        <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{item.name}</p>
+                                                        <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{item.name}{item.variantName ? ` (${item.variantName})` : ''}</p>
                                                         <p className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">${item.price}</p>
                                                     </div>
                                                     <div className="text-right">
                                                         <p className="text-sm font-bold text-slate-800 dark:text-white">${(item.price * item.quantity).toFixed(2)}</p>
-                                                        <button onClick={() => removeFromEditCart(item.id)} className="text-xs text-red-400 hover:text-red-600 mt-1">Eliminar</button>
+                                                        <button onClick={() => removeFromEditCart(item.id, item.variantId)} className="text-xs text-red-400 hover:text-red-600 mt-1">Eliminar</button>
                                                     </div>
                                                 </div>
                                             ))}

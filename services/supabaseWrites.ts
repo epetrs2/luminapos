@@ -270,6 +270,7 @@ export const sbUpsertOrder = async (o: Order) => {
         status: o.status || 'PENDING',
         priority: o.priority || 'NORMAL',
         notes: o.notes || null,
+        stock_added: Boolean(o.stockAdded),
       },
       { onConflict: 'order_number' }
     )

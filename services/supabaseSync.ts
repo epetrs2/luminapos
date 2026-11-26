@@ -195,6 +195,7 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     status: o.status || 'PENDING',
     priority: o.priority || 'NORMAL',
     notes: o.notes || undefined,
+    stockAdded: Boolean(o.stock_added),
   }));
 
   const purchItemsByPurch = new Map<string, any[]>();
