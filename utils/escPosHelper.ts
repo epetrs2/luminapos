@@ -633,6 +633,37 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
         addLine(formatTwoCols(label, `$${(transaction.amountPaid || transaction.total).toFixed(2)}`, widthType));
     }
 
+    if (transaction.deliverySignature?.imageDataUrl) {
+        add(COMMANDS.ALIGN_CENTER);
+        addLine(separator);
+        add(COMMANDS.BOLD_ON);
+        addLine("RECIBIDO DE CONFORMIDAD");
+        add(COMMANDS.BOLD_OFF);
+        try {
+            const sigImg = await loadImage(transaction.deliverySignature.imageDataUrl);
+            const sigRaster = convertImageToRaster(sigImg, widthType === '58mm' ? 320 : 440);
+            if (sigRaster.length > 0) {
+                add(sigRaster);
+            }
+        } catch (e) {
+            console.warn("Signature raster failed", e);
+        }
+        addLine("_".repeat(Math.min(26, cols - 4)));
+        if (transaction.deliverySignature.signedByName) {
+            addWrapped(`Recibio: ${transaction.deliverySignature.signedByName}`);
+        }
+        if (transaction.deliverySignature.signedAt) {
+            const sigDate = new Date(transaction.deliverySignature.signedAt).toLocaleString('es-MX', {
+                day: '2-digit',
+                month: '2-digit',
+                year: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+            addLine(`Firma: ${sigDate}`);
+        }
+    }
+
     add(COMMANDS.ALIGN_CENTER);
     addLine(separator);
     if (settings.receiptFooter) {

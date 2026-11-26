@@ -150,6 +150,7 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     customerId: t.customer_id || undefined,
     customerName: t.customer_name || undefined,
     status: t.status || 'completed',
+    deliverySignature: t.delivery_signature || undefined,
   }));
 
   const cashMovements: CashMovement[] = (cashRes.data || []).map(m => ({

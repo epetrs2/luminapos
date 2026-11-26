@@ -2,12 +2,14 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
 import { Product, CartItem, Transaction, Order } from '../types';
-import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle, Scale, Edit2, ClipboardList, Check, AlertTriangle, Clock, ChevronLeft, Copy, Bluetooth } from 'lucide-react';
+import { Search, Plus, Trash2, ShoppingCart, User, CreditCard, Banknote, Smartphone, LayoutGrid, List, Truck, Percent, ChevronRight, X, ArrowRight, Minus, CheckCircle, Printer, FileText, PieChart, Wallet, AlertCircle, Scale, Edit2, ClipboardList, Check, AlertTriangle, Clock, ChevronLeft, Copy, Bluetooth, PenTool } from 'lucide-react';
 import { printThermalTicket, printInvoice } from '../utils/printService';
 import { roundCurrency, roundQty } from '../utils/financeHelpers';
+import { SignaturePadModal } from '../components/SignaturePadModal';
 
 export const POS: React.FC = () => {
-    const { products, customers, categories, addTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice, connectBtPrinter, incomingOrder, clearIncomingOrder, completeOrder, posDraft, setPosDraft, clearPosDraft } = useStore();
+    const { products, customers, categories, addTransaction, updateTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice, connectBtPrinter, incomingOrder, clearIncomingOrder, completeOrder, posDraft, setPosDraft, clearPosDraft } = useStore();
+    const [showPosSignature, setShowPosSignature] = useState(false);
     
     // Persistent draft state (survives switching tabs to Settings/CashRegister/etc.)
     const { cart, selectedCustomerId, discountValue, discountType, shippingCost, sourceOrderId } = posDraft;
@@ -813,6 +815,36 @@ export const POS: React.FC = () => {
                                             ${roundCurrency(lastTransaction.tenderedAmount - lastTransaction.total).toFixed(2)}
                                         </p>
                                     </div>
+                                )}
+
+                                {lastTransaction && customers.find(c => c.id === lastTransaction.customerId)?.clientType === 'BUSINESS' && (
+                                    <button
+                                        onClick={() => setShowPosSignature(true)}
+                                        className={`w-full mb-3 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border transition-colors ${lastTransaction.deliverySignature ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100'}`}
+                                    >
+                                        <PenTool className="w-4 h-4" />
+                                        {lastTransaction.deliverySignature ? '✓ Firma de Tienda Capturada (Refirmar)' : 'Capturar Firma de Recibido (Tienda)'}
+                                    </button>
+                                )}
+
+                                {showPosSignature && lastTransaction && (
+                                    <SignaturePadModal
+                                        ticketId={lastTransaction.id}
+                                        customerName={customers.find(c => c.id === lastTransaction.customerId)?.name || 'Tienda'}
+                                        existingSignature={lastTransaction.deliverySignature}
+                                        onClose={() => setShowPosSignature(false)}
+                                        onSave={(sig, shouldPrint) => {
+                                            updateTransaction(lastTransaction.id, { deliverySignature: sig });
+                                            const updatedTx = { ...lastTransaction, deliverySignature: sig };
+                                            setLastTransaction(updatedTx);
+                                            setShowPosSignature(false);
+                                            notify('Firma Guardada', 'Firma de recibido respaldada en la nota.', 'success');
+                                            if (shouldPrint) {
+                                                const custName = customers.find(c => c.id === updatedTx.customerId)?.name || 'Cliente General';
+                                                printThermalTicket(updatedTx, custName, settings, btDevice ? sendBtData : undefined);
+                                            }
+                                        }}
+                                    />
                                 )}
 
                                 {!btDevice && (

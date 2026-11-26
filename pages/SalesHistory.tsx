@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown, Edit2, Save, ToggleLeft, ToggleRight, RefreshCw, RefreshCcw } from 'lucide-react';
+import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smartphone, Package, Trash2, Loader2, AlertTriangle, PieChart, Printer, Mail, DollarSign, Wallet, FileText, Undo2, Check, Plus, Archive, Hash, Calendar, ChevronRight, Filter, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, Ban, ArrowUp, ArrowDown, Edit2, Save, ToggleLeft, ToggleRight, RefreshCw, RefreshCcw, PenTool } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
-import { Transaction, CartItem, Product } from '../types';
+import { Transaction, CartItem, Product, DeliverySignature } from '../types';
+import { SignaturePadModal } from '../components/SignaturePadModal';
 import { printInvoice, printThermalTicket } from '../utils/printService';
 import { getCartItemKey, roundCurrency, roundQty, generateId } from '../utils/financeHelpers';
 
@@ -575,6 +576,9 @@ const TransactionDetailModal: React.FC<{
   const { settings, sendBtData, btDevice, updateTransaction, toggleTransactionExcludeFromReports, notify, rectifyTransactionChannel } = useStore();
   const [deleteStep, setDeleteStep] = useState<'initial' | 'confirm' | 'processing' | 'success'>('initial');
   const [showReturnModal, setShowReturnModal] = useState(false);
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const customerObj = getCustomer(transaction.customerId);
+  const isBusinessClient = customerObj?.clientType === 'BUSINESS';
   
   const [isEditing, setIsEditing] = useState(false);
   const [tempId, setTempId] = useState(transaction.id);
@@ -664,6 +668,25 @@ const TransactionDetailModal: React.FC<{
           />
       )}
 
+      {showSignatureModal && (
+          <SignaturePadModal
+            ticketId={transaction.id}
+            customerName={getCustomerName(transaction.customerId)}
+            existingSignature={transaction.deliverySignature}
+            onClose={() => setShowSignatureModal(false)}
+            onSave={(sig: DeliverySignature, shouldPrint: boolean) => {
+                updateTransaction(transaction.id, { deliverySignature: sig });
+                const updatedTx: Transaction = { ...transaction, deliverySignature: sig };
+                onUpdate(updatedTx);
+                setShowSignatureModal(false);
+                notify('Firma Guardada', 'La firma de recibido quedó respaldada en esta nota.', 'success');
+                if (shouldPrint) {
+                    printThermalTicket(updatedTx, getCustomerName(updatedTx.customerId), settings, btDevice ? sendBtData : undefined);
+                }
+            }}
+          />
+      )}
+
       <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col h-[90vh] md:max-h-[90vh] relative border border-slate-100 dark:border-slate-800 animate-[slideUp_0.3s_ease-out]">
         
         {deleteStep === 'success' && (
@@ -738,11 +761,37 @@ const TransactionDetailModal: React.FC<{
 
         <div className="p-6 overflow-y-auto">
           {/* Action Buttons Bar */}
-          <div className="flex gap-2 mb-8 overflow-x-auto pb-1">
+          <div className="flex flex-wrap gap-2 mb-6">
                 <button onClick={handlePrintInvoice} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-blue-900 text-white py-3 px-4 rounded-xl hover:bg-blue-800 font-medium transition-colors shadow-sm whitespace-nowrap"><FileText className="w-4 h-4" /> Nota Venta</button>
                <button onClick={handlePrint} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 py-3 px-4 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/50 font-medium transition-colors border border-indigo-100 dark:border-indigo-800"><Printer className="w-4 h-4" /> Ticket</button>
+               {(isBusinessClient || transaction.deliverySignature) && !isReturnTx && (
+                   <button
+                     onClick={() => setShowSignatureModal(true)}
+                     className={`flex-1 md:flex-none flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold transition-colors border whitespace-nowrap ${transaction.deliverySignature ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100'}`}
+                   >
+                       <PenTool className="w-4 h-4" />
+                       {transaction.deliverySignature ? '✓ Firmado (Refirmar)' : 'Firmar Recibido'}
+                   </button>
+               )}
                <button onClick={handleSendEmail} className="flex items-center justify-center gap-2 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-4 py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition-colors" title="Enviar por Correo"><Mail className="w-4 h-4" /></button>
           </div>
+
+          {transaction.deliverySignature && (
+              <div className="mb-6 p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-900/10 border border-emerald-200/80 dark:border-emerald-800/50 flex flex-col sm:flex-row items-center gap-4">
+                  <div className="bg-white p-2 rounded-xl border border-slate-200 shrink-0">
+                      <img src={transaction.deliverySignature.imageDataUrl} alt="Firma de recibido" className="h-16 object-contain" />
+                  </div>
+                  <div className="text-center sm:text-left">
+                      <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 uppercase">Recibido de Conformidad</p>
+                      {transaction.deliverySignature.signedByName && (
+                          <p className="text-sm font-bold text-slate-800 dark:text-white">{transaction.deliverySignature.signedByName}</p>
+                      )}
+                      <p className="text-xs text-slate-500">
+                          Firmado el {new Date(transaction.deliverySignature.signedAt).toLocaleString('es-MX')} • Al imprimir <strong>Ticket</strong> saldrá con esta firma.
+                      </p>
+                  </div>
+              </div>
+          )}
           
            {isPending && (
                <div className="mb-6">

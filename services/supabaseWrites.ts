@@ -174,6 +174,7 @@ export const sbSaveTransaction = async (tx: Transaction) => {
         tendered_amount: tx.tenderedAmount != null ? roundCurrency(tx.tenderedAmount) : null,
         split_details: tx.splitDetails || null,
         status,
+        delivery_signature: tx.deliverySignature || null,
       },
       { onConflict: 'ticket_number' }
     )
@@ -215,6 +216,7 @@ export const sbUpdateTransaction = async (ticketNumber: string, updates: Partial
   if (updates.paymentStatus !== undefined) patch.payment_status = updates.paymentStatus;
   if (updates.amountPaid !== undefined) patch.amount_paid = roundCurrency(updates.amountPaid);
   if (updates.total !== undefined) patch.total = roundCurrency(updates.total);
+  if (updates.deliverySignature !== undefined) patch.delivery_signature = updates.deliverySignature;
   if (Object.keys(patch).length === 0) return;
 
   const { error } = await supabase.from('transactions').update(patch).eq('ticket_number', ticketNumber);

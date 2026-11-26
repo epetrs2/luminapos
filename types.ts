@@ -241,6 +241,12 @@ export interface Supplier {
   address?: string;
 }
 
+export interface DeliverySignature {
+  imageDataUrl: string; // High-contrast B&W PNG data URL
+  signedByName?: string;
+  signedAt: string; // ISO timestamp
+}
+
 export interface Transaction {
   id: string;
   date: string;
@@ -261,6 +267,7 @@ export interface Transaction {
   isReturn?: boolean;
   transferReference?: string;
   excludeFromReports?: boolean; // Selective accounting exclusion (keeps ticket in archive without counting in reports)
+  deliverySignature?: DeliverySignature;
 }
 
 export interface Order {
