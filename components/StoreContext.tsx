@@ -293,6 +293,29 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     }, [settings.theme]);
 
+    // Seed default admin user automatically on a fresh browser (when users array is empty)
+    useEffect(() => {
+        if (users.length === 0) {
+            const seedAdmin = async () => {
+                const salt = generateSalt();
+                const passwordHash = await hashPassword('Admin@123456', salt);
+                const defaultAdmin: User = {
+                    id: 'admin-default',
+                    username: 'admin',
+                    fullName: 'Administrador',
+                    role: 'ADMIN',
+                    active: true,
+                    passwordHash,
+                    salt,
+                    recoveryCode: generateRecoveryCode(),
+                    isTwoFactorEnabled: false
+                };
+                setUsers(prev => prev.length === 0 ? [defaultAdmin] : prev);
+            };
+            seedAdmin();
+        }
+    }, [users.length]);
+
     // --- AUTO-DISCOVER CATEGORIES ---
     useEffect(() => {
         if (products.length > 0) {
