@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { LayoutDashboard, ShoppingCart, Package, DollarSign, PieChart, Store, Users, Truck, History, Settings, LogOut, Shield, Menu, X, ClipboardList, Cloud, CloudOff, RefreshCw, AlertCircle, Bluetooth } from 'lucide-react';
 import { AppView } from '../types';
 import { useStore } from './StoreContext';
+import { isSupabaseConfigured } from '../services/supabaseClient';
 
 interface SidebarProps {
   currentView: AppView;
@@ -10,8 +11,12 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
-  const { products, settings, currentUser, logout, isSyncing, hasPendingChanges, pullFromCloud, notify, btDevice, connectBtPrinter, disconnectBtPrinter } = useStore();
+  const { products, settings, currentUser, logout, isSyncing, hasPendingChanges, pullFromCloud, syncFromSupabase, notify, btDevice, connectBtPrinter, disconnectBtPrinter } = useStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSbRefreshing, setIsSbRefreshing] = useState(false);
+  const supabaseActive = isSupabaseConfigured() && Boolean(currentUser?.email);
+  const cloudEnabled = supabaseActive || Boolean(settings.enableCloudSync);
+  const busySyncing = isSyncing || isSbRefreshing;
 
   // IGNORE INACTIVE PRODUCTS IN LOW STOCK COUNT (including variants)
   const lowStockCount = products.filter(p => {
@@ -48,7 +53,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
 
   const handleForceSync = async (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (isSyncing) return;
+      if (busySyncing) return;
+      if (supabaseActive) {
+          setIsSbRefreshing(true);
+          try {
+              await syncFromSupabase(false);
+          } finally {
+              setIsSbRefreshing(false);
+          }
+          return;
+      }
       notify("Sincronizando", "Conectando con la nube...", "info");
       await pullFromCloud();
   };
@@ -82,9 +96,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
              >
                  <Bluetooth className="w-5 h-5" />
              </button>
-             {settings.enableCloudSync && (
-                 <button onClick={handleForceSync} disabled={isSyncing} aria-label="Sincronizar con la nube" className={`p-3 text-indigo-300 hover:text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform ${isSyncing ? 'opacity-50' : ''}`}>
-                     <RefreshCw className={`w-6 h-6 ${isSyncing ? 'animate-spin' : ''}`} />
+             {cloudEnabled && (
+                 <button onClick={handleForceSync} disabled={busySyncing} aria-label="Sincronizar con Supabase" className={`p-3 text-indigo-300 hover:text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform ${busySyncing ? 'opacity-50' : ''}`}>
+                     <RefreshCw className={`w-6 h-6 ${busySyncing ? 'animate-spin' : ''}`} />
                  </button>
              )}
              <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} aria-label="Menú" className="p-3 text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform">
@@ -105,18 +119,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
             <div className="overflow-hidden flex-1">
             <h1 className="text-lg font-bold tracking-tight truncate">{settings.name || 'LuminaPOS'}</h1>
             <div className="flex items-center gap-1">
-                {settings.enableCloudSync ? (
-                    isSyncing ? (
+                {cloudEnabled ? (
+                    busySyncing ? (
                         <div title="Sincronizando..." className="flex items-center gap-1 text-[10px] text-orange-400 font-bold uppercase animate-pulse">
-                            <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Guardando...
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Sincronizando...
                         </div>
-                    ) : hasPendingChanges ? (
+                    ) : (!supabaseActive && hasPendingChanges) ? (
                         <div title="Cambios sin guardar en la nube" className="flex items-center gap-1 text-[10px] text-yellow-400 font-bold uppercase">
                             <AlertCircle className="w-2.5 h-2.5" /> Sin Guardar
                         </div>
                     ) : (
-                        <div title="Todo sincronizado" className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase">
-                            <Cloud className="w-2.5 h-2.5" /> Nube OK
+                        <div title={supabaseActive ? "Conectado en tiempo real a Supabase" : "Todo sincronizado"} className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase">
+                            <Cloud className="w-2.5 h-2.5" /> {supabaseActive ? 'Supabase OK' : 'Nube OK'}
                         </div>
                     )
                 ) : (
@@ -124,14 +138,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
                         <CloudOff className="w-2.5 h-2.5" /> Local
                     </div>
                 )}
-                {settings.enableCloudSync && (
+                {cloudEnabled && (
                     <button 
                         onClick={handleForceSync} 
-                        disabled={isSyncing}
-                        className={`ml-auto p-2 bg-slate-800 hover:bg-slate-700 rounded-full transition-all active:scale-95 border border-slate-700 ${isSyncing ? 'cursor-not-allowed opacity-50' : 'hover:text-white text-indigo-400 hover:border-indigo-500'}`} 
-                        title="Forzar Sincronización"
+                        disabled={busySyncing}
+                        className={`ml-auto p-2 bg-slate-800 hover:bg-slate-700 rounded-full transition-all active:scale-95 border border-slate-700 ${busySyncing ? 'cursor-not-allowed opacity-50' : 'hover:text-white text-indigo-400 hover:border-indigo-500'}`} 
+                        title={supabaseActive ? "Actualizar desde Supabase" : "Forzar Sincronización"}
                     >
-                        <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-white' : ''}`} />
+                        <RefreshCw className={`w-4 h-4 ${busySyncing ? 'animate-spin text-white' : ''}`} />
                     </button>
                 )}
             </div>
