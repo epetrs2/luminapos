@@ -920,28 +920,85 @@ El equipo de ${businessName}`;
       {/* Selective Credit Reset / Reconciliation Modal */}
       {isCreditResetOpen && historyCustomer && (
           <div className="fixed inset-0 bg-black/60 z-[130] flex items-center justify-center p-4 backdrop-blur-sm animate-[fadeIn_0.2s]">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 dark:border-slate-800 p-6">
-                  <div className="flex justify-between items-center mb-3">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 dark:border-slate-800 p-6 max-h-[90vh] overflow-y-auto">
+                  <div className="flex justify-between items-center mb-2">
                       <h3 className="text-lg font-bold text-slate-800 dark:text-white">Cuadre Selectivo de Crédito</h3>
                       <button onClick={() => setIsCreditResetOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                      Ajusta o reinicia la deuda de <strong>{historyCustomer.name}</strong> sin mover dinero de tu caja física. Ideal para cuadrar cuentas viejas.
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                      Herramienta de ajuste contable para <strong>{historyCustomer.name}</strong> (Deuda actual: <strong className="text-red-500">${(historyCustomer.currentDebt || 0).toFixed(2)}</strong>).
                   </p>
+
+                  {/* Clear Impact Summary */}
+                  <div className="grid grid-cols-3 gap-2 mb-4 text-[10px] font-bold text-center">
+                      <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/60">
+                          ✓ Deuda cliente<br/><span className="font-normal opacity-80">Sí se ajusta</span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          ✗ Caja / Banco<br/><span className="font-normal opacity-80">NO se toca</span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          ✗ Ventas hoy<br/><span className="font-normal opacity-80">NO suma falso</span>
+                      </div>
+                  </div>
 
                   <div className="space-y-4">
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motivo (Bitácora)</label>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motivo (Se guarda en bitácora)</label>
                           <input
                               type="text"
                               value={creditResetReason}
                               onChange={e => setCreditResetReason(e.target.value)}
-                              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
                           />
                       </div>
 
+                      {/* Option 1: Selective Pending Tickets List */}
+                      {transactions.some(t => t.customerId === historyCustomer.id && t.status !== 'cancelled' && t.status !== 'returned' && (t.paymentStatus === 'pending' || t.paymentStatus === 'partial')) && (
+                          <div className="p-3.5 rounded-xl bg-amber-50/50 dark:bg-amber-900/10 border border-amber-200/70 dark:border-amber-800/50">
+                              <p className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase mb-0.5">1. Saldar una nota vieja específica</p>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2.5">
+                                  Si ya te pagaron esta nota antes por fuera o la quieres perdonar: la resta de su deuda y la excluye de reportes.
+                              </p>
+                              <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                                  {transactions
+                                      .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled' && t.status !== 'returned' && (t.paymentStatus === 'pending' || t.paymentStatus === 'partial'))
+                                      .map(t => {
+                                          const rem = roundCurrency(Math.max(0, t.total - (t.amountPaid || 0)));
+                                          return (
+                                              <div key={t.id} className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 border border-amber-200/60 dark:border-slate-700 text-xs">
+                                                  <div>
+                                                      <span className="font-bold text-slate-700 dark:text-slate-200">Nota #{t.id}</span>
+                                                      <span className="text-slate-400 ml-2">{new Date(t.date).toLocaleDateString('es-MX')}</span>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                      <span className="font-bold text-red-600">${rem.toFixed(2)}</span>
+                                                      <button
+                                                          onClick={() => {
+                                                              resetCustomerCredit(historyCustomer.id, {
+                                                                  mode: 'SETTLE_TICKET',
+                                                                  ticketId: t.id,
+                                                                  reason: creditResetReason,
+                                                              });
+                                                          }}
+                                                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded font-bold text-[10px]"
+                                                      >
+                                                          Saldar y Excluir
+                                                      </button>
+                                                  </div>
+                                              </div>
+                                          );
+                                      })}
+                              </div>
+                          </div>
+                      )}
+
+                      {/* Option 2: Set Exact Balance */}
                       <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Fijar Saldo Exacto ($)</label>
+                          <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase mb-0.5">2. Corregir saldo total manualmente ($)</label>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
+                              Úsalo si en tu control real hoy te debe otra cantidad (ej. $300 en vez de ${(historyCustomer.currentDebt || 0).toFixed(0)}). Solo cambia el saldo de deuda.
+                          </p>
                           <div className="flex gap-2">
                               <input
                                   type="number"
@@ -967,61 +1024,30 @@ El equipo de ${businessName}`;
                           </div>
                       </div>
 
-                      {/* Selective Pending Tickets List */}
-                      {transactions.some(t => t.customerId === historyCustomer.id && t.status !== 'cancelled' && t.status !== 'returned' && (t.paymentStatus === 'pending' || t.paymentStatus === 'partial')) && (
-                          <div>
-                              <p className="text-xs font-bold text-slate-500 uppercase mb-2">Saldar / Excluir Nota Específica</p>
-                              <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                                  {transactions
-                                      .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled' && t.status !== 'returned' && (t.paymentStatus === 'pending' || t.paymentStatus === 'partial'))
-                                      .map(t => {
-                                          const rem = roundCurrency(Math.max(0, t.total - (t.amountPaid || 0)));
-                                          return (
-                                              <div key={t.id} className="flex items-center justify-between p-2 rounded-lg bg-red-50/60 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-xs">
-                                                  <div>
-                                                      <span className="font-bold text-slate-700 dark:text-slate-200">Nota #{t.id}</span>
-                                                      <span className="text-slate-400 ml-2">{new Date(t.date).toLocaleDateString('es-MX')}</span>
-                                                  </div>
-                                                  <div className="flex items-center gap-2">
-                                                      <span className="font-bold text-red-600">${rem.toFixed(2)}</span>
-                                                      <button
-                                                          onClick={() => {
-                                                              resetCustomerCredit(historyCustomer.id, {
-                                                                  mode: 'SETTLE_TICKET',
-                                                                  ticketId: t.id,
-                                                                  reason: creditResetReason,
-                                                              });
-                                                          }}
-                                                          className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded font-bold text-[10px]"
-                                                      >
-                                                          Saldar y Excluir
-                                                      </button>
-                                                  </div>
-                                              </div>
-                                          );
-                                      })}
-                              </div>
+                      {/* Option 3: Clean Slate $0 */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              <strong>3. Borrón y cuenta nueva:</strong> deja la deuda en <strong>$0.00</strong> y cierra todas sus notas pendientes sin mover tu caja.
+                          </p>
+                          <div className="flex gap-2">
+                              <button
+                                  onClick={() => setIsCreditResetOpen(false)}
+                                  className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs"
+                              >
+                                  Cerrar
+                              </button>
+                              <button
+                                  onClick={() => {
+                                      if (confirm(`¿Reiniciar la deuda de ${historyCustomer.name} a $0.00 y marcar sus notas pendientes como saldadas (sin afectar caja)?`)) {
+                                          resetCustomerCredit(historyCustomer.id, { mode: 'ZERO', reason: creditResetReason });
+                                          setIsCreditResetOpen(false);
+                                      }
+                                  }}
+                                  className="flex-[2] py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs"
+                              >
+                                  Reiniciar Deuda a $0.00
+                              </button>
                           </div>
-                      )}
-
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex gap-2">
-                          <button
-                              onClick={() => setIsCreditResetOpen(false)}
-                              className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs"
-                          >
-                              Cerrar
-                          </button>
-                          <button
-                              onClick={() => {
-                                  if (confirm(`¿Reiniciar la deuda de ${historyCustomer.name} a $0.00 y marcar sus notas pendientes como saldadas (sin afectar caja)?`)) {
-                                      resetCustomerCredit(historyCustomer.id, { mode: 'ZERO', reason: creditResetReason });
-                                      setIsCreditResetOpen(false);
-                                  }
-                              }}
-                              className="flex-[2] py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs"
-                          >
-                              Reiniciar Deuda a $0.00
-                          </button>
                       </div>
                   </div>
               </div>
