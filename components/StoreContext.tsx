@@ -36,6 +36,7 @@ import {
     sbLogActivity,
 } from '../services/supabaseWrites';
 import { roundCurrency, roundQty, generateId } from '../utils/financeHelpers';
+import { playLoginChime, playSystemSound } from '../utils/sound';
 
 export interface PosDraft {
     cart: CartItem[];
@@ -1198,12 +1199,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const updatedUser: User = { ...user, lastLogin: nowIso, lastActive: nowIso, failedLoginAttempts: 0, lockoutUntil: undefined };
         setUsers(prev => prev.map(usr => usr.id === user.id ? updatedUser : usr));
         setCurrentUser(updatedUser);
+        if (settings.soundConfig?.enabled !== false) {
+            playLoginChime(settings.soundConfig?.volume ?? 0.55);
+        }
         logActivity('LOGIN', `Inicio de sesión de ${user.username}`);
         return 'SUCCESS';
     };
 
     const syncFromSupabase = async (silent = true): Promise<boolean> => {
         if (!supabase) return false;
+        setIsSyncing(true);
         try {
             const snap = await fetchAllFromSupabase();
             if (!snap) return false;
@@ -1218,11 +1223,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (snap.profiles.length > 0) setUsers(snap.profiles);
             if (snap.activityLogs.length > 0) setActivityLogs(snap.activityLogs);
             if (snap.settingsPartial) setSettings(prev => mergeSettings({ ...prev, ...snap.settingsPartial }));
-            if (!silent) notify("Nube Sincronizada", "Datos actualizados desde Supabase.", "success");
+            if (!silent) {
+                notify("Nube Sincronizada", "Datos actualizados desde Supabase.", "success");
+                if (settings.soundConfig?.enabled !== false) {
+                    playSystemSound(settings.soundConfig?.notificationSound || 'NOTE', (settings.soundConfig?.volume ?? 0.5) * 0.6);
+                }
+            }
             return true;
         } catch (e) {
             console.warn('syncFromSupabase error:', e);
             return false;
+        } finally {
+            setTimeout(() => setIsSyncing(false), 450);
         }
     };
 
@@ -1272,6 +1284,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return { ok: false, message: 'Tu cuenta está desactivada. Contacta al administrador.' };
         }
         await syncFromSupabase(true);
+        if (settings.soundConfig?.enabled !== false) {
+            playLoginChime(settings.soundConfig?.volume ?? 0.55);
+        }
         return { ok: true };
     };
 

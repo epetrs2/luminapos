@@ -139,3 +139,75 @@ export const playSystemSound = (type: SoundType, volume: number = 0.5) => {
         console.error("Audio error", e);
     }
 };
+
+/**
+ * Lush, glassy Windows Vista-inspired startup chime synthesized with Web Audio API.
+ * Uses a warm EbMaj9 arpeggio (Eb5 -> Bb5 -> F5 -> G5) over a soft harmonic pad.
+ */
+export const playLoginChime = (volume: number = 0.55) => {
+    if (!Number.isFinite(volume) || volume <= 0) return;
+    const safeVol = Math.min(1, Math.max(0.05, volume));
+
+    try {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        const now = ctx.currentTime + 0.04;
+
+        // Warm low pad (Eb3 + Bb3)
+        [155.56, 233.08].forEach((freq) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now);
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.linearRampToValueAtTime(safeVol * 0.16, now + 0.25);
+            gain.gain.exponentialRampToValueAtTime(0.0008, now + 2.1);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+            osc.start(now);
+            osc.stop(now + 2.15);
+        });
+
+        // Signature 4-note glassy chime arpeggio: Eb5, Bb5, F5, G5
+        const notes = [
+            { freq: 622.25, delay: 0.0, dur: 1.35, amp: 0.28 },
+            { freq: 932.33, delay: 0.22, dur: 1.45, amp: 0.26 },
+            { freq: 698.46, delay: 0.44, dur: 1.45, amp: 0.24 },
+            { freq: 783.99, delay: 0.68, dur: 1.65, amp: 0.30 },
+        ];
+
+        notes.forEach(({ freq, delay, dur, amp }) => {
+            const start = now + delay;
+            // Fundamental sine
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, start);
+            gain.gain.setValueAtTime(0.001, start);
+            gain.gain.linearRampToValueAtTime(safeVol * amp, start + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.0008, start + dur);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+            osc.start(start);
+            osc.stop(start + dur + 0.05);
+
+            // Soft glassy octave shimmer
+            const shimmer = ctx.createOscillator();
+            const sGain = ctx.createGain();
+            shimmer.type = 'triangle';
+            shimmer.frequency.setValueAtTime(freq * 2, start);
+            sGain.gain.setValueAtTime(0.001, start);
+            sGain.gain.linearRampToValueAtTime(safeVol * amp * 0.18, start + 0.02);
+            sGain.gain.exponentialRampToValueAtTime(0.0005, start + dur * 0.7);
+            shimmer.connect(sGain);
+            sGain.connect(ctx.destination);
+            shimmer.onended = () => { shimmer.disconnect(); sGain.disconnect(); };
+            shimmer.start(start);
+            shimmer.stop(start + dur * 0.75);
+        });
+    } catch (e) {
+        console.warn("Login chime error", e);
+    }
+};

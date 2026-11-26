@@ -42,6 +42,16 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
     [cashMovements]
   );
 
+  const virtualBalance = useMemo(() => roundCurrency(
+    cashMovements
+      .filter(m => m.channel === 'VIRTUAL')
+      .reduce((acc, curr) => {
+        if (curr.type === 'DEPOSIT') return acc + curr.amount;
+        if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
+        return acc;
+      }, 0)
+  ), [cashMovements]);
+
   // Chart Data (Last 7 days in O(N))
   const chartData = useMemo(() => {
     const byDay = new Map<string, number>();
@@ -87,9 +97,9 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
           </div>
 
           {/* Featured Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 animate-[slideUp_0.35s_ease-out]">
               {/* Sales Card */}
-              <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-3xl p-6 text-white shadow-xl shadow-indigo-200 dark:shadow-none relative overflow-hidden group">
+              <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-3xl p-6 text-white shadow-xl shadow-indigo-200 dark:shadow-none relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
                   <div className="absolute right-0 top-0 p-6 opacity-10 group-hover:scale-110 transition-transform duration-500">
                       <DollarSign className="w-32 h-32" />
                   </div>
@@ -106,7 +116,7 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
               </div>
 
               {/* Cash Card */}
-              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col relative group hover:border-indigo-100 dark:hover:border-slate-700 transition-colors">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col relative group hover:-translate-y-1 hover:shadow-md hover:border-indigo-100 dark:hover:border-slate-700 transition-all duration-300">
                   <div className="flex justify-between items-start mb-4">
                       <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-2xl">
                           <Wallet className="w-6 h-6" />
@@ -117,11 +127,11 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
                   </div>
                   <p className="text-slate-500 dark:text-slate-400 font-medium">Caja Chica</p>
                   <h3 className="text-3xl font-bold text-slate-800 dark:text-white mt-1">${currentBalance.toFixed(2)}</h3>
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-auto font-medium">Disponible para gastos</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-auto font-semibold">Banco: ${virtualBalance.toFixed(2)}</p>
               </div>
 
               {/* Inventory Card */}
-              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col relative group hover:border-indigo-100 dark:hover:border-slate-700 transition-colors">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col relative group hover:-translate-y-1 hover:shadow-md hover:border-indigo-100 dark:hover:border-slate-700 transition-all duration-300">
                   <div className="flex justify-between items-start mb-4">
                       <div className="p-3 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-2xl">
                           <Package className="w-6 h-6" />
@@ -138,7 +148,7 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
               </div>
 
               {/* Alerts Card */}
-              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col relative group hover:border-orange-100 dark:hover:border-orange-900/50 transition-colors">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col relative group hover:-translate-y-1 hover:shadow-md hover:border-orange-100 dark:hover:border-orange-900/50 transition-all duration-300">
                   <div className="flex justify-between items-start mb-4">
                       <div className="p-3 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-2xl">
                           <AlertTriangle className="w-6 h-6" />

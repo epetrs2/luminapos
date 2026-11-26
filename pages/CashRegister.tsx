@@ -28,7 +28,10 @@ const CAT_LABELS: Record<string, string> = {
 };
 
 export const CashRegister: React.FC = () => {
-  const { cashMovements, addCashMovement, deleteCashMovement, settings, transactions, btDevice, sendBtData } = useStore();
+  const { cashMovements, addCashMovement, deleteCashMovement, settings, transactions, btDevice, sendBtData, currentUser, notify } = useStore();
+  const isManagerOrAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER';
+  const [reconcileModalOpen, setReconcileModalOpen] = useState(false);
+  const [targetBankBalance, setTargetBankBalance] = useState('');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [subCategory, setSubCategory] = useState(''); 
@@ -266,6 +269,76 @@ export const CashRegister: React.FC = () => {
       printZCutTicket(movement, settings, btDevice ? sendBtData : undefined);
   };
 
+  // --- SELECTIVE CASH & BANK RESET / RECONCILIATION ---
+  const handleResetPhysicalCashToZero = () => {
+      if (!confirm('¿Cerrar y reiniciar la Caja Física a $0.00? Podrás volver a abrir caja limpia desde $0.00 enseguida.')) return;
+      addCashMovement({
+          id: generateId(),
+          type: 'CLOSE',
+          amount: Math.max(0, roundCurrency(cashBalance)),
+          description: 'Reinicio / Cuadre de Caja Física a $0.00',
+          date: new Date().toISOString(),
+          category: 'OTHER',
+          subCategory: 'RECONCILIATION',
+          channel: 'CASH',
+          isZCut: false,
+      });
+      notify('Caja Reiniciada', 'Caja física reiniciada a $0.00.', 'success');
+      setReconcileModalOpen(false);
+  };
+
+  const handleSetBankBalance = (target: number) => {
+      const cleanTarget = roundCurrency(Math.max(0, target));
+      const diff = roundCurrency(cleanTarget - virtualBalance);
+      if (Math.abs(diff) < 0.01) {
+          notify('Sin cambios', `Banco / Virtual ya está en $${cleanTarget.toFixed(2)}.`, 'info');
+          setReconcileModalOpen(false);
+          return;
+      }
+      addCashMovement({
+          id: generateId(),
+          type: diff > 0 ? 'DEPOSIT' : 'WITHDRAWAL',
+          amount: Math.abs(diff),
+          description: cleanTarget === 0 ? 'Reinicio / Cuadre de Banco a $0.00' : `Cuadre manual de Banco a $${cleanTarget.toFixed(2)}`,
+          date: new Date().toISOString(),
+          category: 'OTHER',
+          subCategory: 'RECONCILIATION',
+          channel: 'VIRTUAL',
+      });
+      notify('Banco Cuadrado', `Saldo de Banco / Virtual fijado en $${cleanTarget.toFixed(2)}.`, 'success');
+      setReconcileModalOpen(false);
+  };
+
+  const handleResetBothToZero = () => {
+      if (!confirm('¿Reiniciar TANTO Caja Física COMO Banco / Virtual a $0.00 ahora mismo?')) return;
+      if (isRegisterOpen || cashBalance !== 0) {
+          addCashMovement({
+              id: generateId(),
+              type: 'CLOSE',
+              amount: Math.max(0, roundCurrency(cashBalance)),
+              description: 'Reinicio Global de Caja Física a $0.00',
+              date: new Date().toISOString(),
+              category: 'OTHER',
+              subCategory: 'RECONCILIATION',
+              channel: 'CASH',
+          });
+      }
+      if (Math.abs(virtualBalance) >= 0.01) {
+          addCashMovement({
+              id: generateId(),
+              type: virtualBalance > 0 ? 'WITHDRAWAL' : 'DEPOSIT',
+              amount: Math.abs(virtualBalance),
+              description: 'Reinicio Global de Banco a $0.00',
+              date: new Date().toISOString(),
+              category: 'OTHER',
+              subCategory: 'RECONCILIATION',
+              channel: 'VIRTUAL',
+          });
+      }
+      notify('Cuadre Completo', 'Caja física y Banco reiniciados a $0.00.', 'success');
+      setReconcileModalOpen(false);
+  };
+
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
       <div className="max-w-7xl mx-auto">
@@ -282,7 +355,16 @@ export const CashRegister: React.FC = () => {
                 </div>
             </div>
             
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
+                {isManagerOrAdmin && (
+                    <button
+                        onClick={() => { setTargetBankBalance(String(virtualBalance)); setReconcileModalOpen(true); }}
+                        className="bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 px-4 py-3 rounded-xl font-bold text-sm flex items-center gap-2 transition-all active:scale-95"
+                        title="Reiniciar o cuadrar Caja Física y Banco a $0.00"
+                    >
+                        <RefreshCw className="w-4 h-4" /> Cuadrar / Reiniciar
+                    </button>
+                )}
                 {!isRegisterOpen && (
                     <button 
                         onClick={() => setOpenRegisterModalOpen(true)}
@@ -642,6 +724,72 @@ export const CashRegister: React.FC = () => {
                           {savingZCut ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
                           {savingZCut ? 'Guardando...' : 'Finalizar Cierre'}
                       </button>
+                  </div>
+              </div>
+          </div>
+      )}
+      {/* Reconcile / Reset Cash & Bank Modal */}
+      {reconcileModalOpen && (
+          <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-100 dark:border-slate-800">
+                  <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                          <RefreshCw className="w-5 h-5 text-amber-500" /> Cuadrar / Reiniciar Saldos
+                      </h3>
+                      <button onClick={() => setReconcileModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-sm font-bold">✕</button>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                      Si no pudiste cerrar caja en días anteriores, reinicia aquí tu <strong>Caja Física</strong> y/o <strong>Banco</strong> a $0.00 (o al saldo real) para empezar limpio.
+                  </p>
+
+                  <div className="space-y-4">
+                      {/* Physical Cash Reset */}
+                      <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
+                          <div>
+                              <p className="text-xs font-bold text-slate-700 dark:text-slate-200">1. Caja Física</p>
+                              <p className="text-[11px] text-slate-500">Actual: <strong>${cashBalance.toFixed(2)}</strong></p>
+                          </div>
+                          <button onClick={handleResetPhysicalCashToZero} className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold">
+                              Reiniciar a $0.00
+                          </button>
+                      </div>
+
+                      {/* Bank / Virtual Set or Reset */}
+                      <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                              <div>
+                                  <p className="text-xs font-bold text-slate-700 dark:text-slate-200">2. Banco / Virtual</p>
+                                  <p className="text-[11px] text-slate-500">Actual: <strong>${virtualBalance.toFixed(2)}</strong></p>
+                              </div>
+                              <button onClick={() => handleSetBankBalance(0)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">
+                                  Poner en $0.00
+                              </button>
+                          </div>
+                          <div className="flex gap-2">
+                              <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={targetBankBalance}
+                                  onChange={e => setTargetBankBalance(e.target.value)}
+                                  placeholder="Saldo real en banco..."
+                                  className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                              <button onClick={() => handleSetBankBalance(parseFloat(targetBankBalance) || 0)} className="px-3.5 py-2 bg-slate-800 dark:bg-slate-700 text-white rounded-lg text-xs font-bold hover:opacity-90">
+                                  Fijar Banco
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* Reset Both */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex gap-2">
+                          <button onClick={() => setReconcileModalOpen(false)} className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs">
+                              Cancelar
+                          </button>
+                          <button onClick={handleResetBothToZero} className="flex-[2] py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs shadow-lg">
+                              Reiniciar Caja + Banco a $0.00
+                          </button>
+                      </div>
                   </div>
               </div>
           </div>
