@@ -7,8 +7,9 @@ import { generateTestTicket } from '../utils/escPosHelper';
 import { optimizeForThermal } from '../utils/imageHelper';
 import { SoundType } from '../types';
 import { playSystemSound } from '../utils/sound';
-import { isSupabaseConfigured, testSupabaseConnection } from '../services/supabaseClient';
+import { isSupabaseConfigured, testSupabaseConnection, supabase } from '../services/supabaseClient';
 import { migrateLocalDataToSupabase } from '../services/supabaseMigrator';
+import { fetchAllFromSupabase } from '../services/supabaseSync';
 
 // ... ImageCropper code remains unchanged ...
 interface ImageCropperProps {
@@ -234,7 +235,59 @@ export const Settings: React.FC = () => {
   const [testingConnection, setTestingConnection] = useState(false);
   const [migratingSupabase, setMigratingSupabase] = useState(false);
   const [supabaseStatus, setSupabaseStatus] = useState<string>('');
+  const [sbEmail, setSbEmail] = useState('');
+  const [sbPassword, setSbPassword] = useState('');
+  const [sbUserEmail, setSbUserEmail] = useState<string | null>(null);
+  const [sbAuthLoading, setSbAuthLoading] = useState(false);
   const supabaseReady = isSupabaseConfigured();
+
+  useEffect(() => {
+      if (!supabase) return;
+      supabase.auth.getSession().then(({ data }) => {
+          setSbUserEmail(data.session?.user?.email || null);
+      });
+      const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+          setSbUserEmail(session?.user?.email || null);
+      });
+      return () => { sub.subscription.unsubscribe(); };
+  }, []);
+
+  const handleSupabaseAuth = async (mode: 'SIGNIN' | 'SIGNUP') => {
+      if (!supabase) return;
+      if (!sbEmail.trim() || sbPassword.length < 6) {
+          notify('Supabase', 'Ingresa un correo válido y contraseña de al menos 6 caracteres.', 'warning');
+          return;
+      }
+      setSbAuthLoading(true);
+      try {
+          const { data, error } = mode === 'SIGNUP'
+              ? await supabase.auth.signUp({ email: sbEmail.trim(), password: sbPassword })
+              : await supabase.auth.signInWithPassword({ email: sbEmail.trim(), password: sbPassword });
+          if (error) {
+              setSupabaseStatus(error.message);
+              notify('Supabase Auth', error.message, 'error');
+          } else {
+              const email = data.user?.email || sbEmail.trim();
+              setSbUserEmail(data.session ? email : null);
+              const msg = mode === 'SIGNUP' && !data.session
+                  ? 'Cuenta creada. Revisa tu correo para confirmar y luego inicia sesión.'
+                  : `Sesión iniciada como ${email}`;
+              setSupabaseStatus(msg);
+              notify('Supabase Auth', msg, 'success');
+              setSbPassword('');
+          }
+      } finally {
+          setSbAuthLoading(false);
+      }
+  };
+
+  const handleSupabaseLogout = async () => {
+      if (!supabase) return;
+      await supabase.auth.signOut();
+      setSbUserEmail(null);
+      setSupabaseStatus('Sesión de Supabase cerrada.');
+      notify('Supabase', 'Sesión cerrada.', 'info');
+  };
 
   const handleTestSupabase = async () => {
       setSupabaseStatus('Verificando...');
@@ -243,7 +296,39 @@ export const Settings: React.FC = () => {
       notify('Supabase', res.message, res.ok ? 'success' : 'warning');
   };
 
+  const handlePullFromSupabase = async () => {
+      setMigratingSupabase(true);
+      try {
+          const snap = await fetchAllFromSupabase();
+          if (!snap) {
+              notify('Supabase', 'Inicia sesión en Supabase primero.', 'warning');
+              return;
+          }
+          await importData({
+              categories: snap.categories,
+              products: snap.products,
+              customers: snap.customers,
+              suppliers: snap.suppliers,
+              transactions: snap.transactions,
+              cashMovements: snap.cashMovements,
+              orders: snap.orders,
+              settings: snap.settingsPartial ? { ...formData, ...snap.settingsPartial } : formData
+          });
+          const msg = `Descargados: ${snap.products.length} productos, ${snap.customers.length} clientes, ${snap.transactions.length} ventas.`;
+          setSupabaseStatus(msg);
+          notify('Sincronizado desde Supabase', msg, 'success');
+      } catch (err: any) {
+          notify('Error Supabase', err?.message || 'No se pudo descargar desde Supabase', 'error');
+      } finally {
+          setMigratingSupabase(false);
+      }
+  };
+
   const handleMigrateToSupabase = async () => {
+      if (!sbUserEmail) {
+          notify('Supabase', 'Inicia sesión en Supabase arriba antes de migrar tus datos.', 'warning');
+          return;
+      }
       if (!confirm('¿Migrar tus categorías, productos, variantes, clientes, proveedores y configuración actuales hacia Supabase PostgreSQL?')) return;
       setMigratingSupabase(true);
       try {
@@ -899,18 +984,46 @@ export const Settings: React.FC = () => {
                                 <Database className="w-6 h-6" />
                             </div>
                             <div className="flex-1">
-                                <h4 className="font-bold text-slate-800 dark:text-white">{supabaseReady ? 'Supabase Configurado (RLS Activo)' : 'Supabase No Configurado'}</h4>
+                                <h4 className="font-bold text-slate-800 dark:text-white">
+                                    {!supabaseReady ? 'Supabase No Configurado' : sbUserEmail ? `Conectado como ${sbUserEmail}` : 'Supabase Configurado (Inicia sesión para sincronizar)'}
+                                </h4>
                                 <p className="text-xs text-slate-500">{supabaseStatus || (supabaseReady ? 'Listo para sincronizar Web, macOS y Android en tiempo real.' : 'Configura VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en .env / Vercel.')}</p>
                             </div>
+                            {sbUserEmail && (
+                                <button onClick={handleSupabaseLogout} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-100 text-red-700 hover:bg-red-200">
+                                    Salir
+                                </button>
+                            )}
                         </div>
 
+                        {supabaseReady && !sbUserEmail && (
+                            <div className="p-4 mb-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
+                                <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase">Sesión de Nube (Supabase Auth)</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <input type="email" value={sbEmail} onChange={(e) => setSbEmail(e.target.value)} placeholder="tu@correo.com" className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white outline-none" />
+                                    <input type="password" value={sbPassword} onChange={(e) => setSbPassword(e.target.value)} placeholder="Contraseña (mín. 6)" className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white outline-none" />
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handleSupabaseAuth('SIGNIN')} disabled={sbAuthLoading} className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold">
+                                        {sbAuthLoading ? 'Conectando...' : 'Iniciar Sesión'}
+                                    </button>
+                                    <button onClick={() => handleSupabaseAuth('SIGNUP')} disabled={sbAuthLoading} className="flex-1 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-white rounded-xl text-xs font-bold hover:bg-slate-100">
+                                        Crear Cuenta Admin
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="flex flex-col sm:flex-row gap-3">
-                            <button onClick={handleTestSupabase} disabled={!supabaseReady} className="flex-1 py-3 bg-slate-900 dark:bg-slate-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
-                                <Server className="w-4 h-4"/> Probar Supabase
+                            <button onClick={handleTestSupabase} disabled={!supabaseReady} className="flex-1 py-3 bg-slate-900 dark:bg-slate-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity text-sm">
+                                <Server className="w-4 h-4"/> Probar
                             </button>
-                            <button onClick={handleMigrateToSupabase} disabled={!supabaseReady || migratingSupabase} className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors">
+                            <button onClick={handleMigrateToSupabase} disabled={!supabaseReady || !sbUserEmail || migratingSupabase} className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-sm">
                                 {migratingSupabase ? <Loader2 className="w-4 h-4 animate-spin"/> : <UploadCloud className="w-4 h-4"/>}
-                                {migratingSupabase ? 'Migrando...' : 'Migrar Datos a Supabase'}
+                                {migratingSupabase ? 'Subiendo...' : 'Subir Datos'}
+                            </button>
+                            <button onClick={handlePullFromSupabase} disabled={!supabaseReady || !sbUserEmail || migratingSupabase} className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-sm">
+                                <Download className="w-4 h-4"/> Descargar
                             </button>
                         </div>
                     </div>

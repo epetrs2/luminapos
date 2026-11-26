@@ -7,6 +7,8 @@ import {
 import { verifyPassword, hashPassword, generateSalt } from '../utils/security';
 import { verify2FAToken } from '../utils/twoFactor';
 import { pushFullDataToCloud, fetchFullDataFromCloud } from '../services/syncService';
+import { supabase } from '../services/supabaseClient';
+import { fetchAllFromSupabase, subscribeToSupabaseRealtime } from '../services/supabaseSync';
 import { roundCurrency, roundQty, generateId } from '../utils/financeHelpers';
 
 export interface PosDraft {
@@ -1193,6 +1195,48 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return true;
         } catch (e) { return false; }
     };
+
+    // --- SUPABASE REALTIME MULTI-DEVICE SYNC ---
+    useEffect(() => {
+        const client = supabase;
+        if (!client) return;
+        let unsubscribeRealtime: (() => void) | null = null;
+
+        const setupRealtime = async () => {
+            const { data } = await client.auth.getSession();
+            if (!data.session) return;
+            unsubscribeRealtime = subscribeToSupabaseRealtime(async () => {
+                try {
+                    const snap = await fetchAllFromSupabase();
+                    if (!snap) return;
+                    if (snap.categories.length > 0) setCategories(snap.categories);
+                    if (snap.products.length > 0) setProducts(snap.products);
+                    if (snap.customers.length > 0) setCustomers(snap.customers);
+                    if (snap.suppliers.length > 0) setSuppliers(snap.suppliers);
+                    if (snap.transactions.length > 0) setTransactions(snap.transactions);
+                    if (snap.cashMovements.length > 0) setCashMovements(snap.cashMovements);
+                    if (snap.orders.length > 0) setOrders(snap.orders);
+                    if (snap.settingsPartial) setSettings(prev => mergeSettings({ ...prev, ...snap.settingsPartial }));
+                } catch (e) {
+                    console.warn('Supabase realtime refresh skipped:', e);
+                }
+            });
+        };
+
+        setupRealtime();
+        const { data: authSub } = client.auth.onAuthStateChange((_ev, session) => {
+            if (unsubscribeRealtime) {
+                unsubscribeRealtime();
+                unsubscribeRealtime = null;
+            }
+            if (session) setupRealtime();
+        });
+
+        return () => {
+            if (unsubscribeRealtime) unsubscribeRealtime();
+            authSub.subscription.unsubscribe();
+        };
+    }, []);
 
     // --- AUTO SYNC ---
     useEffect(() => {
