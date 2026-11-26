@@ -215,8 +215,18 @@ const PasswordRecoveryModal: React.FC = () => {
 const MainApp: React.FC = () => {
     const { currentUser, isLoggingOut, isAppLocked, isPasswordRecoveryMode, settings, manualLockApp } = useStore();
     const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
+    const [visitedViews, setVisitedViews] = useState<Set<AppView>>(() => new Set([AppView.DASHBOARD]));
     const [showSplash, setShowSplash] = useState(true);
     const [privacyMode, setPrivacyMode] = useState(false);
+
+    useEffect(() => {
+        setVisitedViews(prev => {
+            if (prev.has(currentView)) return prev;
+            const next = new Set(prev);
+            next.add(currentView);
+            return next;
+        });
+    }, [currentView]);
 
     useEffect(() => {
         // Splash screen timer
@@ -229,6 +239,7 @@ const MainApp: React.FC = () => {
     useEffect(() => {
         if (currentUser) {
             setCurrentView(AppView.DASHBOARD);
+            setVisitedViews(new Set([AppView.DASHBOARD]));
         }
     }, [currentUser?.id]);
 
@@ -244,25 +255,32 @@ const MainApp: React.FC = () => {
         }
     }, [settings.securityConfig]);
 
-    const renderView = () => {
+    const renderKeepAliveViews = () => {
         const role = currentUser?.role || 'CASHIER';
         const isAdmin = role === 'ADMIN';
         const isManager = role === 'MANAGER' || isAdmin;
 
-        switch (currentView) {
-        case AppView.DASHBOARD: return <Dashboard setView={setCurrentView} />;
-        case AppView.POS: return <POS />;
-        case AppView.ORDERS: return <Orders setView={setCurrentView} />; 
-        case AppView.INVENTORY: return isManager ? <Inventory /> : <Dashboard setView={setCurrentView} />;
-        case AppView.HISTORY: return isManager ? <SalesHistory /> : <Dashboard setView={setCurrentView} />;
-        case AppView.CUSTOMERS: return <Customers />;
-        case AppView.SUPPLIERS: return isManager ? <Suppliers /> : <Dashboard setView={setCurrentView} />;
-        case AppView.CASH: return <CashRegister />;
-        case AppView.REPORTS: return isManager ? <Reports /> : <Dashboard setView={setCurrentView} />;
-        case AppView.SETTINGS: return isAdmin ? <Settings /> : <Dashboard setView={setCurrentView} />;
-        case AppView.USERS: return isAdmin ? <Users /> : <Dashboard setView={setCurrentView} />;
-        default: return <Dashboard setView={setCurrentView} />;
-        }
+        const views: { id: AppView; allowed: boolean; element: React.ReactNode }[] = [
+            { id: AppView.DASHBOARD, allowed: true, element: <Dashboard setView={setCurrentView} /> },
+            { id: AppView.POS, allowed: true, element: <POS /> },
+            { id: AppView.ORDERS, allowed: true, element: <Orders setView={setCurrentView} /> },
+            { id: AppView.INVENTORY, allowed: isManager, element: <Inventory /> },
+            { id: AppView.HISTORY, allowed: isManager, element: <SalesHistory /> },
+            { id: AppView.CUSTOMERS, allowed: true, element: <Customers /> },
+            { id: AppView.SUPPLIERS, allowed: isManager, element: <Suppliers /> },
+            { id: AppView.CASH, allowed: true, element: <CashRegister /> },
+            { id: AppView.REPORTS, allowed: isManager, element: <Reports /> },
+            { id: AppView.SETTINGS, allowed: isAdmin, element: <Settings /> },
+            { id: AppView.USERS, allowed: isAdmin, element: <Users /> },
+        ];
+
+        return views
+            .filter(v => v.allowed && visitedViews.has(v.id))
+            .map(v => (
+                <div key={v.id} className={currentView === v.id ? 'block' : 'hidden'}>
+                    {v.element}
+                </div>
+            ));
     };
 
     if (showSplash) {
@@ -312,7 +330,7 @@ const MainApp: React.FC = () => {
 
             <Sidebar currentView={currentView} setView={setCurrentView} />
             <main className={`min-h-screen transition-all duration-300 ${privacyMode ? 'filter blur-sm brightness-50' : ''}`}>
-                {renderView()}
+                {renderKeepAliveViews()}
             </main>
             <NotificationSystem />
         </div>
