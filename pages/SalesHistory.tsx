@@ -572,7 +572,7 @@ const TransactionDetailModal: React.FC<{
   getCustomer: (id?: string) => any;
 }> = ({ transaction, onClose, onDelete, onPay, onConfirmTransfer, onReturn, onUpdate, getCustomerName, getCustomer }) => {
   // ... same as before ...
-  const { settings, sendBtData, btDevice, updateTransaction, notify, rectifyTransactionChannel } = useStore();
+  const { settings, sendBtData, btDevice, updateTransaction, toggleTransactionExcludeFromReports, notify, rectifyTransactionChannel } = useStore();
   const [deleteStep, setDeleteStep] = useState<'initial' | 'confirm' | 'processing' | 'success'>('initial');
   const [showReturnModal, setShowReturnModal] = useState(false);
   
@@ -779,13 +779,22 @@ const TransactionDetailModal: React.FC<{
                     Estado Financiero
                   </h4>
                   {!isEditing && !isReturnTx && (
-                      <button 
-                        onClick={() => rectifyTransactionChannel(transaction.id)}
-                        className="text-[10px] font-bold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-1 rounded flex items-center gap-1 hover:bg-blue-100 transition-colors"
-                        title="Corregir si el dinero está en la cuenta equivocada"
-                      >
-                          <RefreshCw className="w-3 h-3" /> Sincronizar Fondos
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                          <button 
+                            onClick={() => toggleTransactionExcludeFromReports(transaction.id)}
+                            className={`text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 transition-colors ${transaction.excludeFromReports ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-amber-50'}`}
+                            title="Excluir o incluir esta nota en reportes financieros sin borrarla"
+                          >
+                              {transaction.excludeFromReports ? 'Excluida de Reportes' : 'No contar en Reportes'}
+                          </button>
+                          <button 
+                            onClick={() => rectifyTransactionChannel(transaction.id)}
+                            className="text-[10px] font-bold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-1 rounded flex items-center gap-1 hover:bg-blue-100 transition-colors"
+                            title="Corregir si el dinero está en la cuenta equivocada"
+                          >
+                              <RefreshCw className="w-3 h-3" /> Sincronizar Fondos
+                          </button>
+                      </div>
                   )}
               </div>
               

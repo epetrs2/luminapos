@@ -115,7 +115,8 @@ export interface BusinessSettings {
   productionDoc: ProductionDocConfig;
   googleWebAppUrl?: string; 
   enableCloudSync?: boolean;
-  cloudSecret?: string; 
+  cloudSecret?: string;
+  accountingCutoffDate?: string; // Optional YYYY-MM-DD date: ignore older transactions/cash movements in financial reports
 }
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER';
@@ -259,6 +260,7 @@ export interface Transaction {
   originalTransactionId?: string;
   isReturn?: boolean;
   transferReference?: string;
+  excludeFromReports?: boolean; // Selective accounting exclusion (keeps ticket in archive without counting in reports)
 }
 
 export interface Order {

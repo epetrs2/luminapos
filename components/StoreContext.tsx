@@ -91,6 +91,7 @@ interface StoreContextType {
 
     addTransaction: (t: Transaction, options?: { shouldAffectCash?: boolean }) => void;
     updateTransaction: (id: string, updates: Partial<Transaction>) => void;
+    toggleTransactionExcludeFromReports: (id: string) => void;
     deleteTransaction: (id: string, items: any[]) => void;
     registerTransactionPayment: (id: string, amount: number, method: 'cash' | 'card' | 'transfer') => void;
     rectifyTransactionChannel: (id: string) => void;
@@ -100,6 +101,10 @@ interface StoreContextType {
     updateCustomer: (c: Customer) => void;
     deleteCustomer: (id: string) => void;
     processCustomerPayment: (id: string, amount: number, channel?: 'CASH' | 'VIRTUAL') => void;
+    resetCustomerCredit: (
+        customerId: string,
+        options: { mode: 'ZERO' | 'SET_AMOUNT' | 'SETTLE_TICKET'; targetAmount?: number; ticketId?: string; reason?: string }
+    ) => void;
 
     addSupplier: (s: Supplier) => void;
     updateSupplier: (s: Supplier) => void;
@@ -662,6 +667,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         flagChange();
     };
 
+    const toggleTransactionExcludeFromReports = (id: string) => {
+        const tx = transactions.find(t => t.id === id);
+        if (!tx) return;
+        const nextVal = !tx.excludeFromReports;
+        setTransactions(prev => prev.map(t => t.id === id ? { ...t, excludeFromReports: nextVal } : t));
+        logActivity('SETTINGS', `Nota #${id} ${nextVal ? 'excluida de reportes contables' : 'incluida nuevamente en reportes'}`);
+        notify('Contabilidad Selectiva', nextVal ? `Nota #${id} excluida de reportes.` : `Nota #${id} incluida en reportes.`, 'info');
+        flagChange();
+    };
+
     const deleteTransaction = (id: string, items: any[]) => {
         const tx = transactions.find(t => t.id === id);
         // Prevent double cancellation
@@ -903,6 +918,61 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
 
         notify("Abono", `Abono de $${cleanAmount.toFixed(2)} registrado correctamente`, "success");
+        flagChange();
+    };
+
+    // Selective credit history cleanup/reconciliation (never touches physical cash drawer)
+    const resetCustomerCredit = (
+        customerId: string,
+        options: { mode: 'ZERO' | 'SET_AMOUNT' | 'SETTLE_TICKET'; targetAmount?: number; ticketId?: string; reason?: string }
+    ) => {
+        const cust = customers.find(c => c.id === customerId);
+        if (!cust) return;
+        const reason = options.reason?.trim() || 'Cuadre selectivo de crédito';
+
+        if (options.mode === 'SETTLE_TICKET' && options.ticketId) {
+            const tx = transactions.find(t => t.id === options.ticketId && t.customerId === customerId);
+            if (!tx) return;
+            const pending = roundCurrency(Math.max(0, tx.total - (tx.amountPaid || 0)));
+            setTransactions(prev =>
+                prev.map(t =>
+                    t.id === tx.id
+                        ? { ...t, paymentStatus: 'paid', amountPaid: t.total, excludeFromReports: true }
+                        : t
+                )
+            );
+            sbUpdateTransaction(tx.id, { paymentStatus: 'paid', amountPaid: tx.total });
+            const nextDebt = roundCurrency(Math.max(0, (cust.currentDebt || 0) - pending));
+            const updatedCust = { ...cust, currentDebt: nextDebt < 0.01 ? 0 : nextDebt };
+            setCustomers(prev => prev.map(c => c.id === customerId ? updatedCust : c));
+            sbUpsertCustomer(updatedCust);
+            logActivity('CRM', `Nota #${tx.id} condonada/cuadrada para ${cust.name} (-$${pending.toFixed(2)}) • ${reason}`);
+            notify('Crédito Cuadrado', `Nota #${tx.id} saldada sin afectar caja física.`, 'success');
+            flagChange();
+            return;
+        }
+
+        const nextDebt = options.mode === 'ZERO'
+            ? 0
+            : roundCurrency(Math.max(0, Number(options.targetAmount) || 0));
+
+        if (options.mode === 'ZERO') {
+            setTransactions(prev =>
+                prev.map(t => {
+                    if (t.customerId === customerId && t.status !== 'cancelled' && t.status !== 'returned' && (t.paymentStatus === 'pending' || t.paymentStatus === 'partial')) {
+                        sbUpdateTransaction(t.id, { paymentStatus: 'paid', amountPaid: t.total });
+                        return { ...t, paymentStatus: 'paid', amountPaid: t.total };
+                    }
+                    return t;
+                })
+            );
+        }
+
+        const updatedCust = { ...cust, currentDebt: nextDebt };
+        setCustomers(prev => prev.map(c => c.id === customerId ? updatedCust : c));
+        sbUpsertCustomer(updatedCust);
+        logActivity('CRM', `Historial crediticio de ${cust.name} ajustado de $${(cust.currentDebt || 0).toFixed(2)} a $${nextDebt.toFixed(2)} • ${reason}`);
+        notify('Crédito Actualizado', `Saldo de ${cust.name} fijado en $${nextDebt.toFixed(2)} (sin afectar caja).`, 'success');
         flagChange();
     };
 
@@ -1502,8 +1572,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             currentUser, isAppLocked, isSyncing, hasPendingChanges, incomingOrder, btDevice, btCharacteristic, isLoggingOut,
             posDraft, setPosDraft, clearPosDraft,
             addProduct, updateProduct, deleteProduct, adjustStock,
-            addTransaction, updateTransaction, deleteTransaction, registerTransactionPayment, rectifyTransactionChannel, updateStockAfterSale,
-            addCustomer, updateCustomer, deleteCustomer, processCustomerPayment,
+            addTransaction, updateTransaction, toggleTransactionExcludeFromReports, deleteTransaction, registerTransactionPayment, rectifyTransactionChannel, updateStockAfterSale,
+            addCustomer, updateCustomer, deleteCustomer, processCustomerPayment, resetCustomerCredit,
             addSupplier, updateSupplier, deleteSupplier,
             addCashMovement, deleteCashMovement,
             addOrder, updateOrder, updateOrderStatus, deleteOrder, completeOrder, sendOrderToPOS, clearIncomingOrder,

@@ -5,7 +5,7 @@ import { Customer } from '../types';
 import { roundCurrency, getCartItemKey } from '../utils/financeHelpers';
 
 export const Customers: React.FC = () => {
-  const { customers, transactions, cashMovements, settings, addCustomer, updateCustomer, deleteCustomer, processCustomerPayment } = useStore();
+  const { customers, transactions, cashMovements, orders, settings, currentUser, addCustomer, updateCustomer, deleteCustomer, processCustomerPayment, resetCustomerCredit, toggleTransactionExcludeFromReports } = useStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [formData, setFormData] = useState<Partial<Customer>>({});
@@ -22,10 +22,16 @@ export const Customers: React.FC = () => {
   const [payChannel, setPayChannel] = useState<'CASH' | 'VIRTUAL'>('CASH');
   const payCustomer = useMemo(() => customers.find(c => c.id === payCustomerId) || null, [customers, payCustomerId]);
 
+  // Selective Credit Reconciliation Modal
+  const [isCreditResetOpen, setIsCreditResetOpen] = useState(false);
+  const [creditResetAmount, setCreditResetAmount] = useState<string>('');
+  const [creditResetReason, setCreditResetReason] = useState<string>('Cuadre / corte inicial de cuentas');
+
   // History Modal (derived by ID so debt & tickets refresh immediately after payment)
   const [historyCustomerId, setHistoryCustomerId] = useState<string | null>(null);
-  const [historyTab, setHistoryTab] = useState<'TIMELINE' | 'PRODUCTS'>('TIMELINE');
+  const [historyTab, setHistoryTab] = useState<'TIMELINE' | 'ORDERS' | 'PRODUCTS'>('TIMELINE');
   const historyCustomer = useMemo(() => customers.find(c => c.id === historyCustomerId) || null, [customers, historyCustomerId]);
+  const isManagerOrAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER';
 
   // Counts for tabs
   const counts = useMemo(() => {
@@ -648,19 +654,32 @@ El equipo de ${businessName}`;
                               {historyCustomer.hasUnlimitedCredit ? <Infinity className="w-8 h-8 mx-auto" /> : `$${(historyCustomer.creditLimit - historyCustomer.currentDebt).toFixed(2)}`}
                           </p>
                       </div>
-                      <div className="p-4 md:p-6 flex items-center justify-center col-span-2 md:col-span-1 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
+                      <div className="p-4 md:p-6 flex flex-wrap items-center justify-center gap-2 col-span-2 md:col-span-1 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
                           {historyCustomer.currentDebt > 0 ? (
                               <button 
                                 onClick={() => handleOpenPayModal(historyCustomer)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-emerald-200 dark:shadow-none flex items-center gap-2 transition-all w-full justify-center md:w-auto"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-200 dark:shadow-none flex items-center gap-2 transition-all"
                               >
-                                  <DollarSign className="w-5 h-5" />
+                                  <DollarSign className="w-4 h-4" />
                                   Abonar
                               </button>
                           ) : (
-                              <div className="flex items-center gap-2 text-emerald-500 font-medium bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-xl">
-                                  <CheckCircle className="w-5 h-5" /> Al Corriente
+                              <div className="flex items-center gap-2 text-emerald-500 font-medium bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-xl text-sm">
+                                  <CheckCircle className="w-4 h-4" /> Al Corriente
                               </div>
+                          )}
+                          {isManagerOrAdmin && (
+                              <button
+                                  onClick={() => {
+                                      setCreditResetAmount(String(historyCustomer.currentDebt || 0));
+                                      setCreditResetReason('Cuadre / corte inicial de cuentas');
+                                      setIsCreditResetOpen(true);
+                                  }}
+                                  className="px-3.5 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-bold hover:bg-amber-100 transition-colors"
+                                  title="Reiniciar o ajustar selectivamente el historial crediticio sin afectar caja física"
+                              >
+                                  Cuadrar Crédito
+                              </button>
                           )}
                       </div>
                   </div>
@@ -669,15 +688,21 @@ El equipo de ${businessName}`;
                   <div className="flex border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
                       <button 
                         onClick={() => setHistoryTab('TIMELINE')}
-                        className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors flex items-center justify-center gap-2 ${historyTab === 'TIMELINE' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                        className={`flex-1 py-3 text-xs md:text-sm font-bold border-b-2 transition-colors flex items-center justify-center gap-1.5 ${historyTab === 'TIMELINE' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                       >
-                          <Clock className="w-4 h-4" /> Historial Financiero
+                          <Clock className="w-4 h-4" /> Historial Crediticio
+                      </button>
+                      <button 
+                        onClick={() => setHistoryTab('ORDERS')}
+                        className={`flex-1 py-3 text-xs md:text-sm font-bold border-b-2 transition-colors flex items-center justify-center gap-1.5 ${historyTab === 'ORDERS' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                      >
+                          <ShoppingBag className="w-4 h-4" /> Pedidos ({orders.filter(o => o.customerId === historyCustomer.id).length})
                       </button>
                       <button 
                         onClick={() => setHistoryTab('PRODUCTS')}
-                        className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors flex items-center justify-center gap-2 ${historyTab === 'PRODUCTS' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                        className={`flex-1 py-3 text-xs md:text-sm font-bold border-b-2 transition-colors flex items-center justify-center gap-1.5 ${historyTab === 'PRODUCTS' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                       >
-                          <Package className="w-4 h-4" /> Productos Consumidos
+                          <Package className="w-4 h-4" /> Productos
                       </button>
                   </div>
 
@@ -789,6 +814,49 @@ El equipo de ${businessName}`;
                           })()
                       )}
 
+                      {historyTab === 'ORDERS' && (
+                          (() => {
+                              const customerOrders = orders
+                                  .filter(o => o.customerId === historyCustomer.id)
+                                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                              if (customerOrders.length === 0) {
+                                  return (
+                                      <div className="text-center py-12 text-slate-400">
+                                          <ShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                          <p>Este cliente aún no tiene pedidos registrados.</p>
+                                      </div>
+                                  );
+                              }
+
+                              return (
+                                  <div className="space-y-3">
+                                      {customerOrders.map(ord => (
+                                          <div key={ord.id} className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                                              <div>
+                                                  <div className="flex items-center gap-2">
+                                                      <span className="font-mono font-bold text-sm text-indigo-600 dark:text-indigo-400">#{ord.id}</span>
+                                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${ord.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : ord.status === 'READY' ? 'bg-blue-100 text-blue-700' : ord.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                          {ord.status === 'COMPLETED' ? 'Entregado' : ord.status === 'READY' ? 'Listo' : ord.status === 'IN_PROGRESS' ? 'En Producción' : 'Pendiente'}
+                                                      </span>
+                                                  </div>
+                                                  <p className="text-xs text-slate-500 mt-1">
+                                                      Creado: {new Date(ord.date).toLocaleDateString('es-MX')} {ord.deliveryDate ? `• Entrega: ${ord.deliveryDate}` : ''}
+                                                  </p>
+                                                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                                                      {ord.items.map(i => `${i.quantity}x ${i.name}${i.variantName ? ` (${i.variantName})` : ''}`).join(', ')}
+                                                  </p>
+                                              </div>
+                                              <div className="text-right">
+                                                  <p className="font-black text-slate-800 dark:text-white">${ord.total.toFixed(2)}</p>
+                                              </div>
+                                          </div>
+                                      ))}
+                                  </div>
+                              );
+                          })()
+                      )}
+
                       {historyTab === 'PRODUCTS' && (
                           <div className="space-y-6">
                               {/* Stats Summary */}
@@ -849,6 +917,117 @@ El equipo de ${businessName}`;
               </div>
           </div>
       )}
+      {/* Selective Credit Reset / Reconciliation Modal */}
+      {isCreditResetOpen && historyCustomer && (
+          <div className="fixed inset-0 bg-black/60 z-[130] flex items-center justify-center p-4 backdrop-blur-sm animate-[fadeIn_0.2s]">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 dark:border-slate-800 p-6">
+                  <div className="flex justify-between items-center mb-3">
+                      <h3 className="text-lg font-bold text-slate-800 dark:text-white">Cuadre Selectivo de Crédito</h3>
+                      <button onClick={() => setIsCreditResetOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                      Ajusta o reinicia la deuda de <strong>{historyCustomer.name}</strong> sin mover dinero de tu caja física. Ideal para cuadrar cuentas viejas.
+                  </p>
+
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motivo (Bitácora)</label>
+                          <input
+                              type="text"
+                              value={creditResetReason}
+                              onChange={e => setCreditResetReason(e.target.value)}
+                              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Fijar Saldo Exacto ($)</label>
+                          <div className="flex gap-2">
+                              <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={creditResetAmount}
+                                  onChange={e => setCreditResetAmount(e.target.value)}
+                                  className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                              />
+                              <button
+                                  onClick={() => {
+                                      resetCustomerCredit(historyCustomer.id, {
+                                          mode: 'SET_AMOUNT',
+                                          targetAmount: parseFloat(creditResetAmount) || 0,
+                                          reason: creditResetReason,
+                                      });
+                                      setIsCreditResetOpen(false);
+                                  }}
+                                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold"
+                              >
+                                  Aplicar Saldo
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* Selective Pending Tickets List */}
+                      {transactions.some(t => t.customerId === historyCustomer.id && t.status !== 'cancelled' && t.status !== 'returned' && (t.paymentStatus === 'pending' || t.paymentStatus === 'partial')) && (
+                          <div>
+                              <p className="text-xs font-bold text-slate-500 uppercase mb-2">Saldar / Excluir Nota Específica</p>
+                              <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                                  {transactions
+                                      .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled' && t.status !== 'returned' && (t.paymentStatus === 'pending' || t.paymentStatus === 'partial'))
+                                      .map(t => {
+                                          const rem = roundCurrency(Math.max(0, t.total - (t.amountPaid || 0)));
+                                          return (
+                                              <div key={t.id} className="flex items-center justify-between p-2 rounded-lg bg-red-50/60 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-xs">
+                                                  <div>
+                                                      <span className="font-bold text-slate-700 dark:text-slate-200">Nota #{t.id}</span>
+                                                      <span className="text-slate-400 ml-2">{new Date(t.date).toLocaleDateString('es-MX')}</span>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                      <span className="font-bold text-red-600">${rem.toFixed(2)}</span>
+                                                      <button
+                                                          onClick={() => {
+                                                              resetCustomerCredit(historyCustomer.id, {
+                                                                  mode: 'SETTLE_TICKET',
+                                                                  ticketId: t.id,
+                                                                  reason: creditResetReason,
+                                                              });
+                                                          }}
+                                                          className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded font-bold text-[10px]"
+                                                      >
+                                                          Saldar y Excluir
+                                                      </button>
+                                                  </div>
+                                              </div>
+                                          );
+                                      })}
+                              </div>
+                          </div>
+                      )}
+
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex gap-2">
+                          <button
+                              onClick={() => setIsCreditResetOpen(false)}
+                              className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs"
+                          >
+                              Cerrar
+                          </button>
+                          <button
+                              onClick={() => {
+                                  if (confirm(`¿Reiniciar la deuda de ${historyCustomer.name} a $0.00 y marcar sus notas pendientes como saldadas (sin afectar caja)?`)) {
+                                      resetCustomerCredit(historyCustomer.id, { mode: 'ZERO', reason: creditResetReason });
+                                      setIsCreditResetOpen(false);
+                                  }
+                              }}
+                              className="flex-[2] py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs"
+                          >
+                              Reiniciar Deuda a $0.00
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };

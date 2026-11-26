@@ -617,6 +617,37 @@ export const Settings: React.FC = () => {
                                 <p className="text-[10px] text-slate-400 mt-1">Fecha base para calcular los periodos (Ej. Si pones 11 de Dic, tu mes es del 11 al 10).</p>
                             </div>
 
+                            <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-900/15 border border-amber-200/80 dark:border-amber-800/60">
+                                <label className="text-xs font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wide block mb-1">Punto de Corte Contable (Opcional)</label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="date"
+                                        value={formData.accountingCutoffDate || ''}
+                                        onChange={(e) => setFormData({ ...formData, accountingCutoffDate: e.target.value || undefined })}
+                                        className="flex-1 px-3 py-2.5 rounded-xl border border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-amber-500/50"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, accountingCutoffDate: new Date().toISOString().split('T')[0] })}
+                                        className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold whitespace-nowrap"
+                                    >
+                                        Usar Hoy
+                                    </button>
+                                    {formData.accountingCutoffDate && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, accountingCutoffDate: undefined })}
+                                            className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold"
+                                        >
+                                            Quitar
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-[10px] text-amber-700/80 dark:text-amber-400/80 mt-1.5">
+                                    Los reportes financieros contabilizarán solo a partir de esta fecha. Todo lo anterior se conserva en el historial sin afectar tus cuentas actuales.
+                                </p>
+                            </div>
+
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wide block mb-1">Tipo de Ciclo</label>
                                 <div className="flex gap-2">

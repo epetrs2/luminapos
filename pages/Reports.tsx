@@ -88,12 +88,16 @@ export const Reports: React.FC = () => {
           }
       }
 
+      const cutoffMs = settings.accountingCutoffDate ? parseLocalDate(settings.accountingCutoffDate).getTime() : null;
       const isInRange = (dateStr: string) => {
           const d = new Date(dateStr);
-          return d.getTime() >= startDate.getTime() && d.getTime() <= endDate.getTime();
+          const ts = d.getTime();
+          if (cutoffMs !== null && ts < cutoffMs) return false;
+          return ts >= startDate.getTime() && ts <= endDate.getTime();
       };
 
       const validTx = transactions.filter((t: Transaction) => {
+          if (t.excludeFromReports) return false;
           const isDateInRange = isInRange(t.date);
           const isNotCancelled = t.status !== 'cancelled' && t.status !== 'returned';
           const matchesPayment = paymentMethodFilter === 'ALL' || t.paymentMethod === paymentMethodFilter;
@@ -329,8 +333,10 @@ export const Reports: React.FC = () => {
       // SCENARIO B: PERIOD IS OPEN (CALCULATE LIVE)
       const { start, end } = periodDates;
       
+      const cutoffMs = settings.accountingCutoffDate ? parseLocalDate(settings.accountingCutoffDate).getTime() : null;
       const relevantMovs = cashMovements.filter((m: CashMovement) => {
           const d = new Date(m.date);
+          if (cutoffMs !== null && d.getTime() < cutoffMs) return false;
           return d >= start && d <= end;
       });
 
@@ -391,7 +397,9 @@ export const Reports: React.FC = () => {
       const isCurrentPeriod = selectedPeriodOffset === 0;
 
       const relevantTx = transactions.filter((t: Transaction) => {
+          if (t.excludeFromReports) return false;
           const d = new Date(t.date);
+          if (cutoffMs !== null && d.getTime() < cutoffMs) return false;
           return t.status !== 'cancelled' && t.status !== 'returned' && d >= start && d <= end;
       });
 
@@ -814,6 +822,16 @@ export const Reports: React.FC = () => {
                 </div>
             </div>
           </div>
+
+          {/* ACCOUNTING CUTOFF BANNER */}
+          {settings.accountingCutoffDate && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex items-center justify-between gap-3 text-xs text-amber-800 dark:text-amber-300">
+                  <span className="font-bold flex items-center gap-2">
+                      <Calendar className="w-4 h-4 shrink-0" />
+                      Punto de Corte Contable activo: contabilizando solo a partir del {parseLocalDate(settings.accountingCutoffDate).toLocaleDateString('es-MX')} (movimientos anteriores archivados sin borrarse).
+                  </span>
+              </div>
+          )}
 
           {/* FILTERS (Only for General Tab) */}
           {activeTab === 'GENERAL' && (
