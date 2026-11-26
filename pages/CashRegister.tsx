@@ -4,6 +4,7 @@ import { ArrowUpCircle, ArrowDownCircle, Lock, PieChart as PieChartIcon, Trash2,
 import { CashMovement, BudgetCategory, ZReportData } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { printZCutTicket } from '../utils/printService';
+import { computePhysicalCashBalance, roundCurrency, generateId } from '../utils/financeHelpers';
 
 // Consistent colors for financial categories
 const CAT_COLORS: Record<string, string> = {
@@ -62,61 +63,60 @@ export const CashRegister: React.FC = () => {
       return [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [cashMovements]);
 
+  const { isOpen: isRegisterOpen, balance: cashBalance, sessionStartDate: shiftStartDate } = useMemo(
+      () => computePhysicalCashBalance(cashMovements),
+      [cashMovements]
+  );
+
   const lastCloseIndex = sortedMovements.findIndex(m => m.type === 'CLOSE');
-  
-  let currentSessionMovements: CashMovement[] = [];
-  let isRegisterOpen = false;
-
-  if (lastCloseIndex === -1) {
-      currentSessionMovements = sortedMovements;
-      isRegisterOpen = sortedMovements.some(m => m.type === 'OPEN');
-  } else {
-      currentSessionMovements = sortedMovements.slice(0, lastCloseIndex);
-      isRegisterOpen = currentSessionMovements.some(m => m.type === 'OPEN');
-  }
-
-  // Calculate Cash Balance (Physical) - Only things in CASH channel
-  const cashBalance = currentSessionMovements
-    .filter(m => m.channel !== 'VIRTUAL') // Default or CASH
-    .reduce((acc, curr) => {
-        if (curr.type === 'OPEN' || curr.type === 'DEPOSIT') return acc + curr.amount;
-        if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
-        return acc;
-    }, 0);
+  const currentSessionMovements = useMemo(
+      () => (lastCloseIndex === -1 ? sortedMovements : sortedMovements.slice(0, lastCloseIndex)),
+      [sortedMovements, lastCloseIndex]
+  );
 
   // Calculate Virtual Balance (Global) - VIRTUAL funds don't reset on "Close Register", they persist
-  // We calculate from ALL time history because bank accounts don't "close" daily in this system
-  const virtualBalance = cashMovements
-    .filter(m => m.channel === 'VIRTUAL')
-    .reduce((acc, curr) => {
-        if (curr.type === 'DEPOSIT') return acc + curr.amount;
-        if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
-        return acc;
-    }, 0);
+  const virtualBalance = useMemo(() => roundCurrency(
+    cashMovements
+      .filter(m => m.channel === 'VIRTUAL')
+      .reduce((acc, curr) => {
+          if (curr.type === 'DEPOSIT') return acc + curr.amount;
+          if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
+          return acc;
+      }, 0)
+  ), [cashMovements]);
 
-  // Filter movements for today
+  // Filter movements for today (memoized so categoryData memoization actually works)
   const today = new Date().toDateString();
-  const todaysMovements = cashMovements.filter(m => new Date(m.date).toDateString() === today && !m.isZCut);
+  const todaysMovements = useMemo(
+      () => cashMovements.filter(m => new Date(m.date).toDateString() === today && !m.isZCut),
+      [cashMovements, today]
+  );
 
-  // Totals for today (Cash Flow)
-  const incomeToday = todaysMovements.filter(m => m.type === 'OPEN' || m.type === 'DEPOSIT').reduce((a, b) => a + b.amount, 0);
-  const expenseToday = todaysMovements.filter(m => m.type === 'EXPENSE' || m.type === 'WITHDRAWAL').reduce((a, b) => a + b.amount, 0);
+  // Totals for today (Cash Flow — exclude OPEN so it matches categoryData donut)
+  const incomeToday = useMemo(
+      () => roundCurrency(todaysMovements.filter(m => m.type === 'DEPOSIT').reduce((a, b) => a + b.amount, 0)),
+      [todaysMovements]
+  );
+  const expenseToday = useMemo(
+      () => roundCurrency(todaysMovements.filter(m => m.type === 'EXPENSE' || m.type === 'WITHDRAWAL').reduce((a, b) => a + b.amount, 0)),
+      [todaysMovements]
+  );
   
-  // Specific Virtual Today Expense Breakdown for visibility
-  const virtualExpenseToday = todaysMovements
-    .filter(m => m.channel === 'VIRTUAL' && (m.type === 'EXPENSE' || m.type === 'WITHDRAWAL'))
-    .reduce((a, b) => a + b.amount, 0);
+  const virtualExpenseToday = useMemo(
+      () => roundCurrency(todaysMovements
+        .filter(m => m.channel === 'VIRTUAL' && (m.type === 'EXPENSE' || m.type === 'WITHDRAWAL'))
+        .reduce((a, b) => a + b.amount, 0)),
+      [todaysMovements]
+  );
 
   // --- DETAILED CHART DATA (By Category) ---
   const categoryData = useMemo(() => {
       const grouped: Record<string, number> = {};
       
       todaysMovements.forEach(m => {
-          // Skip opening fund to see pure movement distribution
           if (m.type === 'OPEN') return;
-          
           const catKey = m.category || 'OTHER';
-          grouped[catKey] = (grouped[catKey] || 0) + m.amount;
+          grouped[catKey] = roundCurrency((grouped[catKey] || 0) + m.amount);
       });
 
       return Object.keys(grouped).map(key => ({
@@ -128,6 +128,7 @@ export const CashRegister: React.FC = () => {
 
   const handleTypeChange = (newType: CashMovement['type'], specificCategory?: BudgetCategory) => {
       setType(newType);
+      setSubCategory('');
       if (specificCategory) {
           setCategory(specificCategory);
       } else {
@@ -140,25 +141,31 @@ export const CashRegister: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount) return;
+    const parsedAmount = roundCurrency(parseFloat(amount));
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        alert("Ingresa un monto válido mayor a 0.");
+        return;
+    }
+
+    if (paymentChannel === 'CASH' && !isRegisterOpen) {
+        alert("La caja física está cerrada. Abre caja primero o selecciona el canal Virtual/Banco.");
+        return;
+    }
     
     if (type === 'OPEN' && isRegisterOpen) {
         alert("La caja ya está abierta.");
         return;
     }
 
-    // Default to Cash if not specified, but keep VIRTUAL if selected
-    const finalChannel = paymentChannel;
-
     addCashMovement({
-      id: crypto.randomUUID(),
+      id: generateId(),
       type,
-      amount: parseFloat(amount),
-      description,
+      amount: parsedAmount,
+      description: description.trim() || 'Movimiento manual',
       date: new Date().toISOString(),
       category,
       subCategory: subCategory.trim() || undefined,
-      channel: finalChannel
+      channel: paymentChannel
     });
     setAmount('');
     setDescription('');
@@ -166,9 +173,10 @@ export const CashRegister: React.FC = () => {
   };
 
   const handleOpenRegister = () => {
-      const fund = parseFloat(initialFund) || 0;
+      const parsedFund = parseFloat(initialFund);
+      const fund = Number.isFinite(parsedFund) && parsedFund >= 0 ? roundCurrency(parsedFund) : 0;
       addCashMovement({
-          id: crypto.randomUUID(),
+          id: generateId(),
           type: 'OPEN',
           amount: fund,
           description: 'Apertura de Caja (Fondo Inicial)',
@@ -181,26 +189,44 @@ export const CashRegister: React.FC = () => {
   };
 
   const handlePerformZCut = () => {
-      const systemExpected = cashBalance; // Expected PHYSICAL cash
-      const counted = parseFloat(declaredCash) || 0;
-      const diff = counted - systemExpected;
+      const systemExpected = roundCurrency(cashBalance);
+      const parsedCounted = parseFloat(declaredCash);
+      if (declaredCash !== '' && (!Number.isFinite(parsedCounted) || parsedCounted < 0)) {
+          alert("El efectivo contado no puede ser negativo.");
+          return;
+      }
+      const counted = Number.isFinite(parsedCounted) && parsedCounted >= 0 ? roundCurrency(parsedCounted) : 0;
+      const diff = roundCurrency(counted - systemExpected);
 
       setSavingZCut(true);
       
       const lastOpen = currentSessionMovements.find(m => m.type === 'OPEN');
-      const sessionStartDate = lastOpen ? new Date(lastOpen.date) : new Date(new Date().setHours(0,0,0,0));
-      const sessionTx = transactions.filter(t => new Date(t.date) >= sessionStartDate && t.status !== 'cancelled');
+      const sessionStartDate = shiftStartDate || new Date(new Date().setHours(0,0,0,0));
+      const sessionTx = transactions.filter(t =>
+          new Date(t.date) >= sessionStartDate &&
+          t.status !== 'cancelled' &&
+          t.status !== 'returned'
+      );
+
+      const splitCashTotal = sessionTx.filter(t => t.paymentMethod === 'split').reduce((sum, t) => sum + (t.splitDetails?.cash || 0), 0);
+      const splitOtherTotal = sessionTx.filter(t => t.paymentMethod === 'split').reduce((sum, t) => sum + (t.splitDetails?.other || 0), 0);
       
       const zData: ZReportData = {
-          openingFund: lastOpen?.amount || 0,
-          grossSales: sessionTx.reduce((sum, t) => sum + t.total, 0),
-          cashSales: sessionTx.filter(t => t.paymentMethod === 'cash').reduce((sum, t) => sum + t.amountPaid, 0) + 
-                     (sessionTx.filter(t => t.paymentMethod === 'split').reduce((sum, t) => sum + (t.splitDetails?.cash || 0), 0)),
-          cardSales: sessionTx.filter(t => t.paymentMethod === 'card').reduce((sum, t) => sum + t.amountPaid, 0),
-          transferSales: sessionTx.filter(t => t.paymentMethod === 'transfer').reduce((sum, t) => sum + t.amountPaid, 0),
-          creditSales: sessionTx.filter(t => t.paymentMethod === 'credit').reduce((sum, t) => sum + t.total, 0), 
-          expenses: currentSessionMovements.filter(m => m.type === 'EXPENSE' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0),
-          withdrawals: currentSessionMovements.filter(m => m.type === 'WITHDRAWAL' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0),
+          openingFund: roundCurrency(lastOpen?.amount || 0),
+          grossSales: roundCurrency(sessionTx.reduce((sum, t) => sum + t.total, 0)),
+          cashSales: roundCurrency(
+              sessionTx.filter(t => t.paymentMethod === 'cash').reduce((sum, t) => sum + (t.amountPaid || 0), 0) +
+              sessionTx.filter(t => t.paymentMethod === 'credit').reduce((sum, t) => sum + (t.amountPaid || 0), 0) +
+              splitCashTotal
+          ),
+          cardSales: roundCurrency(
+              sessionTx.filter(t => t.paymentMethod === 'card').reduce((sum, t) => sum + (t.amountPaid || 0), 0) +
+              splitOtherTotal
+          ),
+          transferSales: roundCurrency(sessionTx.filter(t => t.paymentMethod === 'transfer').reduce((sum, t) => sum + (t.amountPaid || 0), 0)),
+          creditSales: roundCurrency(sessionTx.filter(t => t.paymentMethod === 'credit').reduce((sum, t) => sum + Math.max(0, t.total - (t.amountPaid || 0)), 0)),
+          expenses: roundCurrency(currentSessionMovements.filter(m => m.type === 'EXPENSE' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0)),
+          withdrawals: roundCurrency(currentSessionMovements.filter(m => m.type === 'WITHDRAWAL' && m.channel !== 'VIRTUAL').reduce((sum, m) => sum + m.amount, 0)),
           expectedCash: systemExpected,
           declaredCash: counted,
           difference: diff,
@@ -208,7 +234,7 @@ export const CashRegister: React.FC = () => {
       };
 
       const zCutMovement: CashMovement = {
-          id: crypto.randomUUID(),
+          id: generateId(),
           type: 'CLOSE',
           amount: 0, 
           description: `Cierre Z - Declarado: $${counted.toFixed(2)} | Dif: $${diff.toFixed(2)}`,
@@ -226,7 +252,7 @@ export const CashRegister: React.FC = () => {
           setZCutModalOpen(false);
           setDeclaredCash('');
           printZCutTicket(zCutMovement, settings, btDevice ? sendBtData : undefined);
-      }, 1000);
+      }, 600);
   };
 
   const confirmDelete = () => {
@@ -409,7 +435,7 @@ export const CashRegister: React.FC = () => {
 
                     <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
-                        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold outline-none" disabled={!isRegisterOpen} />
+                        <input type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold outline-none" disabled={!isRegisterOpen && paymentChannel === 'CASH'} />
                     </div>
                     
                     {/* Category Input (Autocomplete) */}
@@ -423,7 +449,7 @@ export const CashRegister: React.FC = () => {
                                 onChange={(e) => setSubCategory(e.target.value)}
                                 placeholder={category === 'THIRD_PARTY' ? "Nombre del Proveedor / Dueño..." : category === 'LOAN' ? "Motivo del reembolso (Ej. Pago Luz)" : "Categoría (Luz, Renta, Limpieza...)"}
                                 className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm outline-none font-medium"
-                                disabled={!isRegisterOpen}
+                                disabled={!isRegisterOpen && paymentChannel === 'CASH'}
                             />
                             <datalist id="categories-list">
                                 {suggestedSubCategories.map((sc, idx) => (
@@ -433,9 +459,9 @@ export const CashRegister: React.FC = () => {
                         </div>
                     )}
 
-                    <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descripción detallada..." className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm outline-none" disabled={!isRegisterOpen} />
+                    <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descripción detallada..." className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm outline-none" disabled={!isRegisterOpen && paymentChannel === 'CASH'} />
                     
-                    <button type="submit" className="w-full bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled={!isRegisterOpen}>Guardar Movimiento</button>
+                    <button type="submit" className="w-full bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled={!isRegisterOpen && paymentChannel === 'CASH'}>Guardar Movimiento</button>
                  </form>
             </div>
         </div>
@@ -466,8 +492,8 @@ export const CashRegister: React.FC = () => {
                       <tr key={movement.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 group">
                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">{new Date(movement.date).toLocaleDateString()} {new Date(movement.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${movement.isZCut ? 'bg-indigo-100 text-indigo-700' : isExpense ? 'bg-red-100 text-red-700' : isLoan ? 'bg-violet-100 text-violet-700' : isThirdParty ? 'bg-orange-100 text-orange-700' : isEquity ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {movement.isZCut ? 'CORTE Z' : isEquity ? 'APORTE' : isLoan ? 'REEMBOLSO' : isThirdParty ? 'LIQ. 3RO' : movement.type === 'DEPOSIT' ? 'INGRESO' : movement.type === 'WITHDRAWAL' ? 'RETIRO' : 'GASTO'}
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${movement.isZCut ? 'bg-indigo-100 text-indigo-700' : movement.type === 'OPEN' ? 'bg-teal-100 text-teal-700' : isExpense ? 'bg-red-100 text-red-700' : isLoan ? 'bg-violet-100 text-violet-700' : isThirdParty ? 'bg-orange-100 text-orange-700' : isEquity ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {movement.isZCut ? 'CORTE Z' : movement.type === 'OPEN' ? 'APERTURA' : isEquity ? 'APORTE' : isLoan ? 'REEMBOLSO' : isThirdParty ? 'LIQ. 3RO' : movement.type === 'DEPOSIT' ? 'INGRESO' : movement.type === 'WITHDRAWAL' ? 'RETIRO' : 'GASTO'}
                           </span>
                         </td>
                         <td className="px-6 py-4">
@@ -487,6 +513,8 @@ export const CashRegister: React.FC = () => {
                         <td className="px-6 py-4 text-center">
                             {movement.isZCut ? (
                                 <button onClick={() => reprintZReport(movement)} className="text-indigo-500 hover:text-indigo-700 transition-colors" title="Reimprimir Reporte"><Printer className="w-4 h-4" /></button>
+                            ) : movement.type === 'OPEN' && isRegisterOpen && currentSessionMovements.some(m => m.id === movement.id) ? (
+                                <span className="text-slate-300 dark:text-slate-600" title="No puedes eliminar la apertura de un turno activo"><Lock className="w-4 h-4 mx-auto" /></span>
                             ) : (
                                 <button onClick={() => setDeleteId(movement.id)} className="text-slate-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>
                             )}
@@ -510,7 +538,7 @@ export const CashRegister: React.FC = () => {
                       </div>
                       <h3 className="text-xl font-bold text-slate-800 dark:text-white">¿Eliminar Movimiento?</h3>
                       <p className="text-sm text-slate-500 mt-2">
-                          Si eliminas una venta, también se anulará en el historial y el inventario será devuelto.
+                          Esta acción eliminará únicamente este movimiento de caja. Para anular una venta y devolver inventario, hazlo desde <strong>Historial de Ventas</strong>.
                       </p>
                   </div>
                   <div className="flex gap-3">

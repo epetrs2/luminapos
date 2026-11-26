@@ -3,62 +3,69 @@ import React, { useMemo } from 'react';
 import { useStore } from '../components/StoreContext';
 import { DollarSign, ShoppingCart, Package, Users, TrendingUp, AlertTriangle, ArrowRight, Clock, Box, Wallet } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { computePhysicalCashBalance, roundCurrency } from '../utils/financeHelpers';
 
 export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView }) => {
-  const { transactions, products, customers, currentUser, cashMovements } = useStore();
+  const { transactions, products, currentUser, cashMovements, settings } = useStore();
+  const isDark = settings.theme === 'dark';
 
-  // Metrics (Filtered: Exclude cancelled)
+  // Metrics (Filtered: Exclude cancelled & returned)
   const today = new Date().toDateString();
-  const todaysTransactions = transactions.filter(t => t.status !== 'cancelled' && new Date(t.date).toDateString() === today);
-  const todaysSales = todaysTransactions.reduce((acc, t) => acc + t.total, 0);
+  const activeTransactions = useMemo(
+    () => transactions.filter(t => t.status !== 'cancelled' && t.status !== 'returned'),
+    [transactions]
+  );
+
+  const todaysTransactions = useMemo(
+    () => activeTransactions.filter(t => new Date(t.date).toDateString() === today),
+    [activeTransactions, today]
+  );
+  const todaysSales = useMemo(
+    () => roundCurrency(todaysTransactions.reduce((acc, t) => acc + t.total, 0)),
+    [todaysTransactions]
+  );
   
-  // IGNORE INACTIVE PRODUCTS IN DASHBOARD LOW STOCK INDICATOR
-  const lowStockProducts = products.filter(p => p.isActive !== false && p.stock < 5);
+  // Low stock including variants
+  const lowStockProducts = useMemo(() => products.filter(p => {
+    if (p.isActive === false) return false;
+    if (p.hasVariants && p.variants && p.variants.length > 0) {
+      return p.variants.some(v => v.stock < 5);
+    }
+    return p.stock < 5;
+  }), [products]);
   
   const totalProducts = products.length;
-  const totalCustomers = customers.length;
   
-  // --- FIX: Calculate Balance based on Current Session (Like CashRegister.tsx) ---
-  const currentBalance = useMemo(() => {
-      const sortedMovements = [...cashMovements].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      const lastCloseIndex = sortedMovements.findIndex(m => m.type === 'CLOSE');
-      
-      // If we found a close, take only movements AFTER that close (slice 0 to index)
-      // If no close found (-1), take all movements
-      const activeMovements = lastCloseIndex === -1 
-          ? sortedMovements 
-          : sortedMovements.slice(0, lastCloseIndex);
+  // Single source of truth shared with CashRegister.tsx (excludes VIRTUAL channel!)
+  const { balance: currentBalance } = useMemo(
+    () => computePhysicalCashBalance(cashMovements),
+    [cashMovements]
+  );
 
-      return activeMovements.reduce((acc, curr) => {
-          if (curr.type === 'OPEN' || curr.type === 'DEPOSIT') return acc + curr.amount;
-          if (curr.type === 'EXPENSE' || curr.type === 'WITHDRAWAL') return acc - curr.amount;
-          return acc;
-      }, 0);
-  }, [cashMovements]);
-
-  // Chart Data (Last 7 days)
-  const last7Days = Array.from({ length: 7 }, (_, i) => {
+  // Chart Data (Last 7 days in O(N))
+  const chartData = useMemo(() => {
+    const byDay = new Map<string, number>();
+    activeTransactions.forEach(t => {
+      const key = new Date(t.date).toDateString();
+      byDay.set(key, roundCurrency((byDay.get(key) || 0) + t.total));
+    });
+    return Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - (6 - i));
-      return d;
-  });
-
-  const chartData = last7Days.map(date => {
-      const dateStr = date.toDateString();
-      const daySales = transactions
-        .filter(t => t.status !== 'cancelled' && new Date(t.date).toDateString() === dateStr)
-        .reduce((acc, t) => acc + t.total, 0);
       return {
-          name: date.toLocaleDateString('es-ES', { weekday: 'short' }),
-          sales: daySales
+        name: d.toLocaleDateString('es-ES', { weekday: 'short' }),
+        sales: byDay.get(d.toDateString()) || 0
       };
-  });
+    });
+  }, [activeTransactions]);
 
   // Recent Transactions (Filtered)
-  const recentTransactions = [...transactions]
-    .filter(t => t.status !== 'cancelled')
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 5);
+  const recentTransactions = useMemo(
+    () => [...activeTransactions]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 5),
+    [activeTransactions]
+  );
 
   return (
     <div className="p-4 md:p-8 pt-20 md:pt-8 md:pl-72 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
@@ -167,11 +174,12 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
                             <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
                             </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#1e293b' : '#e2e8f0'} />
                         <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
-                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} tickFormatter={(val) => `$${val}`} width={40} />
+                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} tickFormatter={(val) => `$${val}`} width={56} />
                         <Tooltip 
-                            contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px'}}
+                            formatter={(value: any) => [`$${Number(value || 0).toFixed(2)}`, 'Ventas']}
+                            contentStyle={{borderRadius: '12px', border: 'none', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f8fafc' : '#0f172a', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px'}}
                             cursor={{stroke: '#6366f1', strokeWidth: 1, strokeDasharray: '5 5'}}
                         />
                         <Area type="monotone" dataKey="sales" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
@@ -203,8 +211,14 @@ export const Dashboard: React.FC<{ setView: (view: any) => void }> = ({ setView 
                                       </p>
                                   </div>
                               </div>
-                              <span className="px-2.5 py-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-lg text-xs font-bold shrink-0">
-                                  {t.paymentStatus === 'paid' ? 'Pagado' : 'Pend.'}
+                              <span className={`px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${
+                                  t.paymentStatus === 'paid'
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                    : t.paymentStatus === 'partial'
+                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                    : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                              }`}>
+                                  {t.paymentStatus === 'paid' ? 'Pagado' : t.paymentStatus === 'partial' ? 'Parcial' : 'Pend.'}
                               </span>
                           </div>
                       )) : (

@@ -4,6 +4,7 @@ import { Search, User, CheckCircle, ShoppingCart, X, CreditCard, Banknote, Smart
 import { useStore } from '../components/StoreContext';
 import { Transaction, CartItem, Product } from '../types';
 import { printInvoice, printThermalTicket } from '../utils/printService';
+import { getCartItemKey, roundCurrency, roundQty, generateId } from '../utils/financeHelpers';
 
 // ... (Existing PaymentIcon and getPaymentLabel helpers remain unchanged) ...
 const PaymentIcon = ({ method }: { method: string }) => {
@@ -446,29 +447,29 @@ const ReturnModal: React.FC<{
     const [returnSelection, setReturnSelection] = useState<{[key: string]: number}>({});
     const [returnActions, setReturnActions] = useState<{[key: string]: 'BOTH' | 'MONEY' | 'STOCK'}>({});
 
-    const handleQtyChange = (itemId: string, maxQty: number, val: number) => {
-        if (val < 0) val = 0;
-        if (val > maxQty) val = maxQty;
-        setReturnSelection(prev => ({...prev, [itemId]: val}));
-        // Default action if not set
-        if (!returnActions[itemId]) {
-            setReturnActions(prev => ({...prev, [itemId]: 'BOTH'}));
+    const handleQtyChange = (itemKey: string, maxQty: number, val: number) => {
+        const safeVal = Number.isFinite(val) ? val : 0;
+        const clamped = Math.min(maxQty, Math.max(0, safeVal));
+        setReturnSelection(prev => ({ ...prev, [itemKey]: clamped }));
+        if (!returnActions[itemKey]) {
+            setReturnActions(prev => ({ ...prev, [itemKey]: 'BOTH' }));
         }
     };
 
-    const handleActionChange = (itemId: string, action: 'BOTH' | 'MONEY' | 'STOCK') => {
-        setReturnActions(prev => ({...prev, [itemId]: action}));
+    const handleActionChange = (itemKey: string, action: 'BOTH' | 'MONEY' | 'STOCK') => {
+        setReturnActions(prev => ({ ...prev, [itemKey]: action }));
     };
 
     const handleSubmit = () => {
         const itemsToReturn: { item: CartItem, action: 'BOTH' | 'MONEY' | 'STOCK' }[] = [];
         
         transaction.items.forEach(item => {
-            const qty = returnSelection[item.id] || 0;
-            const action = returnActions[item.id] || 'BOTH';
+            const key = getCartItemKey(item);
+            const qty = returnSelection[key] || 0;
+            const action = returnActions[key] || 'BOTH';
             
             if (qty > 0) {
-                itemsToReturn.push({ item: { ...item, quantity: qty }, action });
+                itemsToReturn.push({ item: { ...item, quantity: roundQty(qty) }, action });
             }
         });
 
@@ -480,15 +481,15 @@ const ReturnModal: React.FC<{
     };
 
     // Calculate Dynamic Refund Total based on selections
-    const totalRefund = transaction.items.reduce((acc, item) => {
-        const qty = returnSelection[item.id] || 0;
-        const action = returnActions[item.id] || 'BOTH';
-        // Only count money if action is BOTH or MONEY
+    const totalRefund = roundCurrency(transaction.items.reduce((acc, item) => {
+        const key = getCartItemKey(item);
+        const qty = returnSelection[key] || 0;
+        const action = returnActions[key] || 'BOTH';
         if (action === 'BOTH' || action === 'MONEY') {
             return acc + (item.price * qty);
         }
         return acc;
-    }, 0);
+    }, 0));
 
     return (
         <div className="fixed inset-0 bg-black/60 z-[120] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4 animate-[fadeIn_0.2s_ease-out]">
@@ -497,11 +498,16 @@ const ReturnModal: React.FC<{
                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Configura qué devolver: Stock, Dinero, o ambos.</p>
 
                 <div className="flex-1 overflow-y-auto space-y-4 custom-scrollbar">
-                    {transaction.items.map(item => (
-                        <div key={item.id} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    {transaction.items.map(item => {
+                        const key = getCartItemKey(item);
+                        const isFractional = item.unit && item.unit !== 'PIECE';
+                        return (
+                        <div key={key} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                             <div className="flex justify-between items-start mb-2">
                                 <div>
-                                    <p className="font-bold text-sm text-slate-800 dark:text-white">{item.name}</p>
+                                    <p className="font-bold text-sm text-slate-800 dark:text-white">
+                                        {item.name} {item.variantName ? <span className="text-xs text-indigo-500">({item.variantName})</span> : null}
+                                    </p>
                                     <p className="text-xs text-slate-500">Comprado: {item.quantity} | ${item.price.toFixed(2)}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -509,20 +515,21 @@ const ReturnModal: React.FC<{
                                     <input 
                                         type="number"
                                         min="0"
+                                        step={isFractional ? "0.001" : "1"}
                                         max={item.quantity}
-                                        value={returnSelection[item.id] || 0}
-                                        onChange={(e) => handleQtyChange(item.id, item.quantity, parseInt(e.target.value))}
+                                        value={returnSelection[key] ?? 0}
+                                        onChange={(e) => handleQtyChange(key, item.quantity, isFractional ? parseFloat(e.target.value) : parseInt(e.target.value, 10))}
                                         className="w-16 p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-center font-bold outline-none focus:ring-2 focus:ring-indigo-500"
                                     />
                                 </div>
                             </div>
                             
-                            {(returnSelection[item.id] || 0) > 0 && (
+                            {(returnSelection[key] || 0) > 0 && (
                                 <div className="mt-2 animate-[fadeIn_0.2s]">
                                     <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Acción:</label>
                                     <select 
-                                        value={returnActions[item.id] || 'BOTH'} 
-                                        onChange={(e) => handleActionChange(item.id, e.target.value as any)}
+                                        value={returnActions[key] || 'BOTH'} 
+                                        onChange={(e) => handleActionChange(key, e.target.value as any)}
                                         className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none focus:border-indigo-500 font-medium"
                                     >
                                         <option value="BOTH">Completa (Dinero + Stock)</option>
@@ -532,7 +539,8 @@ const ReturnModal: React.FC<{
                                 </div>
                             )}
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
@@ -932,71 +940,85 @@ export const SalesHistory: React.FC = () => {
       setSelectedTransaction(null);
   };
 
-  // --- REWRITTEN: HANDLE RETURN ITEMS (MODIFY EXISTING) ---
   const handleReturnItems = (itemsToReturn: { item: CartItem, action: 'BOTH' | 'MONEY' | 'STOCK' }[]) => {
-      if (!selectedTransaction) return;
+      if (!selectedTransaction || selectedTransaction.status === 'cancelled') return;
 
       // 1. Calculate Refund (Financial) - Only for MONEY or BOTH
       const refundItems = itemsToReturn.filter(r => r.action === 'MONEY' || r.action === 'BOTH').map(r => r.item);
-      const refundTotal = refundItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const rawRefundTotal = roundCurrency(refundItems.reduce((sum, item) => sum + (item.price * item.quantity), 0));
       
       // 2. Prepare Stock Return - Only for STOCK or BOTH
       const stockItems = itemsToReturn.filter(r => r.action === 'STOCK' || r.action === 'BOTH').map(r => ({
-          ...r.item, // FIX: Spread all properties to satisfy CartItem type
-          quantity: -r.item.quantity, // Negative quantity adds stock
+          ...r.item,
+          quantity: -r.item.quantity,
       }));
 
       // 3. Update Existing Transaction (Subtract Items)
       const newItems = selectedTransaction.items.map(originalItem => {
           const returnedItem = itemsToReturn.find(r => r.item.id === originalItem.id && r.item.variantId === originalItem.variantId);
           if (returnedItem) {
-              const newQty = originalItem.quantity - returnedItem.item.quantity;
+              const newQty = roundQty(originalItem.quantity - returnedItem.item.quantity);
               return { ...originalItem, quantity: Math.max(0, newQty) };
           }
           return originalItem;
-      }).filter(i => i.quantity > 0); // Remove items that became 0 qty
+      }).filter(i => i.quantity > 0);
 
-      // Recalculate totals
-      const newSubtotal = newItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-      const newTax = settings.enableTax ? newItems.reduce((acc, item) => {
+      // Recalculate totals proportionally
+      const newSubtotal = roundCurrency(newItems.reduce((acc, item) => acc + (item.price * item.quantity), 0));
+      const origSubtotal = selectedTransaction.subtotal || 0;
+      const proportionalDiscount = origSubtotal > 0
+          ? roundCurrency((selectedTransaction.discount || 0) * (newSubtotal / origSubtotal))
+          : 0;
+      const discountRatio = newSubtotal > 0 ? Math.max(0, (newSubtotal - proportionalDiscount) / newSubtotal) : 0;
+      const newTax = settings.enableTax ? roundCurrency(newItems.reduce((acc, item) => {
           const rate = item.taxRate !== undefined ? item.taxRate : settings.taxRate;
-          return acc + ((item.price * item.quantity) * (rate / 100));
-      }, 0) : 0;
-      
-      // Keep discount proportional or remove? Let's assume proportional reduction if percentage based, but here simple substraction of refund
-      // Actually simpler: re-sum total based on remaining items.
-      const newTotal = Math.max(0, newSubtotal + newTax + (selectedTransaction.shipping || 0) - (selectedTransaction.discount || 0));
-      
-      // If refunded money, reduce amount paid
-      let newAmountPaid = selectedTransaction.amountPaid || 0;
-      if (refundTotal > 0) {
-          newAmountPaid = Math.max(0, newAmountPaid - refundTotal);
+          return acc + ((item.price * item.quantity * discountRatio) * (rate / 100));
+      }, 0)) : 0;
+
+      const newShipping = newItems.length === 0 ? 0 : (selectedTransaction.shipping || 0);
+      const newTotal = roundCurrency(Math.max(0, newSubtotal - proportionalDiscount + newTax + newShipping));
+
+      // CRITICAL FIX: Never withdraw cash exceeding what was actually paid (protects unpaid credit sales!)
+      const prevPaid = roundCurrency(selectedTransaction.amountPaid || 0);
+      const actualCashRefund = roundCurrency(Math.min(rawRefundTotal, prevPaid));
+      const newAmountPaid = roundCurrency(Math.min(newTotal, Math.max(0, prevPaid - actualCashRefund)));
+
+      // Determine Status & PaymentStatus
+      const newStatus: Transaction['status'] = newItems.length === 0 ? 'returned' : selectedTransaction.status;
+      let newPaymentStatus: Transaction['paymentStatus'] = selectedTransaction.paymentStatus;
+      if (newItems.length === 0) {
+          newPaymentStatus = 'paid';
+      } else if (newAmountPaid >= newTotal - 0.01) {
+          newPaymentStatus = 'paid';
+      } else if (newAmountPaid > 0) {
+          newPaymentStatus = 'partial';
+      } else {
+          newPaymentStatus = 'pending';
       }
 
-      // Determine Status
-      let newStatus = selectedTransaction.status;
-      if (newItems.length === 0) newStatus = 'returned'; // Fully returned
-      
       // 4. Execute Update
       updateTransaction(selectedTransaction.id, {
           items: newItems,
           subtotal: newSubtotal,
+          discount: proportionalDiscount,
           taxAmount: newTax,
+          shipping: newShipping,
           total: newTotal,
           amountPaid: newAmountPaid,
-          status: newStatus
+          status: newStatus,
+          paymentStatus: newPaymentStatus
       });
 
-      // 5. Register Withdrawal if Money Returned
-      if (refundTotal > 0) {
-           const channel = selectedTransaction.paymentMethod === 'cash' ? 'CASH' : 'VIRTUAL';
+      // 5. Register Withdrawal ONLY for money actually paid and refunded
+      if (actualCashRefund > 0) {
+           const channel = (selectedTransaction.paymentMethod === 'cash' || selectedTransaction.paymentMethod === 'credit') ? 'CASH' : 'VIRTUAL';
            addCashMovement({
-              id: crypto.randomUUID(),
+              id: generateId(),
               type: 'WITHDRAWAL',
-              amount: refundTotal,
+              amount: actualCashRefund,
               description: `Devolución s/ Venta #${selectedTransaction.id}`,
               date: new Date().toISOString(),
-              category: 'SALES', 
+              category: 'SALES',
               channel: channel,
               customerId: selectedTransaction.customerId
            });
@@ -1006,15 +1028,6 @@ export const SalesHistory: React.FC = () => {
       if (stockItems.length > 0) {
           updateStockAfterSale(stockItems);
       }
-      
-      // Update local view
-      setSelectedTransaction(prev => prev ? ({
-          ...prev,
-          items: newItems,
-          total: newTotal,
-          amountPaid: newAmountPaid,
-          status: newStatus as any
-      }) : null);
 
       notify("Venta Actualizada", `Devolución procesada. Total ajustado a $${newTotal.toFixed(2)}`, "success");
   };

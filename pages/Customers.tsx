@@ -2,9 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { Plus, Edit2, Trash2, Search, Users, Mail, Phone, DollarSign, Wallet, Infinity, Building2, User, Clock, FileText, ArrowRight, X, Hash, ShoppingBag, CheckCircle, ChevronRight, Filter, ArrowDownAZ, ArrowUpNarrowWide, AlertCircle, Package, Calendar, TrendingUp } from 'lucide-react';
 import { useStore } from '../components/StoreContext';
 import { Customer } from '../types';
+import { roundCurrency, getCartItemKey } from '../utils/financeHelpers';
 
 export const Customers: React.FC = () => {
-  const { customers, transactions, cashMovements, addCustomer, updateCustomer, deleteCustomer, processCustomerPayment } = useStore();
+  const { customers, transactions, cashMovements, settings, addCustomer, updateCustomer, deleteCustomer, processCustomerPayment } = useStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [formData, setFormData] = useState<Partial<Customer>>({});
@@ -14,14 +15,17 @@ export const Customers: React.FC = () => {
   const [filterType, setFilterType] = useState<'ALL' | 'INDIVIDUAL' | 'BUSINESS' | 'DEBTORS'>('ALL');
   const [sortBy, setSortBy] = useState<'NAME' | 'DEBT'>('NAME');
 
-  // Debt Payment Modal
+  // Debt Payment Modal (derived by ID to avoid stale state)
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
-  const [payCustomer, setPayCustomer] = useState<Customer | null>(null);
+  const [payCustomerId, setPayCustomerId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState<string>('');
+  const [payChannel, setPayChannel] = useState<'CASH' | 'VIRTUAL'>('CASH');
+  const payCustomer = useMemo(() => customers.find(c => c.id === payCustomerId) || null, [customers, payCustomerId]);
 
-  // History Modal
-  const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
+  // History Modal (derived by ID so debt & tickets refresh immediately after payment)
+  const [historyCustomerId, setHistoryCustomerId] = useState<string | null>(null);
   const [historyTab, setHistoryTab] = useState<'TIMELINE' | 'PRODUCTS'>('TIMELINE');
+  const historyCustomer = useMemo(() => customers.find(c => c.id === historyCustomerId) || null, [customers, historyCustomerId]);
 
   // Counts for tabs
   const counts = useMemo(() => {
@@ -29,39 +33,39 @@ export const Customers: React.FC = () => {
           all: customers.length,
           individual: customers.filter(c => c.clientType !== 'BUSINESS').length,
           business: customers.filter(c => c.clientType === 'BUSINESS').length,
-          debtors: customers.filter(c => c.currentDebt > 0.01).length
+          debtors: customers.filter(c => (c.currentDebt || 0) > 0.01).length
       };
   }, [customers]);
 
   const filteredCustomers = useMemo(() => {
+      const q = searchTerm.trim().toLowerCase();
       let result = customers.filter(c => 
-        c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        c.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.id.includes(searchTerm)
+        !q ||
+        c.name.toLowerCase().includes(q) || 
+        (c.email || '').toLowerCase().includes(q) ||
+        (c.phone || '').toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q)
       );
 
-      // Apply Category Filter
       if (filterType === 'INDIVIDUAL') {
           result = result.filter(c => c.clientType !== 'BUSINESS');
       } else if (filterType === 'BUSINESS') {
           result = result.filter(c => c.clientType === 'BUSINESS');
       } else if (filterType === 'DEBTORS') {
-          result = result.filter(c => c.currentDebt > 0.01);
+          result = result.filter(c => (c.currentDebt || 0) > 0.01);
       }
 
-      // Apply Sorting
       result.sort((a, b) => {
           if (sortBy === 'DEBT') {
-              return b.currentDebt - a.currentDebt;
+              return (b.currentDebt || 0) - (a.currentDebt || 0);
           }
-          // Default to Name A-Z
           return a.name.localeCompare(b.name);
       });
 
       return result;
   }, [customers, searchTerm, filterType, sortBy]);
 
-  // --- NEW: Calculate Product Consumption Stats ---
+  // --- Calculate Product Consumption Stats (excludes cancelled & returned, respects variants) ---
   const customerProductStats = useMemo(() => {
       if (!historyCustomer) return { products: [], totalSpent: 0, monthlySpent: 0 };
 
@@ -72,35 +76,36 @@ export const Customers: React.FC = () => {
       const currentYear = new Date().getFullYear();
 
       transactions
-          .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled')
+          .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled' && t.status !== 'returned')
           .forEach(t => {
               const tDate = new Date(t.date);
               const isThisMonth = tDate.getMonth() === currentMonth && tDate.getFullYear() === currentYear;
               
-              if (isThisMonth) monthlySpent += t.total;
-              totalSpent += t.total;
+              if (isThisMonth) monthlySpent = roundCurrency(monthlySpent + t.total);
+              totalSpent = roundCurrency(totalSpent + t.total);
 
               t.items.forEach(i => {
-                  if (!stats[i.id]) {
-                      stats[i.id] = { 
-                          id: i.id, 
-                          name: i.name, 
+                  const key = getCartItemKey(i);
+                  if (!stats[key]) {
+                      stats[key] = { 
+                          id: key, 
+                          name: i.variantName ? `${i.name} (${i.variantName})` : i.name, 
                           qty: 0, 
                           total: 0, 
                           lastDate: t.date,
                           category: i.category 
                       };
                   }
-                  stats[i.id].qty += i.quantity;
-                  stats[i.id].total += (i.price * i.quantity);
-                  if (new Date(t.date) > new Date(stats[i.id].lastDate)) {
-                      stats[i.id].lastDate = t.date;
+                  stats[key].qty += i.quantity;
+                  stats[key].total = roundCurrency(stats[key].total + (i.price * i.quantity));
+                  if (new Date(t.date) > new Date(stats[key].lastDate)) {
+                      stats[key].lastDate = t.date;
                   }
               });
           });
 
       return {
-          products: Object.values(stats).sort((a, b) => b.qty - a.qty), // Sort by most consumed
+          products: Object.values(stats).sort((a, b) => b.qty - a.qty),
           totalSpent,
           monthlySpent
       };
@@ -118,13 +123,14 @@ export const Customers: React.FC = () => {
   };
 
   const handleOpenPayModal = (customer: Customer) => {
-      setPayCustomer(customer);
+      setPayCustomerId(customer.id);
       setPayAmount('');
+      setPayChannel('CASH');
       setIsPayModalOpen(true);
   };
 
   const handleOpenHistory = (customer: Customer) => {
-      setHistoryCustomer(customer);
+      setHistoryCustomerId(customer.id);
       setHistoryTab('TIMELINE');
   };
 
@@ -134,40 +140,47 @@ export const Customers: React.FC = () => {
           return;
       }
 
-      const subject = `Recordatorio de Pago - LuminaPOS`;
+      const businessName = settings.name || 'LuminaPOS';
+      const subject = `Recordatorio de Pago - ${businessName}`;
       const body = `Estimado/a ${customer.name},
       
-Le saludamos cordialmente de LuminaPOS.
+Le saludamos cordialmente de ${businessName}.
       
-Este es un recordatorio amigable sobre su saldo pendiente de $${customer.currentDebt.toFixed(2)}.
+Este es un recordatorio amigable sobre su saldo pendiente de $${(customer.currentDebt || 0).toFixed(2)}.
       
 Le agradeceríamos que regularice su situación lo antes posible.
       
 Atentamente,
-El equipo de LuminaPOS`;
+El equipo de ${businessName}`;
 
       window.open(`mailto:${customer.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
   };
 
   const handleSave = () => {
-    if (!formData.name) return;
+    if (!formData.name || !formData.name.trim()) {
+      alert('El nombre del cliente es obligatorio.');
+      return;
+    }
+    const cleanLimit = Number.isFinite(formData.creditLimit) && (formData.creditLimit || 0) >= 0 ? roundCurrency(formData.creditLimit || 0) : 0;
+    const cleanedData = { ...formData, name: formData.name.trim(), creditLimit: cleanLimit };
 
     if (editingCustomer) {
-      updateCustomer({ ...editingCustomer, ...formData } as Customer);
+      updateCustomer({ ...editingCustomer, ...cleanedData } as Customer);
     } else {
-      addCustomer({ ...formData, id: '', currentDebt: 0 } as Customer); // ID generated in context
+      addCustomer({ ...cleanedData, id: '', currentDebt: 0 } as Customer);
     }
     setIsModalOpen(false);
   };
 
   const handleProcessPayment = () => {
       if (payCustomer && payAmount) {
-          const amount = parseFloat(payAmount);
-          if (amount <= 0 || amount > payCustomer.currentDebt) {
+          const amount = roundCurrency(parseFloat(payAmount));
+          if (!Number.isFinite(amount) || amount <= 0 || amount > roundCurrency((payCustomer.currentDebt || 0) + 0.01)) {
               alert("Monto inválido. Debe ser mayor a 0 y no mayor a la deuda.");
               return;
           }
-          processCustomerPayment(payCustomer.id, amount);
+          const cappedAmount = Math.min(amount, roundCurrency(payCustomer.currentDebt || 0));
+          processCustomerPayment(payCustomer.id, cappedAmount, payChannel);
           setIsPayModalOpen(false);
       }
   };
@@ -537,12 +550,22 @@ El equipo de LuminaPOS`;
                     </div>
                 </div>
 
+                <div className="mb-4">
+                    <label className="block text-left text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5 ml-1">Canal de Pago</label>
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                        <button type="button" onClick={() => setPayChannel('CASH')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${payChannel === 'CASH' ? 'bg-emerald-600 text-white shadow' : 'text-slate-500'}`}>Efectivo (Caja)</button>
+                        <button type="button" onClick={() => setPayChannel('VIRTUAL')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${payChannel === 'VIRTUAL' ? 'bg-blue-600 text-white shadow' : 'text-slate-500'}`}>Banco / Transf.</button>
+                    </div>
+                </div>
+
                 <div className="mb-6">
                     <label className="block text-left text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5 ml-1">Monto del Abono</label>
                     <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
                         <input
                             type="number"
+                            min="0.01"
+                            step="0.01"
                             autoFocus
                             max={payCustomer.currentDebt}
                             value={payAmount}
@@ -591,7 +614,7 @@ El equipo de LuminaPOS`;
                               </div>
                           </div>
                       </div>
-                      <button onClick={() => setHistoryCustomer(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-500 transition-colors">
+                      <button onClick={() => setHistoryCustomerId(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-500 transition-colors">
                           <X className="w-6 h-6" />
                       </button>
                   </div>
@@ -649,9 +672,10 @@ El equipo de LuminaPOS`;
                       {historyTab === 'TIMELINE' && (
                           (() => {
                               const customerTransactions = transactions
-                                  .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled')
+                                  .filter(t => t.customerId === historyCustomer.id && t.status !== 'cancelled' && t.status !== 'returned')
                                   .map(t => {
-                                      const isDebt = t.paymentStatus === 'pending' || t.paymentStatus === 'partial';
+                                      const pendingAmount = roundCurrency(Math.max(0, t.total - (t.amountPaid || 0)));
+                                      const isDebt = (t.paymentStatus === 'pending' || t.paymentStatus === 'partial') && pendingAmount > 0.01;
                                       const isManual = t.id.includes('manual');
                                       
                                       return {
@@ -659,14 +683,19 @@ El equipo de LuminaPOS`;
                                           date: t.date,
                                           type: isDebt ? 'DEBT' : 'SALE',
                                           amount: t.total,
-                                          pendingAmount: t.total - (t.amountPaid || 0),
+                                          pendingAmount,
                                           details: `${isManual ? 'Nota' : 'Ticket'} #${t.id} • ${t.items.length} items`,
                                           raw: t
                                       };
                                   });
 
+                              // Only include actual debt payments (never duplicate cash sales!)
                               const payments = cashMovements
-                                  .filter(m => m.customerId === historyCustomer.id && m.type === 'DEPOSIT')
+                                  .filter(m =>
+                                      m.customerId === historyCustomer.id &&
+                                      m.type === 'DEPOSIT' &&
+                                      (m.subCategory === 'DEBT_PAYMENT' || (m.subCategory !== 'SALE' && (m.description || '').toLowerCase().includes('abono')))
+                                  )
                                   .map(m => ({
                                       id: m.id,
                                       date: m.date,
@@ -762,8 +791,8 @@ El equipo de LuminaPOS`;
                               <div className="space-y-3">
                                   {customerProductStats.products.length > 0 ? (
                                       customerProductStats.products.map((p, idx) => {
-                                          const maxQty = customerProductStats.products[0].qty;
-                                          const percent = (p.qty / maxQty) * 100;
+                                          const maxQty = customerProductStats.products[0]?.qty || 1;
+                                          const percent = maxQty > 0 ? Math.min(100, (p.qty / maxQty) * 100) : 0;
                                           
                                           return (
                                               <div key={idx} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm animate-[slideInRight_0.3s_ease-out]" style={{animationDelay: `${idx * 0.05}s`}}>

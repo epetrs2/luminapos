@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LayoutDashboard, ShoppingCart, Package, DollarSign, PieChart, Store, Users, Truck, History, Settings, LogOut, Shield, Menu, X, ClipboardList, Cloud, CloudOff, RefreshCw, AlertCircle } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Package, DollarSign, PieChart, Store, Users, Truck, History, Settings, LogOut, Shield, Menu, X, ClipboardList, Cloud, CloudOff, RefreshCw, AlertCircle, Bluetooth } from 'lucide-react';
 import { AppView } from '../types';
 import { useStore } from './StoreContext';
 
@@ -10,11 +10,17 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
-  const { products, settings, currentUser, logout, isSyncing, hasPendingChanges, pullFromCloud, notify } = useStore();
+  const { products, settings, currentUser, logout, isSyncing, hasPendingChanges, pullFromCloud, notify, btDevice, connectBtPrinter, disconnectBtPrinter } = useStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // IGNORE INACTIVE PRODUCTS IN LOW STOCK COUNT
-  const lowStockCount = products.filter(p => p.isActive !== false && p.stock < 5).length;
+  // IGNORE INACTIVE PRODUCTS IN LOW STOCK COUNT (including variants)
+  const lowStockCount = products.filter(p => {
+    if (p.isActive === false) return false;
+    if (p.hasVariants && p.variants && p.variants.length > 0) {
+      return p.variants.some(v => v.stock < 5);
+    }
+    return p.stock < 5;
+  }).length;
   
   const role = currentUser?.role || 'CASHIER';
   const isAdmin = role === 'ADMIN';
@@ -47,22 +53,41 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
       await pullFromCloud();
   };
 
+  const handleQuickBluetooth = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (btDevice) {
+          if (confirm(`Impresora conectada: ${btDevice.name || 'Bluetooth'}.\n¿Deseas desconectarla?`)) {
+              disconnectBtPrinter();
+          }
+      } else {
+          await connectBtPrinter();
+      }
+  };
+
   return (
     <>
-      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 z-50 flex items-center justify-between px-4 shadow-md">
+      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 z-[60] flex items-center justify-between px-4 shadow-md">
          <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded bg-white/10 flex items-center justify-center overflow-hidden">
                 {settings.logo ? <img src={settings.logo} alt="Logo" className="w-full h-full object-contain rounded" /> : <Store className="w-5 h-5 text-white" />}
             </div>
             <span className="font-bold text-white truncate">{settings.name}</span>
          </div>
-         <div className="flex items-center gap-2">
+         <div className="flex items-center gap-1">
+             <button
+                 onClick={handleQuickBluetooth}
+                 aria-label={btDevice ? `Impresora conectada: ${btDevice.name}` : 'Conectar Impresora Bluetooth'}
+                 title={btDevice ? `Conectada: ${btDevice.name}` : 'Conectar Impresora Bluetooth'}
+                 className={`p-3 rounded-lg active:scale-95 transition-transform ${btDevice ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400 hover:text-white hover:bg-white/10'}`}
+             >
+                 <Bluetooth className="w-5 h-5" />
+             </button>
              {settings.enableCloudSync && (
-                 <button onClick={handleForceSync} disabled={isSyncing} className={`p-3 text-indigo-300 hover:text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform ${isSyncing ? 'opacity-50' : ''}`}>
+                 <button onClick={handleForceSync} disabled={isSyncing} aria-label="Sincronizar con la nube" className={`p-3 text-indigo-300 hover:text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform ${isSyncing ? 'opacity-50' : ''}`}>
                      <RefreshCw className={`w-6 h-6 ${isSyncing ? 'animate-spin' : ''}`} />
                  </button>
              )}
-             <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-3 text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform">
+             <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} aria-label="Menú" className="p-3 text-white hover:bg-white/10 rounded-lg active:scale-95 transition-transform">
                 {isMobileMenuOpen ? <X className="w-7 h-7" /> : <Menu className="w-7 h-7" />}
              </button>
          </div>
@@ -136,6 +161,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
         </nav>
 
         <div className="p-4 border-t border-slate-800 space-y-2">
+            <button
+                onClick={handleQuickBluetooth}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 border ${btDevice ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+                title={btDevice ? `Impresora conectada: ${btDevice.name}` : 'Conectar Impresora Bluetooth sin salir de tu pantalla'}
+            >
+                <div className="flex items-center gap-3 min-w-0">
+                    <Bluetooth className={`w-5 h-5 shrink-0 ${btDevice ? 'text-emerald-400' : 'text-blue-400'}`} />
+                    <span className="font-medium text-sm truncate">{btDevice ? (btDevice.name || 'Impresora BT') : 'Conectar Impresora'}</span>
+                </div>
+                <span className={`w-2 h-2 rounded-full shrink-0 ${btDevice ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+            </button>
             {isAdmin && (
                 <button onClick={() => handleNavClick(AppView.SETTINGS)} className={`w-full flex items-center gap-3 px-4 py-4 md:py-3 rounded-xl transition-all duration-200 group ${currentView === AppView.SETTINGS ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <Settings className={`w-6 h-6 md:w-5 md:h-5 ${currentView === AppView.SETTINGS ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />

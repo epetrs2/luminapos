@@ -198,18 +198,16 @@ export const Users: React.FC = () => {
     setIsSaving(true);
 
     try {
-        let finalSalt = editingUser?.salt || generateSalt();
+        // Keep existing salt if changing password without updating securityAnswer, so securityAnswerHash stays valid!
+        const finalSalt = editingUser?.salt || generateSalt();
         let finalHash = editingUser?.passwordHash || '';
 
-        // If new password provided, re-hash with PBKDF2
         if (password) {
-            finalSalt = generateSalt(); // Rotate salt on password change
             finalHash = await hashPassword(password, finalSalt);
         }
 
         let securityAnswerHash = editingUser?.securityAnswerHash;
         if (securityAnswer) {
-            // Hash the answer (normalized to lowercase)
             securityAnswerHash = await hashPassword(securityAnswer.trim().toLowerCase(), finalSalt);
         }
 
@@ -288,16 +286,34 @@ export const Users: React.FC = () => {
           }
 
           if (confirmAction?.type === 'DELETE') {
+              const target = users.find(u => u.id === confirmAction.userId);
+              const activeAdmins = users.filter(u => u.role === 'ADMIN' && u.active);
+              if (target?.role === 'ADMIN' && activeAdmins.length <= 1) {
+                  setAuthError('No puedes eliminar al último administrador activo.');
+                  setVerifying(false);
+                  return;
+              }
               deleteUser(confirmAction.userId);
           } else if (confirmAction?.type === 'TOGGLE_ACTIVE' && confirmAction.targetUser) {
               const isCurrentlyLocked = confirmAction.targetUser.lockoutUntil && new Date(confirmAction.targetUser.lockoutUntil) > new Date();
-              
-              // If manually unlocking/locking, we should clear the temporary lockout timer to avoid confusion
-              const updatedUser = { 
-                  ...confirmAction.targetUser, 
-                  active: !confirmAction.targetUser.active,
-                  lockoutUntil: undefined, 
-                  failedLoginAttempts: 0 
+              const activeAdmins = users.filter(u => u.role === 'ADMIN' && u.active);
+
+              // If user is active but temporarily locked out, ONLY clear lockout without deactivating!
+              const nextActive = (isCurrentlyLocked && confirmAction.targetUser.active)
+                  ? true
+                  : !confirmAction.targetUser.active;
+
+              if (!nextActive && confirmAction.targetUser.role === 'ADMIN' && activeAdmins.length <= 1) {
+                  setAuthError('No puedes desactivar al último administrador activo.');
+                  setVerifying(false);
+                  return;
+              }
+
+              const updatedUser = {
+                  ...confirmAction.targetUser,
+                  active: nextActive,
+                  lockoutUntil: undefined,
+                  failedLoginAttempts: 0
               };
               updateUser(updatedUser);
           }
