@@ -46,6 +46,7 @@ export const Inventory: React.FC = () => {
   const [adjustVariantId, setAdjustVariantId] = useState<string>(''); 
   const [adjustQty, setAdjustQty] = useState<number>(0);
   const [adjustType, setAdjustType] = useState<'IN' | 'OUT'>('IN');
+  const [adjustReason, setAdjustReason] = useState<string>('Producción');
 
   // AI Modal
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -54,6 +55,7 @@ export const Inventory: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [stockFilter, setStockFilter] = useState<'ALL' | 'LOW' | 'OUT'>('ALL');
 
   // --- CRUD Handlers ---
   const handleOpenModal = (product?: Product) => {
@@ -167,6 +169,7 @@ export const Inventory: React.FC = () => {
     setAdjustProduct(product);
     setAdjustQty(0);
     setAdjustType('IN');
+    setAdjustReason('Producción');
     setAdjustVariantId(''); 
     setAdjustModalOpen(true);
   };
@@ -177,7 +180,7 @@ export const Inventory: React.FC = () => {
           alert("Debes seleccionar una variante para ajustar el stock.");
           return;
       }
-      adjustStock(adjustProduct.id, adjustQty, adjustType, adjustVariantId);
+      adjustStock(adjustProduct.id, adjustQty, adjustType, adjustVariantId, adjustReason);
       setAdjustModalOpen(false);
     }
   };
@@ -196,10 +199,15 @@ export const Inventory: React.FC = () => {
     const matchesType = itemType === inventoryType;
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          p.id.toLowerCase().includes(searchTerm.toLowerCase()); // Added ID search
+                          p.id.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = categoryFilter === 'ALL' || p.category === categoryFilter;
+    const matchesStock = stockFilter === 'ALL'
+      ? true
+      : stockFilter === 'OUT'
+        ? p.stock <= 0
+        : p.stock > 0 && p.stock < 5;
     
-    return matchesType && matchesSearch && matchesCategory;
+    return matchesType && matchesSearch && matchesCategory && matchesStock;
   });
 
   const TAX_PRESETS = [
@@ -251,12 +259,17 @@ export const Inventory: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
               <input type="text" placeholder="Buscar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
             </div>
-            <div className="relative w-full md:w-64">
+            <div className="relative w-full md:w-56">
               <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
               <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none appearance-none cursor-pointer">
                 <option value="ALL">Todas las Categorías</option>
                 {categories.map((cat) => (<option key={cat} value={cat}>{cat}</option>))}
               </select>
+            </div>
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
+              <button onClick={() => setStockFilter('ALL')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${stockFilter === 'ALL' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Todos</button>
+              <button onClick={() => setStockFilter('LOW')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${stockFilter === 'LOW' ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm' : 'text-slate-500'}`}>Bajo (&lt;5)</button>
+              <button onClick={() => setStockFilter('OUT')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${stockFilter === 'OUT' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500'}`}>Agotados</button>
             </div>
           </div>
 
@@ -593,9 +606,30 @@ export const Inventory: React.FC = () => {
                         <button onClick={() => setAdjustType('OUT')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${adjustType === 'OUT' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>Salida (-)</button>
                     </div>
 
-                    <div className="mb-6">
+                    <div className="mb-4">
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Cantidad</label>
                         <input type="number" step={adjustProduct.unit === 'PIECE' ? '1' : '0.001'} min="0" value={adjustQty} onChange={(e) => setAdjustQty(parseFloat(e.target.value) || 0)} className="w-full text-center text-3xl font-bold py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    </div>
+
+                    <div className="mb-6">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Motivo (Bitácora)</label>
+                        <select value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-medium dark:text-white outline-none focus:ring-2 focus:ring-indigo-500">
+                            {adjustType === 'IN' ? (
+                                <>
+                                    <option value="Producción">Producción / Lote Nuevo</option>
+                                    <option value="Compra Directa">Compra Directa</option>
+                                    <option value="Conteo Físico">Corrección por Conteo Físico</option>
+                                    <option value="Devolución">Devolución de Cliente</option>
+                                </>
+                            ) : (
+                                <>
+                                    <option value="Merma / Caducidad">Merma / Caducidad</option>
+                                    <option value="Consumo Interno">Consumo Interno / Muestra</option>
+                                    <option value="Conteo Físico">Corrección por Conteo Físico</option>
+                                    <option value="Daño">Producto Dañado</option>
+                                </>
+                            )}
+                        </select>
                     </div>
 
                     <button onClick={handleSaveAdjust} className={`w-full py-3 rounded-xl font-bold text-white transition-colors ${adjustType === 'IN' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}`}>Confirmar {adjustType === 'IN' ? 'Entrada' : 'Salida'}</button>

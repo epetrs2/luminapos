@@ -87,7 +87,7 @@ interface StoreContextType {
     addProduct: (p: Product) => void;
     updateProduct: (p: Product) => void;
     deleteProduct: (id: string) => void;
-    adjustStock: (id: string, qty: number, type: 'IN' | 'OUT', variantId?: string) => void;
+    adjustStock: (id: string, qty: number, type: 'IN' | 'OUT', variantId?: string, reason?: string) => void;
 
     addTransaction: (t: Transaction, options?: { shouldAffectCash?: boolean }) => void;
     updateTransaction: (id: string, updates: Partial<Transaction>) => void;
@@ -533,8 +533,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     };
 
-    const adjustStock = (id: string, qty: number, type: 'IN' | 'OUT', variantId?: string) => {
+    const adjustStock = (id: string, qty: number, type: 'IN' | 'OUT', variantId?: string, reason?: string) => {
         if (!Number.isFinite(qty) || qty <= 0) return;
+        const targetProd = products.find(p => p.id === id);
         setProducts(prev => prev.map(p => {
             if (p.id !== id) return p;
             let updated: Product;
@@ -552,7 +553,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             sbUpsertProduct(updated);
             return updated;
         }));
-        logActivity('INVENTORY', `${type === 'IN' ? 'Entrada' : 'Salida'} de ${qty} un. en producto ID ${id}`);
+        const reasonTag = reason ? ` • Motivo: ${reason}` : '';
+        logActivity('INVENTORY', `${type === 'IN' ? 'Entrada' : 'Salida'} de ${qty} un. en ${targetProd?.name || `ID ${id}`}${reasonTag}`);
         flagChange();
     };
 

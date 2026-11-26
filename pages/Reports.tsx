@@ -174,6 +174,23 @@ export const Reports: React.FC = () => {
       });
 
       const totalSales = validTx.reduce((sum: number, t: Transaction) => sum + t.total, 0);
+      const collectedAmount = roundCurrency(validTx.reduce((sum: number, t: Transaction) => sum + Math.min(t.total, Number(t.amountPaid) || 0), 0));
+      const receivablesAmount = roundCurrency(Math.max(0, totalSales - collectedAmount));
+
+      const productCostMap = new Map<string, number>();
+      products.forEach((p: any) => productCostMap.set(p.id, Number(p.cost) || 0));
+      let estimatedCogs = 0;
+      validTx.forEach((t: Transaction) => {
+          t.items.forEach((item: any) => {
+              if (!item.isConsignment) {
+                  estimatedCogs += (productCostMap.get(item.id) || 0) * (Number(item.quantity) || 0);
+              }
+          });
+      });
+      estimatedCogs = roundCurrency(estimatedCogs);
+      const grossMarginAmount = roundCurrency(Math.max(0, ownSales - estimatedCogs));
+      const grossMarginPct = safePercent(grossMarginAmount, ownSales);
+
       const totalMoneyOut = validMovs.filter((m: CashMovement) => m.type === 'EXPENSE' || (m.type === 'WITHDRAWAL' && m.category === 'THIRD_PARTY')).reduce((sum: number, m: CashMovement) => sum + m.amount, 0);
       const transactionCount = validTx.length;
       const avgTicket = transactionCount > 0 ? totalSales / transactionCount : 0;
@@ -224,8 +241,8 @@ export const Reports: React.FC = () => {
       });
       const paymentChartData = Array.from(payMap.entries()).map(([name, value]) => ({ name, value }));
 
-      return { filteredTransactions: validTx, filteredMovements: validMovs, chartData: chartDataArray, summaryMetrics: { totalSales, totalMoneyOut, avgTicket, transactionCount, netEstimate }, thirdPartyMetrics: { total: thirdPartySales, own: ownSales }, topProducts: topProductsArray, categoryData: categoryArray, expenseCategoryData: expenseCategoryArray, zReportHistory: zHistory, paymentChartData };
-  }, [transactions, cashMovements, dateRange, customStart, customEnd, paymentMethodFilter]);
+      return { filteredTransactions: validTx, filteredMovements: validMovs, chartData: chartDataArray, summaryMetrics: { totalSales, collectedAmount, receivablesAmount, estimatedCogs, grossMarginAmount, grossMarginPct, totalMoneyOut, avgTicket, transactionCount, netEstimate }, thirdPartyMetrics: { total: thirdPartySales, own: ownSales }, topProducts: topProductsArray, categoryData: categoryArray, expenseCategoryData: expenseCategoryArray, zReportHistory: zHistory, paymentChartData };
+  }, [transactions, cashMovements, products, dateRange, customStart, customEnd, paymentMethodFilter]);
 
   // 1. DETERMINE DATE RANGE (Strict local calendar math: no UTC shift, no DST drift, no month-end overflow)
   const periodDates = useMemo(() => {
@@ -851,6 +868,33 @@ export const Reports: React.FC = () => {
                     </div>
                 </div>
 
+                {/* FINANCIAL HEALTH STRIP: Collected vs Receivables & Estimated Gross Margin (COGS) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="bg-white dark:bg-slate-900 px-5 py-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <div>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase">Cobrado Real</p>
+                            <p className="text-lg font-black text-emerald-600 dark:text-emerald-400">${summaryMetrics.collectedAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        </div>
+                        <Banknote className="w-5 h-5 text-emerald-500 opacity-70" />
+                    </div>
+                    <div className="bg-white dark:bg-slate-900 px-5 py-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <div>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase">Por Cobrar (Crédito)</p>
+                            <p className={`text-lg font-black ${summaryMetrics.receivablesAmount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-slate-300'}`}>${summaryMetrics.receivablesAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        </div>
+                        <CreditCard className="w-5 h-5 text-amber-500 opacity-70" />
+                    </div>
+                    <div className="bg-white dark:bg-slate-900 px-5 py-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <div>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase">Margen Bruto Est. (COGS)</p>
+                            <p className="text-lg font-black text-indigo-600 dark:text-indigo-400">
+                                {summaryMetrics.grossMarginPct.toFixed(1)}% <span className="text-xs font-semibold text-slate-400">(${summaryMetrics.grossMarginAmount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })})</span>
+                            </p>
+                        </div>
+                        <TrendingUp className="w-5 h-5 text-indigo-500 opacity-70" />
+                    </div>
+                </div>
+
                 <div className="mb-8">
                     {!insight ? (
                         <button onClick={handleGenerateInsight} disabled={loadingAi} className="w-full py-4 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-3">
@@ -1168,6 +1212,11 @@ export const Reports: React.FC = () => {
                                     style={{ width: `${Math.min(100, (distMetrics.actual.profit / (distMetrics.income || 1)) * 100)}%` }}
                                 ></div>
                             </div>
+                            {distMetrics.display?.isProfitMain && (
+                                <p className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-2 font-bold">
+                                    Retirable seguro (apartando inversión): ${Math.max(0, (distMetrics.display.profitValue || 0) - distMetrics.target.investment).toFixed(0)}
+                                </p>
+                            )}
                         </div>
 
                         {/* Investment/Retained Card */}
@@ -1247,11 +1296,32 @@ export const Reports: React.FC = () => {
         )}
 
         {activeTab === 'Z_HISTORY' && (
-            // ... (Z HISTORY logic remains same) ...
             <div className="animate-[fadeIn_0.3s_ease-out]">
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                     <Lock className="w-6 h-6 text-indigo-500" /> Historial de Cierres de Caja
                 </h3>
+                {zReportHistory.length > 0 && (() => {
+                    const totalZSales = roundCurrency(zReportHistory.reduce((s: number, r: CashMovement) => s + (r.zReportData?.grossSales || 0), 0));
+                    const netDiff = roundCurrency(zReportHistory.reduce((s: number, r: CashMovement) => s + (r.zReportData?.difference || 0), 0));
+                    return (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                <p className="text-xs font-bold text-slate-400 uppercase">Total Cortes Z</p>
+                                <p className="text-2xl font-black text-slate-800 dark:text-white mt-1">{zReportHistory.length}</p>
+                            </div>
+                            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                <p className="text-xs font-bold text-slate-400 uppercase">Ventas en Cortes</p>
+                                <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">${totalZSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                            </div>
+                            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                <p className="text-xs font-bold text-slate-400 uppercase">Balance de Diferencias</p>
+                                <p className={`text-2xl font-black mt-1 ${netDiff < -0.01 ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                    {netDiff >= 0 ? '+' : ''}${netDiff.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                            </div>
+                        </div>
+                    );
+                })()}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {zReportHistory.length > 0 ? zReportHistory.map((report: CashMovement) => (
                         <div key={report.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col group hover:shadow-md transition-all">

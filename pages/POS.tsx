@@ -138,6 +138,21 @@ export const POS: React.FC = () => {
         }
     }, [editingItemId]);
 
+    // Desktop POS Keyboard Shortcuts: F9 = Checkout, Escape = Close active modal
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'F9' && cart.length > 0 && !showCheckoutModal) {
+                e.preventDefault();
+                setShowCheckoutModal(true);
+            } else if (e.key === 'Escape') {
+                if (weightModalOpen) setWeightModalOpen(false);
+                else if (showCheckoutModal && checkoutStep !== 'SUCCESS') setShowCheckoutModal(false);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [cart.length, showCheckoutModal, weightModalOpen, checkoutStep]);
+
     const addToCart = (product: Product, variantId?: string, forceQty?: number) => {
         if (product.unit && product.unit !== 'PIECE' && (forceQty === undefined || !Number.isFinite(forceQty))) {
             setPendingProduct(product);

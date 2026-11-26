@@ -270,6 +270,7 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
 
     // Surplus State
     const [surplusOrder, setSurplusOrder] = useState<Order | null>(null);
+    const [variantPicker, setVariantPicker] = useState<{ product: Product; target: 'CREATE' | 'EDIT' } | null>(null);
 
     // Edit Price State
     const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -343,14 +344,35 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         autoScrollSpeedRef.current = 0;
     };
 
-    // --- Order Creation Logic ---
-    const addToCart = (product: Product) => {
+    // --- Order Creation Logic (Variant-aware) ---
+    const addToCart = (product: Product, chosenVariantId?: string) => {
+        if (product.hasVariants && product.variants && product.variants.length > 0 && !chosenVariantId) {
+            setVariantPicker({ product, target: 'CREATE' });
+            return;
+        }
+        const chosenVariant = chosenVariantId ? product.variants?.find(v => v.id === chosenVariantId) : undefined;
+        const unitPrice = chosenVariant ? chosenVariant.price : product.price;
+
         setCart(prev => {
-            const existing = prev.find(item => item.id === product.id);
+            const existing = prev.find(item => item.id === product.id && item.variantId === chosenVariantId);
             if (existing) {
-                return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+                return prev.map(item =>
+                    item.id === product.id && item.variantId === chosenVariantId
+                        ? { ...item, quantity: item.quantity + 1 }
+                        : item
+                );
             }
-            return [...prev, { ...product, quantity: 1, originalPrice: product.price }];
+            return [
+                ...prev,
+                {
+                    ...product,
+                    price: unitPrice,
+                    originalPrice: unitPrice,
+                    quantity: 1,
+                    variantId: chosenVariant?.id,
+                    variantName: chosenVariant?.name,
+                },
+            ];
         });
     };
 
@@ -413,13 +435,34 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         setEditMobileTab('DETAILS');
     };
 
-    const addToEditCart = (product: Product) => {
+    const addToEditCart = (product: Product, chosenVariantId?: string) => {
+        if (product.hasVariants && product.variants && product.variants.length > 0 && !chosenVariantId) {
+            setVariantPicker({ product, target: 'EDIT' });
+            return;
+        }
+        const chosenVariant = chosenVariantId ? product.variants?.find(v => v.id === chosenVariantId) : undefined;
+        const unitPrice = chosenVariant ? chosenVariant.price : product.price;
+
         setEditCart(prev => {
-            const existing = prev.find(item => item.id === product.id);
+            const existing = prev.find(item => item.id === product.id && item.variantId === chosenVariantId);
             if (existing) {
-                return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+                return prev.map(item =>
+                    item.id === product.id && item.variantId === chosenVariantId
+                        ? { ...item, quantity: item.quantity + 1 }
+                        : item
+                );
             }
-            return [...prev, { ...product, quantity: 1, originalPrice: product.price }];
+            return [
+                ...prev,
+                {
+                    ...product,
+                    price: unitPrice,
+                    originalPrice: unitPrice,
+                    quantity: 1,
+                    variantId: chosenVariant?.id,
+                    variantName: chosenVariant?.name,
+                },
+            ];
         });
     };
 
@@ -519,14 +562,29 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
         setSelectedOrdersForPrint(new Set(filtered.map(o => o.id)));
     };
 
-    // --- SURPLUS HANDLERS ---
+    // --- SURPLUS & BATCH-TO-STOCK HANDLERS ---
     const handleSaveSurplus = (surplusItems: {itemId: string, variantId?: string, qty: number}[]) => {
         surplusItems.forEach(item => {
-            adjustStock(item.itemId, item.qty, 'IN', item.variantId);
+            adjustStock(item.itemId, item.qty, 'IN', item.variantId, 'Sobrante de Producción');
         });
         notify("Inventario Actualizado", `${surplusItems.length} productos sobrantes agregados al stock.`, "success");
         setSurplusOrder(null);
     };
+
+    const handleRecordBatchToStock = useCallback((order: Order) => {
+        if (order.stockAdded) {
+            notify("Ya registrado", "El lote fabricado de este pedido ya fue ingresado al inventario.", "info");
+            return;
+        }
+        if (!confirm(`¿Ingresar las ${order.items.reduce((s, i) => s + i.quantity, 0)} unidades fabricadas del pedido #${order.id} al inventario?\n\nEsto evita que el stock quede en negativo al cobrarlo en POS.`)) {
+            return;
+        }
+        order.items.forEach(item => {
+            adjustStock(item.id, item.quantity, 'IN', item.variantId, `Producción Pedido #${order.id}`);
+        });
+        updateOrder({ ...order, stockAdded: true });
+        notify("Lote en Inventario", `Stock actualizado para el pedido #${order.id}.`, "success");
+    }, [adjustStock, updateOrder, notify]);
 
     // --- SMART PRINT WORKFLOW ---
     const confirmPrintProduction = async (type: 'SHEET' | 'THERMAL' | 'MASTER') => {
@@ -1317,6 +1375,40 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Variant Picker Modal (For Create & Edit Order) */}
+            {variantPicker && (
+                <div className="fixed inset-0 bg-black/60 z-[150] flex items-center justify-center p-4 backdrop-blur-sm animate-[fadeIn_0.2s]">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full border border-slate-100 dark:border-slate-800 p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 className="font-bold text-slate-800 dark:text-white">{variantPicker.product.name}</h3>
+                                <p className="text-xs text-slate-500">Selecciona una variante para el pedido</p>
+                            </div>
+                            <button onClick={() => setVariantPicker(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+                        </div>
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                            {variantPicker.product.variants?.map(v => (
+                                <button
+                                    key={v.id}
+                                    onClick={() => {
+                                        if (variantPicker.target === 'CREATE') addToCart(variantPicker.product, v.id);
+                                        else addToEditCart(variantPicker.product, v.id);
+                                        setVariantPicker(null);
+                                    }}
+                                    className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 flex justify-between items-center text-left transition-all"
+                                >
+                                    <div>
+                                        <p className="font-bold text-sm text-slate-800 dark:text-white">{v.name}</p>
+                                        <p className="text-xs text-slate-500">Stock: {v.stock}</p>
+                                    </div>
+                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">${v.price.toFixed(2)}</span>
+                                </button>
+                            ))}
                         </div>
                     </div>
                 </div>

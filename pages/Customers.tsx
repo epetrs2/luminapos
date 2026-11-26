@@ -193,13 +193,28 @@ El equipo de ${businessName}`;
             <h2 className="text-3xl font-bold text-slate-800 dark:text-white">Clientes</h2>
             <p className="text-slate-500 dark:text-slate-400 mt-1">Base de datos y cuentas por cobrar</p>
           </div>
-          <button
-            onClick={() => handleOpenModal()}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-medium shadow-lg shadow-indigo-200 dark:shadow-none transition-all w-full md:w-auto justify-center active:scale-95"
-          >
-            <Plus className="w-5 h-5" />
-            Nuevo Cliente
-          </button>
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            {(() => {
+              const totalPortfolio = roundCurrency(customers.reduce((s, c) => s + (c.currentDebt || 0), 0));
+              return totalPortfolio > 0 ? (
+                <button
+                  onClick={() => setFilterType('DEBTORS')}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs font-bold hover:bg-red-100 transition-colors"
+                  title="Ver clientes con deuda pendiente"
+                >
+                  <AlertCircle className="w-4 h-4" />
+                  Por Cobrar: ${totalPortfolio.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </button>
+              ) : null;
+            })()}
+            <button
+              onClick={() => handleOpenModal()}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-medium shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex-1 md:flex-none justify-center active:scale-95"
+            >
+              <Plus className="w-5 h-5" />
+              Nuevo Cliente
+            </button>
+          </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col">

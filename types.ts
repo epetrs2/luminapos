@@ -272,6 +272,7 @@ export interface Order {
   status: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'COMPLETED';
   notes?: string;
   priority: 'NORMAL' | 'HIGH';
+  stockAdded?: boolean;
 }
 
 export interface PurchaseItem {
