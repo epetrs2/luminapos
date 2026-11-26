@@ -651,10 +651,27 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                 return;
             }
             
-            // 1. Print Individual Tickets (QR) with 10s Delay
+            // 1. Print Individual Tickets (QR) with 10s Delay & virtual stock allocation across orders
+            const virtualProducts: Product[] = products.map(p => ({
+                ...p,
+                variants: p.variants ? p.variants.map(v => ({ ...v })) : undefined
+            }));
+
             for (let i = 0; i < ordersToPrint.length; i++) {
                 const order = ordersToPrint[i];
-                await printProductionTicket(order, settings, products, sendBtData);
+                await printProductionTicket(order, settings, virtualProducts, sendBtData);
+
+                // Deduct virtually picked warehouse stock so subsequent tickets don't double-count bodega!
+                order.items.forEach(item => {
+                    const vp = virtualProducts.find(p => p.id === item.id);
+                    if (!vp) return;
+                    if (item.variantId && vp.variants) {
+                        const vv = vp.variants.find(v => v.id === item.variantId);
+                        if (vv) vv.stock = Math.max(0, vv.stock - item.quantity);
+                    } else {
+                        vp.stock = Math.max(0, vp.stock - item.quantity);
+                    }
+                });
                 
                 // Add delay between tickets (except optionally after the very last one, but safer to keep it)
                 if (i < ordersToPrint.length - 1) {
