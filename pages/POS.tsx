@@ -818,19 +818,25 @@ export const POS: React.FC = () => {
                                 )}
 
                                 {lastTransaction && customers.find(c => c.id === lastTransaction.customerId)?.clientType === 'BUSINESS' && (
-                                    <button
-                                        onClick={() => setShowPosSignature(true)}
-                                        className={`w-full mb-3 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border transition-colors ${lastTransaction.deliverySignature ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100'}`}
-                                    >
-                                        <PenTool className="w-4 h-4" />
-                                        {lastTransaction.deliverySignature ? '✓ Firma de Tienda Capturada (Refirmar)' : 'Capturar Firma de Recibido (Tienda)'}
-                                    </button>
+                                    lastTransaction.deliverySignature ? (
+                                        <div className="w-full mb-3 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
+                                            <CheckCircle className="w-4 h-4" /> Firma de Tienda Sellada ({lastTransaction.deliverySignature.verificationHash || 'OK'})
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={() => setShowPosSignature(true)}
+                                            className="w-full mb-3 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border transition-colors bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100"
+                                        >
+                                            <PenTool className="w-4 h-4" /> Capturar Firma de Recibido (Tienda)
+                                        </button>
+                                    )
                                 )}
 
                                 {showPosSignature && lastTransaction && (
                                     <SignaturePadModal
                                         ticketId={lastTransaction.id}
                                         customerName={customers.find(c => c.id === lastTransaction.customerId)?.name || 'Tienda'}
+                                        totalAmount={lastTransaction.total}
                                         existingSignature={lastTransaction.deliverySignature}
                                         onClose={() => setShowPosSignature(false)}
                                         onSave={(sig, shouldPrint) => {
@@ -838,7 +844,7 @@ export const POS: React.FC = () => {
                                             const updatedTx = { ...lastTransaction, deliverySignature: sig };
                                             setLastTransaction(updatedTx);
                                             setShowPosSignature(false);
-                                            notify('Firma Guardada', 'Firma de recibido respaldada en la nota.', 'success');
+                                            notify('Firma Sellada', 'Acuse de recibido sellado y protegido en la nota.', 'success');
                                             if (shouldPrint) {
                                                 const custName = customers.find(c => c.id === updatedTx.customerId)?.name || 'Cliente General';
                                                 printThermalTicket(updatedTx, custName, settings, btDevice ? sendBtData : undefined);

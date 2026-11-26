@@ -662,6 +662,9 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
             });
             addLine(`Firma: ${sigDate}`);
         }
+        if (transaction.deliverySignature.verificationHash) {
+            addLine(`Sello: ${transaction.deliverySignature.verificationHash}`);
+        }
     }
 
     add(COMMANDS.ALIGN_CENTER);

@@ -242,9 +242,10 @@ export interface Supplier {
 }
 
 export interface DeliverySignature {
-  imageDataUrl: string; // High-contrast B&W PNG data URL
+  imageDataUrl: string; // High-contrast B&W PNG data URL with embedded folio watermark
   signedByName?: string;
   signedAt: string; // ISO timestamp
+  verificationHash?: string; // Short SHA-256 seal binding folio + total + timestamp + signature
 }
 
 export interface Transaction {
