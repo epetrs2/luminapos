@@ -7,6 +7,8 @@ import { generateTestTicket } from '../utils/escPosHelper';
 import { optimizeForThermal } from '../utils/imageHelper';
 import { SoundType } from '../types';
 import { playSystemSound } from '../utils/sound';
+import { isSupabaseConfigured, testSupabaseConnection } from '../services/supabaseClient';
+import { migrateLocalDataToSupabase } from '../services/supabaseMigrator';
 
 // ... ImageCropper code remains unchanged ...
 interface ImageCropperProps {
@@ -230,6 +232,31 @@ export const Settings: React.FC = () => {
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [cropTarget, setCropTarget] = useState<'MAIN' | 'RECEIPT'>('MAIN');
   const [testingConnection, setTestingConnection] = useState(false);
+  const [migratingSupabase, setMigratingSupabase] = useState(false);
+  const [supabaseStatus, setSupabaseStatus] = useState<string>('');
+  const supabaseReady = isSupabaseConfigured();
+
+  const handleTestSupabase = async () => {
+      setSupabaseStatus('Verificando...');
+      const res = await testSupabaseConnection();
+      setSupabaseStatus(res.message);
+      notify('Supabase', res.message, res.ok ? 'success' : 'warning');
+  };
+
+  const handleMigrateToSupabase = async () => {
+      if (!confirm('¿Migrar tus categorías, productos, variantes, clientes, proveedores y configuración actuales hacia Supabase PostgreSQL?')) return;
+      setMigratingSupabase(true);
+      try {
+          const report = await migrateLocalDataToSupabase({ categories, products, customers, suppliers, settings: formData });
+          const summary = `Migrados: ${report.categories} categorías, ${report.products} productos, ${report.variants} variantes, ${report.customers} clientes, ${report.suppliers} proveedores.`;
+          setSupabaseStatus(report.errors.length > 0 ? `${summary} (${report.errors.length} avisos)` : summary);
+          notify('Migración Supabase', summary, report.errors.length > 0 ? 'warning' : 'success');
+      } catch (err: any) {
+          notify('Error Migración', err?.message || 'No se pudo migrar a Supabase', 'error');
+      } finally {
+          setMigratingSupabase(false);
+      }
+  };
 
   // --- BLUETOOTH STATE ---
   const [isScanningBt, setIsScanningBt] = useState(false);
@@ -859,7 +886,35 @@ export const Settings: React.FC = () => {
 
             {/* DATA & CLOUD TAB */}
             {activeTab === 'DATA' && (
-                <div className="animate-[fadeIn_0.3s_ease-out]">
+                <div className="animate-[fadeIn_0.3s_ease-out] space-y-6">
+                    {/* SUPABASE POSTGRESQL CARD */}
+                    <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Database className="w-5 h-5"/></div>
+                            Base de Datos Sólida (Supabase PostgreSQL)
+                        </h3>
+
+                        <div className={`p-4 rounded-2xl border flex items-center gap-4 mb-5 ${supabaseReady ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}>
+                            <div className={`p-3 rounded-full ${supabaseReady ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-500'}`}>
+                                <Database className="w-6 h-6" />
+                            </div>
+                            <div className="flex-1">
+                                <h4 className="font-bold text-slate-800 dark:text-white">{supabaseReady ? 'Supabase Configurado (RLS Activo)' : 'Supabase No Configurado'}</h4>
+                                <p className="text-xs text-slate-500">{supabaseStatus || (supabaseReady ? 'Listo para sincronizar Web, macOS y Android en tiempo real.' : 'Configura VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en .env / Vercel.')}</p>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <button onClick={handleTestSupabase} disabled={!supabaseReady} className="flex-1 py-3 bg-slate-900 dark:bg-slate-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+                                <Server className="w-4 h-4"/> Probar Supabase
+                            </button>
+                            <button onClick={handleMigrateToSupabase} disabled={!supabaseReady || migratingSupabase} className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors">
+                                {migratingSupabase ? <Loader2 className="w-4 h-4 animate-spin"/> : <UploadCloud className="w-4 h-4"/>}
+                                {migratingSupabase ? 'Migrando...' : 'Migrar Datos a Supabase'}
+                            </button>
+                        </div>
+                    </div>
+
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
                         <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
                             <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg text-cyan-600"><Cloud className="w-5 h-5"/></div>
