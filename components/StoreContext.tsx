@@ -1556,9 +1556,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return () => clearInterval(interval);
     }, [currentUser?.id]);
 
-    // --- AUTO SYNC ---
+    // --- LEGACY GOOGLE SHEETS AUTO SYNC (Disabled automatically when Supabase is active) ---
     useEffect(() => {
-        if (settings.enableCloudSync && hasPendingChanges && !isSyncing) {
+        if (!supabase && settings.enableCloudSync && hasPendingChanges && !isSyncing) {
             const timer = setTimeout(() => {
                 pushToCloud();
             }, 30000);

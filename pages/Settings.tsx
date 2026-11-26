@@ -1091,6 +1091,7 @@ export const Settings: React.FC = () => {
                         </div>
                     </div>
 
+                    {!supabaseReady && (
                     <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800">
                         <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-3 mb-6">
                             <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg text-cyan-600"><Cloud className="w-5 h-5"/></div>
@@ -1121,6 +1122,7 @@ export const Settings: React.FC = () => {
                             </div>
                         </div>
                     </div>
+                    )}
                 </div>
             )}
 
