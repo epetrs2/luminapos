@@ -401,15 +401,23 @@ export const Users: React.FC = () => {
   const formatLastActive = (isoString?: string) => {
       if (!isoString) return 'Nunca';
       const date = new Date(isoString);
+      if (isNaN(date.getTime())) return 'Nunca';
       const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffMins = Math.round(diffMs / 60000);
-      const diffHours = Math.round(diffMs / 3600000);
+      const diffMs = Math.max(0, now.getTime() - date.getTime());
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
 
-      if (diffMins < 1) return 'Ahora';
-      if (diffMins < 60) return `${diffMins}m`;
-      if (diffHours < 24) return `${diffHours}h`;
-      return date.toLocaleDateString(undefined, {month:'numeric', day:'numeric'});
+      if (diffMins < 3) return 'En línea ahora';
+      if (diffMins < 60) return `Hace ${diffMins}m`;
+      if (diffHours < 24) return `Hace ${diffHours}h`;
+      return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+  };
+
+  const formatLastLogin = (isoString?: string) => {
+      if (!isoString) return 'Nunca';
+      const date = new Date(isoString);
+      if (isNaN(date.getTime())) return 'Nunca';
+      return date.toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   };
 
   // --- INVITE HANDLERS ---
@@ -627,11 +635,14 @@ export const Users: React.FC = () => {
                                 <div className="flex flex-col gap-1">
                                     <div className="flex items-center gap-1.5 text-xs" title="Último Login">
                                         <Clock className="w-3 h-3 text-slate-400" />
-                                        <span>Login: {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Nunca'}</span>
+                                        <span>Login: {formatLastLogin(user.lastLogin)}</span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 font-medium" title="Última Acción">
-                                        <Activity className="w-3 h-3" />
-                                        <span>Activo: {formatLastActive(user.lastActive)}</span>
+                                    <div className={`flex items-center gap-1.5 text-xs font-medium ${formatLastActive(user.lastActive) === 'En línea ahora' ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-600 dark:text-indigo-400'}`} title="Última Acción">
+                                        {formatLastActive(user.lastActive) === 'En línea ahora'
+                                            ? <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                            : <Activity className="w-3 h-3" />
+                                        }
+                                        <span>{formatLastActive(user.lastActive) === 'En línea ahora' ? 'En línea ahora' : `Activo: ${formatLastActive(user.lastActive)}`}</span>
                                     </div>
                                 </div>
                             </td>

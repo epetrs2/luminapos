@@ -32,6 +32,7 @@ import {
     sbSendMagicLink,
     sbUpdateMyPassword,
     sbVerifyCurrentUserPassword,
+    sbTouchUserActivity,
     sbLogActivity,
 } from '../services/supabaseWrites';
 import { roundCurrency, roundQty, generateId } from '../utils/financeHelpers';
@@ -395,6 +396,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const clearPosDraft = () => setPosDraft(EMPTY_POS_DRAFT);
 
     const logActivity = (action: ActivityLog['action'], details: string) => {
+        const nowIso = new Date().toISOString();
         const log: ActivityLog = {
             id: generateId(),
             userId: currentUser?.id || 'system',
@@ -402,9 +404,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             userRole: currentUser?.role || 'CASHIER',
             action,
             details,
-            timestamp: new Date().toISOString()
+            timestamp: nowIso
         };
         setActivityLogs(prev => [log, ...prev].slice(0, 1000));
+        if (currentUser?.id) {
+            setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lastActive: nowIso } : u));
+        }
         sbLogActivity(action, details, log.userName, log.userRole, log.userId);
     };
 
@@ -1118,7 +1123,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         const nowIso = new Date().toISOString();
-        const updatedUser: User = { ...user, lastLogin: nowIso, failedLoginAttempts: 0, lockoutUntil: undefined };
+        const updatedUser: User = { ...user, lastLogin: nowIso, lastActive: nowIso, failedLoginAttempts: 0, lockoutUntil: undefined };
         setUsers(prev => prev.map(usr => usr.id === user.id ? updatedUser : usr));
         setCurrentUser(updatedUser);
         logActivity('LOGIN', `Inicio de sesión de ${user.username}`);
@@ -1165,6 +1170,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return false;
         }
 
+        const nowIso = new Date().toISOString();
         const email = profile?.email || sessionUser.email || 'usuario@luminapos.app';
         const sbUser: User = {
             id: sessionUser.id,
@@ -1175,9 +1181,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             active: profile?.active !== false,
             passwordHash: '',
             salt: '',
-            lastLogin: new Date().toISOString(),
+            lastLogin: nowIso,
+            lastActive: nowIso,
         };
         setCurrentUser(sbUser);
+        sbTouchUserActivity(true);
         return true;
     };
 
@@ -1462,6 +1470,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             authSub.subscription.unsubscribe();
         };
     }, []);
+
+    // --- LIVE USER ACTIVITY HEARTBEAT (Updates lastActive every 2 min while active) ---
+    useEffect(() => {
+        if (!currentUser?.id) return;
+        const beat = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            const nowIso = new Date().toISOString();
+            setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lastActive: nowIso } : u));
+            sbTouchUserActivity(false);
+        };
+        const interval = setInterval(beat, 2 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, [currentUser?.id]);
 
     // --- AUTO SYNC ---
     useEffect(() => {

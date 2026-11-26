@@ -91,13 +91,23 @@ export const Inventory: React.FC = () => {
     if (!formData.name || !formData.sku || !formData.category) {
         alert("Por favor completa los campos requeridos (Nombre, SKU, Categoría).");
         return;
-    } 
+    }
+
+    const normalizedSku = formData.sku.trim().toLowerCase();
+    const duplicateSku = products.find(p => p.id !== editingProduct?.id && p.sku.trim().toLowerCase() === normalizedSku);
+    if (duplicateSku) {
+        alert(`El SKU "${formData.sku}" ya está asignado al producto "${duplicateSku.name}". Usa un SKU único.`);
+        return;
+    }
 
     const finalProduct: Product = {
         ...(editingProduct || {}),
         ...formData,
+        sku: formData.sku.trim(),
         id: editingProduct?.id || '', // Empty ID tells StoreContext to generate a SAFE, SEQUENTIAL ID
-        stock: formData.hasVariants ? tempVariants.reduce((sum, v) => sum + v.stock, 0) : (formData.stock || 0),
+        stock: formData.hasVariants ? tempVariants.reduce((sum, v) => sum + v.stock, 0) : (Number.isFinite(formData.stock) ? (formData.stock || 0) : 0),
+        price: Number.isFinite(formData.price) ? Math.max(0, formData.price || 0) : 0,
+        cost: Number.isFinite(formData.cost) ? Math.max(0, formData.cost || 0) : 0,
         variants: formData.hasVariants ? tempVariants : undefined,
         taxRate: settings.enableTax ? (formData.taxRate ?? 0) : 0,
         type: formData.type || inventoryType,
@@ -124,12 +134,14 @@ export const Inventory: React.FC = () => {
   // --- Variant Handlers ---
   const addVariant = () => {
       if (!variantName || !variantPrice || !variantSku) return;
+      const parsedPrice = Math.max(0, parseFloat(variantPrice) || 0);
+      const parsedStock = Math.max(0, parseFloat(variantStock) || 0);
       const newVariant: ProductVariant = {
           id: crypto.randomUUID(),
-          name: variantName,
-          price: parseFloat(variantPrice),
-          stock: parseInt(variantStock) || 0,
-          sku: variantSku
+          name: variantName.trim(),
+          price: parsedPrice,
+          stock: parsedStock,
+          sku: variantSku.trim()
       };
       setTempVariants([...tempVariants, newVariant]);
       setVariantName('');

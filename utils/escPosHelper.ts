@@ -52,43 +52,79 @@ const encode = (str: string | undefined | null): Uint8Array => {
     return new Uint8Array(bytes);
 };
 
+// --- HELPER: CLEAN WORD WRAPPING FOR 58mm (32 cols) & 80mm (48 cols) ---
+const getLineWidth = (widthType: '58mm' | '80mm') => (widthType === '58mm' ? 32 : 48);
+
+const wrapText = (text: string | undefined | null, maxCols: number, indent = ''): string[] => {
+    const clean = normalize(text).trim();
+    if (!clean) return [];
+    const effectiveWidth = Math.max(8, maxCols - indent.length);
+    const words = clean.split(/\s+/);
+    const lines: string[] = [];
+    let current = '';
+
+    for (const word of words) {
+        if (!current) {
+            if (word.length <= effectiveWidth) {
+                current = word;
+            } else {
+                // Break overly long word/SKU cleanly
+                let rest = word;
+                while (rest.length > effectiveWidth) {
+                    lines.push(indent + rest.slice(0, effectiveWidth));
+                    rest = rest.slice(effectiveWidth);
+                }
+                current = rest;
+            }
+        } else if (current.length + 1 + word.length <= effectiveWidth) {
+            current += ' ' + word;
+        } else {
+            lines.push(indent + current);
+            if (word.length <= effectiveWidth) {
+                current = word;
+            } else {
+                let rest = word;
+                while (rest.length > effectiveWidth) {
+                    lines.push(indent + rest.slice(0, effectiveWidth));
+                    rest = rest.slice(effectiveWidth);
+                }
+                current = rest;
+            }
+        }
+    }
+    if (current) lines.push(indent + current);
+    return lines;
+};
+
 // --- HELPER: STRICT FIXED WIDTH COLUMNS ---
 const formatRow = (col1: string, col2: string, col3: string, widthType: '58mm' | '80mm') => {
     const is58mm = widthType === '58mm';
-    // Total Chars: 32 for 58mm, 48 for 80mm
-    
-    // DEFINICION DE COLUMNAS 
-    // 58mm: [Qty 4] [Desc 17] [Total 11] = 32
-    // 80mm: [Qty 6] [Desc 30] [Total 12] = 48
-
     const wQty = is58mm ? 4 : 6;
     const wTotal = is58mm ? 11 : 12;
-    const wDesc = is58mm ? 17 : 30; // Remainder
+    const wDesc = is58mm ? 17 : 30;
 
-    // 1. Normalizar (Quitar acentos)
     const nCol1 = normalize(col1);
     const nCol2 = normalize(col2);
     const nCol3 = normalize(col3);
 
-    // 2. Truncar y Rellenar
-    const c1 = nCol1.substring(0, wQty - 1).padEnd(wQty, ' '); // Left align
-    const c2 = nCol2.substring(0, wDesc - 1).padEnd(wDesc, ' '); // Left align
-    const c3 = nCol3.substring(0, wTotal).padStart(wTotal, ' '); // Right align
+    const c1 = nCol1.substring(0, wQty - 1).padEnd(wQty, ' ');
+    const c2 = nCol2.substring(0, wDesc - 1).padEnd(wDesc, ' ');
+    const c3 = nCol3.substring(0, wTotal).padStart(wTotal, ' ');
 
     return c1 + c2 + c3;
 };
 
 const formatTwoCols = (left: string, right: string, widthType: '58mm' | '80mm') => {
-    const totalWidth = widthType === '58mm' ? 32 : 48;
-    const wRight = Math.floor(totalWidth * 0.4); // 40% for value
-    const wLeft = totalWidth - wRight; 
-    
+    const totalWidth = getLineWidth(widthType);
     const nLeft = normalize(left);
     const nRight = normalize(right);
 
-    const l = nLeft.substring(0, wLeft - 1).padEnd(wLeft, ' ');
-    const r = nRight.substring(0, wRight).padStart(wRight, ' ');
-    return l + r;
+    const gap = totalWidth - nLeft.length - nRight.length;
+    if (gap >= 1) {
+        return nLeft + ' '.repeat(gap) + nRight;
+    }
+    const maxLeft = Math.max(4, totalWidth - nRight.length - 1);
+    return nLeft.substring(0, maxLeft).padEnd(maxLeft + 1, ' ') + nRight;
 };
 
 // --- IMAGE PROCESSING ---
@@ -462,21 +498,27 @@ export const generateConsolidatedProduction = async (
     return new Uint8Array(buffer);
 };
 
-// --- TICKET GENERATOR ---
+// --- TICKET GENERATOR (OPTIMIZED 58mm / 80mm — ZERO TRUNCATION) ---
 export const generateEscPosTicket = async (transaction: Transaction, customerName: string, settings: BusinessSettings, copyLabel?: string): Promise<Uint8Array> => {
     const buffer: number[] = [];
     const add = (data: number[] | Uint8Array) => buffer.push(...(data instanceof Uint8Array ? Array.from(data) : data));
     const addLine = (text: string) => add(encode(text + '\n'));
-    const separator = '-'.repeat(settings.ticketPaperWidth === '58mm' ? 32 : 48);
+    const widthType = settings.ticketPaperWidth || '58mm';
+    const cols = getLineWidth(widthType);
+    const separator = '-'.repeat(cols);
+    const doubleSep = '='.repeat(cols);
+    const addWrapped = (text: string | undefined | null, indent = '') => {
+        wrapText(text, cols, indent).forEach(l => addLine(l));
+    };
 
     add(COMMANDS.INIT);
-    add(COMMANDS.CODE_PAGE); 
+    add(COMMANDS.CODE_PAGE);
     add(COMMANDS.ALIGN_CENTER);
 
     if (settings.receiptLogo) {
         try {
             const img = await loadImage(settings.receiptLogo);
-            const maxDots = settings.ticketPaperWidth === '58mm' ? 384 : 576; 
+            const maxDots = widthType === '58mm' ? 384 : 576;
             const rasterData = convertImageToRaster(img, maxDots);
             add(rasterData);
             add(COMMANDS.FEED_LINES(1));
@@ -488,78 +530,121 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
         add(COMMANDS.BOLD_ON);
         addLine(`*** ${copyLabel} ***`);
         add(COMMANDS.BOLD_OFF);
-        addLine('\n');
     }
 
+    // Business Header (Double height only so long names fit 32 cols cleanly)
     add(COMMANDS.BOLD_ON);
-    addLine(settings.name);
+    add([GS, 0x21, 0x01]);
+    addWrapped(settings.name || 'LuminaPOS');
+    add([GS, 0x21, 0x00]);
     add(COMMANDS.BOLD_OFF);
-    if (settings.address) addLine(settings.address);
+
+    if (settings.address) addWrapped(settings.address);
     if (settings.phone) addLine(`Tel: ${settings.phone}`);
-    addLine('\n');
-    
+    if (settings.taxId) addLine(`RFC: ${settings.taxId}`);
+
     if (settings.receiptHeader) {
-        addLine(settings.receiptHeader);
-        addLine('\n');
+        addLine('');
+        addWrapped(settings.receiptHeader);
     }
-    
+
     addLine(separator);
     add(COMMANDS.ALIGN_LEFT);
-    addLine(`Folio: #${transaction.id}`);
-    addLine(`Fecha: ${new Date(transaction.date).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', hour: '2-digit', minute:'2-digit'})}`);
-    addLine(`Cliente: ${customerName.substring(0, 20)}`);
+    const formattedDate = new Date(transaction.date).toLocaleString('es-MX', {
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+    addLine(formatTwoCols(`Folio: #${transaction.id}`, formattedDate, widthType));
+    addWrapped(`Cliente: ${customerName || 'Publico General'}`);
+    const totalUnits = transaction.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+    addLine(formatTwoCols(`Articulos: ${Number(totalUnits.toFixed(3))}`, `Pago: ${transaction.paymentMethod === 'cash' ? 'Efectivo' : transaction.paymentMethod === 'card' ? 'Tarjeta' : transaction.paymentMethod === 'transfer' ? 'Transf.' : transaction.paymentMethod === 'credit' ? 'Credito' : 'Dividido'}`, widthType));
     addLine(separator);
 
+    // 2-Line Professional Layout per Item (Full Name + Qty x UnitPrice -> Line Total)
     add(COMMANDS.BOLD_ON);
-    // Usamos headers cortos para que encajen mejor
-    addLine(formatRow("Can", "Desc.", "Total", settings.ticketPaperWidth));
+    addLine(formatTwoCols('ARTICULO', 'IMPORTE', widthType));
     add(COMMANDS.BOLD_OFF);
     addLine(separator);
-    
+
     transaction.items.forEach(item => {
-        const total = (item.price * item.quantity).toFixed(2);
-        // El nombre se trunca para asegurar alineacion perfecta
-        addLine(formatRow(item.quantity.toString(), item.name, `$${total}`, settings.ticketPaperWidth));
-        
-        // Si hay variante, se pone en otra linea con sangría
-        if (item.variantName) {
-            const indent = settings.ticketPaperWidth === '58mm' ? '    ' : '      ';
-            addLine(`${indent}${normalize(item.variantName).substring(0, settings.ticketPaperWidth === '58mm' ? 28 : 42)}`);
-        }
+        const lineTotal = (item.price * item.quantity).toFixed(2);
+        const fullName = item.variantName ? `${item.name} (${item.variantName})` : item.name;
+        // Line 1+: Complete wrapped product name (never truncated!)
+        add(COMMANDS.BOLD_ON);
+        addWrapped(fullName);
+        add(COMMANDS.BOLD_OFF);
+        // Line 2: Qty x Unit Price (left) + Subtotal (right)
+        const qtyStr = Number.isInteger(item.quantity) ? String(item.quantity) : Number(item.quantity.toFixed(3)).toString();
+        addLine(formatTwoCols(`  ${qtyStr} x $${item.price.toFixed(2)}`, `$${lineTotal}`, widthType));
     });
 
     addLine(separator);
-    add(COMMANDS.ALIGN_RIGHT);
-    
-    if (transaction.discount > 0) addLine(`Desc: -$${transaction.discount.toFixed(2)}`);
-    if (transaction.shipping > 0) addLine(`Envio: $${transaction.shipping.toFixed(2)}`);
-    
-    add(COMMANDS.BOLD_ON);
-    add([GS, 0x21, 0x11]); // Double Height/Width
-    addLine(`TOTAL: $${transaction.total.toFixed(2)}`);
-    add([GS, 0x21, 0x00]); // Reset
-    add(COMMANDS.BOLD_OFF);
+    add(COMMANDS.ALIGN_LEFT);
 
-    // CHANGE AND PAYMENT DISPLAY LOGIC
-    // Use tenderedAmount if available (new logic), otherwise fallback to amountPaid
+    const hasExtras = (transaction.discount || 0) > 0 || (transaction.shipping || 0) > 0 || (transaction.taxAmount || 0) > 0;
+    if (hasExtras) {
+        addLine(formatTwoCols('Subtotal:', `$${transaction.subtotal.toFixed(2)}`, widthType));
+    }
+    if ((transaction.discount || 0) > 0) {
+        addLine(formatTwoCols('Descuento:', `-$${transaction.discount.toFixed(2)}`, widthType));
+    }
+    if ((transaction.shipping || 0) > 0) {
+        addLine(formatTwoCols('Envio:', `$${transaction.shipping.toFixed(2)}`, widthType));
+    }
+    if ((transaction.taxAmount || 0) > 0) {
+        addLine(formatTwoCols('Impuestos:', `$${transaction.taxAmount.toFixed(2)}`, widthType));
+    }
+
+    addLine(doubleSep);
+    add(COMMANDS.BOLD_ON);
+    add([GS, 0x21, 0x01]); // Double Height (fits 32 cols cleanly without wrapping!)
+    addLine(formatTwoCols('TOTAL:', `$${transaction.total.toFixed(2)}`, widthType));
+    add([GS, 0x21, 0x00]);
+    add(COMMANDS.BOLD_OFF);
+    addLine(doubleSep);
+
+    // Complete Payment / Change / Split / Credit Balance Breakdown
     const paid = transaction.tenderedAmount || transaction.amountPaid || 0;
     const change = Math.max(0, paid - transaction.total);
-    
-    if (transaction.paymentMethod === 'cash' || paid > transaction.total) {
-        addLine(`Efectivo: $${paid.toFixed(2)}`);
+    const pendingBalance = Math.max(0, transaction.total - (transaction.amountPaid || 0));
+
+    if (transaction.paymentMethod === 'split' && transaction.splitDetails) {
+        if (transaction.splitDetails.cash > 0) {
+            addLine(formatTwoCols('  Efectivo:', `$${transaction.splitDetails.cash.toFixed(2)}`, widthType));
+        }
+        if (transaction.splitDetails.other > 0) {
+            addLine(formatTwoCols('  Tarjeta/Transf:', `$${transaction.splitDetails.other.toFixed(2)}`, widthType));
+        }
+    } else if (transaction.paymentMethod === 'credit') {
+        addLine(formatTwoCols('Abonado:', `$${(transaction.amountPaid || 0).toFixed(2)}`, widthType));
         add(COMMANDS.BOLD_ON);
-        addLine(`Cambio:   $${change.toFixed(2)}`);
+        addLine(formatTwoCols('SALDO PENDIENTE:', `$${pendingBalance.toFixed(2)}`, widthType));
+        add(COMMANDS.BOLD_OFF);
+    } else if (transaction.paymentMethod === 'cash' || paid > transaction.total) {
+        addLine(formatTwoCols('Efectivo:', `$${paid.toFixed(2)}`, widthType));
+        add(COMMANDS.BOLD_ON);
+        addLine(formatTwoCols('Cambio:', `$${change.toFixed(2)}`, widthType));
         add(COMMANDS.BOLD_OFF);
     } else {
-        addLine(`Pago: ${transaction.paymentMethod.toUpperCase()}`);
+        const label = transaction.paymentMethod === 'card' ? 'Tarjeta:' : 'Transferencia:';
+        addLine(formatTwoCols(label, `$${(transaction.amountPaid || transaction.total).toFixed(2)}`, widthType));
     }
 
     add(COMMANDS.ALIGN_CENTER);
     addLine(separator);
-    if (settings.receiptFooter) addLine(settings.receiptFooter);
-    else addLine("Gracias por su compra");
-    
-    add(COMMANDS.FEED_LINES(4)); 
+    if (settings.receiptFooter) {
+        addWrapped(settings.receiptFooter);
+    } else {
+        addLine("Gracias por su compra");
+    }
+    if (settings.website) {
+        addWrapped(settings.website);
+    }
+
+    add(COMMANDS.FEED_LINES(4));
     return new Uint8Array(buffer);
 };
 

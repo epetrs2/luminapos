@@ -788,44 +788,65 @@ export const Settings: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="flex-1 bg-slate-100 dark:bg-black p-4 rounded-xl shadow-inner font-mono text-xs overflow-hidden flex flex-col items-center">
-                                <p className="text-slate-400 mb-2 uppercase font-bold text-[10px]">Vista Previa Aproximada</p>
-                                <div className={`bg-white text-black p-4 shadow-lg w-full max-w-[${formData.ticketPaperWidth === '58mm' ? '280px' : '360px'}]`} style={{minHeight: '400px'}}>
-                                    <div className="text-center mb-4">
-                                        {formData.receiptLogo && <img src={formData.receiptLogo} className="h-12 mx-auto mb-2 grayscale" />}
-                                        <div className="font-bold text-sm uppercase">{formData.name || 'NOMBRE NEGOCIO'}</div>
-                                        <div>{formData.address || 'Dirección...'}</div>
-                                        <div>Tel: {formData.phone || '000-000-0000'}</div>
+                            <div className="flex-1 bg-slate-100 dark:bg-black p-4 rounded-xl shadow-inner font-mono text-[11px] overflow-hidden flex flex-col items-center">
+                                <p className="text-slate-400 mb-2 uppercase font-bold text-[10px]">Vista Previa Real ({formData.ticketPaperWidth || '58mm'})</p>
+                                <div className="bg-white text-black p-4 shadow-lg w-full leading-snug" style={{ maxWidth: formData.ticketPaperWidth === '80mm' ? '340px' : '256px', minHeight: '420px' }}>
+                                    <div className="text-center mb-2">
+                                        {formData.receiptLogo && <img src={formData.receiptLogo} className="h-12 mx-auto mb-1.5 grayscale" />}
+                                        <div className="font-black text-sm uppercase tracking-tight">{formData.name || 'NOMBRE NEGOCIO'}</div>
+                                        {formData.address && <div className="break-words">{formData.address}</div>}
+                                        {formData.phone && <div>Tel: {formData.phone}</div>}
+                                        {formData.taxId && <div>RFC: {formData.taxId}</div>}
+                                        {formData.receiptHeader && <div className="mt-1.5 italic break-words">{formData.receiptHeader}</div>}
                                     </div>
                                     <div className="border-b border-black border-dashed my-2"></div>
-                                    <div>Ticket: #0001</div>
-                                    <div>Fecha: {new Date().toLocaleDateString()}</div>
-                                    <div className="border-b border-black border-dashed my-2"></div>
-                                    <div className="flex justify-between font-bold mb-1">
-                                        <span>CANT. DESC</span>
-                                        <span>TOTAL</span>
-                                    </div>
                                     <div className="flex justify-between">
-                                        <span>1 x Producto Ejemplo</span>
-                                        <span>$150.00</span>
+                                        <span>Folio: #0001</span>
+                                        <span>{new Date().toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
                                     </div>
+                                    <div className="break-words">Cliente: Publico General</div>
                                     <div className="flex justify-between">
-                                        <span>2 x Otro Articulo</span>
-                                        <span>$50.00</span>
+                                        <span>Articulos: 3</span>
+                                        <span>Pago: Efectivo</span>
                                     </div>
                                     <div className="border-b border-black border-dashed my-2"></div>
-                                    <div className="flex justify-between font-bold text-sm">
+                                    <div className="flex justify-between font-bold">
+                                        <span>ARTICULO</span>
+                                        <span>IMPORTE</span>
+                                    </div>
+                                    <div className="border-b border-black border-dashed my-1.5"></div>
+                                    <div className="mb-1.5">
+                                        <div className="font-bold break-words">Producto Artesanal Ejemplo (500g)</div>
+                                        <div className="flex justify-between pl-2">
+                                            <span>1 x $150.00</span>
+                                            <span>$150.00</span>
+                                        </div>
+                                    </div>
+                                    <div className="mb-1">
+                                        <div className="font-bold break-words">Otro Articulo Largo Sin Cortar</div>
+                                        <div className="flex justify-between pl-2">
+                                            <span>2 x $25.00</span>
+                                            <span>$50.00</span>
+                                        </div>
+                                    </div>
+                                    <div className="border-b border-black border-dashed my-2"></div>
+                                    <div className="border-y-2 border-black py-1 my-1 flex justify-between font-black text-sm">
                                         <span>TOTAL:</span>
                                         <span>$200.00</span>
                                     </div>
                                     <div className="flex justify-between mt-1">
                                         <span>Efectivo:</span>
-                                        <span>$200.00</span>
+                                        <span>$250.00</span>
+                                    </div>
+                                    <div className="flex justify-between font-bold">
+                                        <span>Cambio:</span>
+                                        <span>$50.00</span>
                                     </div>
                                     <div className="border-b border-black border-dashed my-2"></div>
-                                    <div className="text-center mt-4">
+                                    <div className="text-center mt-2 break-words">
                                         {formData.receiptFooter || 'Gracias por su compra'}
                                     </div>
+                                    {formData.website && <div className="text-center text-[10px] mt-0.5 break-words">{formData.website}</div>}
                                 </div>
                             </div>
                         </div>

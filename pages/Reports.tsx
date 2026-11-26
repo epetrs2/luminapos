@@ -157,10 +157,20 @@ export const Reports: React.FC = () => {
       let thirdPartySales = 0;
       let ownSales = 0;
       validTx.forEach((t: Transaction) => {
+          let txOwnGross = 0;
+          let txThirdGross = 0;
           t.items.forEach((item: any) => {
-              if (item.isConsignment === true) thirdPartySales += (item.price * item.quantity);
-              else ownSales += (item.price * item.quantity);
+              const lineAmt = (Number(item.price) || 0) * (Number(item.quantity) || 0);
+              if (item.isConsignment === true) txThirdGross += lineAmt;
+              else txOwnGross += lineAmt;
           });
+          // Apportion transaction discount proportionally so ownSales reflects true net revenue (never overstated by discounts!)
+          const txGross = txOwnGross + txThirdGross;
+          const discount = Math.max(0, Number(t.discount) || 0);
+          const ownShare = txGross > 0 ? txOwnGross / txGross : 1;
+          const thirdShare = txGross > 0 ? txThirdGross / txGross : 0;
+          ownSales = roundCurrency(ownSales + Math.max(0, txOwnGross - discount * ownShare) + (Number(t.shipping) || 0));
+          thirdPartySales = roundCurrency(thirdPartySales + Math.max(0, txThirdGross - discount * thirdShare));
       });
 
       const totalSales = validTx.reduce((sum: number, t: Transaction) => sum + t.total, 0);
@@ -365,7 +375,7 @@ export const Reports: React.FC = () => {
 
       const relevantTx = transactions.filter((t: Transaction) => {
           const d = new Date(t.date);
-          return t.status !== 'cancelled' && d >= start && d <= end;
+          return t.status !== 'cancelled' && t.status !== 'returned' && d >= start && d <= end;
       });
 
       const periodProducts = new Map<string, {name:string, qty:number, total:number}>();
@@ -440,7 +450,7 @@ export const Reports: React.FC = () => {
 
         let sold30Days = 0;
         transactions.forEach((t: Transaction) => {
-            if (t.status === 'cancelled') return;
+            if (t.status === 'cancelled' || t.status === 'returned') return;
             const txDate = new Date(t.date);
             if (txDate >= thirtyDaysAgo) {
                 t.items.forEach((i: any) => {
@@ -450,9 +460,13 @@ export const Reports: React.FC = () => {
         });
 
         let daysRemaining = sold30Days > 0 ? (stock / (sold30Days / 30)) : 999;
-        
-        if (stock <= 0) { } else if (daysRemaining < 7) { criticalCount++; }
-        if (stock > 0 && sold30Days === 0) { deadStockCount++; }
+
+        // Only evaluate sales-velocity alerts on sellable PRODUCTs (exclude internal SUPPLY ingredients!)
+        const isSellableProduct = (p.type || 'PRODUCT') !== 'SUPPLY';
+        if (isSellableProduct) {
+            if (stock > 0 && daysRemaining < 7) { criticalCount++; }
+            if (stock > 0 && sold30Days === 0) { deadStockCount++; }
+        }
 
         sortedItems.push({
             id: p.id,

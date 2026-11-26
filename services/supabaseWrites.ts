@@ -453,6 +453,22 @@ export const sbVerifyCurrentUserPassword = async (email: string, password: strin
   return !error;
 };
 
+export const sbTouchUserActivity = async (isLogin = false) => {
+  if (!supabase || !(await isSignedIn())) return;
+  const { error } = await supabase.rpc('rpc_touch_my_activity', { p_is_login: isLogin });
+  if (error && error.message?.includes('rpc_touch_my_activity')) {
+    // Fallback if migration 007 hasn't been executed yet (works for ADMIN)
+    const { data } = await supabase.auth.getUser();
+    if (data?.user?.id) {
+      const now = new Date().toISOString();
+      await supabase
+        .from('profiles')
+        .update(isLogin ? { last_login: now, updated_at: now } : { updated_at: now })
+        .eq('id', data.user.id);
+    }
+  }
+};
+
 export const sbLogActivity = async (
   action: string,
   details: string,
