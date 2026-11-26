@@ -19,7 +19,8 @@ const OrderCard = React.memo(({
     onTouchStart,
     onEdit,
     onSurplus,
-    onRecordBatch
+    onRecordBatch,
+    onCompleteWithoutPOS
 }: {
     order: Order;
     statusColor: string;
@@ -34,6 +35,7 @@ const OrderCard = React.memo(({
     onEdit: () => void;
     onSurplus: () => void;
     onRecordBatch?: () => void;
+    onCompleteWithoutPOS?: () => void;
 }) => {
     const cardRef = useRef<HTMLDivElement>(null);
 
@@ -116,9 +118,20 @@ const OrderCard = React.memo(({
                 </div>
                 
                 {isReady ? (
-                    <button onClick={onConvert} onTouchStart={(e) => e.stopPropagation()} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm">
-                        <CheckCircle className="w-3.5 h-3.5"/> Entregar
-                    </button>
+                    <div className="flex items-center gap-1" onTouchStart={(e) => e.stopPropagation()}>
+                        {onCompleteWithoutPOS && (
+                            <button
+                                onClick={onCompleteWithoutPOS}
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-emerald-600 hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+                                title="Cerrar pedido sin pasar por POS (útil si ya lo cobraste manualmente)"
+                            >
+                                <Check className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+                        <button onClick={onConvert} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm">
+                            <CheckCircle className="w-3.5 h-3.5"/> Entregar
+                        </button>
+                    </div>
                 ) : (
                     <button onClick={onMove} onTouchStart={(e) => e.stopPropagation()} className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm md:hidden">
                         Avanzar <ArrowRight className="w-3.5 h-3.5"/>
@@ -526,12 +539,40 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
 
     const handleDeliverToPOS = useCallback((orderId: string) => {
         const order = orders.find(o => o.id === orderId);
-        if (order) {
-            // Send directly to POS without inflating inventory on repeated clicks
-            sendOrderToPOS(order);
-            if (setView) setView(AppView.POS);
+        if (!order) return;
+
+        // Smart check: if batch wasn't added yet AND there's a shortfall, offer 1-click entry before POS
+        if (!order.stockAdded) {
+            const shortfalls: { item: CartItem; makeQty: number }[] = [];
+            order.items.forEach(item => {
+                const prod = products.find(p => p.id === item.id);
+                let currentStock = 0;
+                if (prod) {
+                    if (item.variantId && prod.variants) {
+                        const v = prod.variants.find(vr => vr.id === item.variantId);
+                        currentStock = v ? v.stock : 0;
+                    } else {
+                        currentStock = prod.stock;
+                    }
+                }
+                const makeQty = Math.max(0, Number((item.quantity - Math.max(0, currentStock)).toFixed(3)));
+                if (makeQty > 0) shortfalls.push({ item, makeQty });
+            });
+
+            if (shortfalls.length > 0) {
+                const totalMissing = shortfalls.reduce((s, x) => s + x.makeQty, 0);
+                if (confirm(`Este pedido aún no ingresó su lote fabricado (+${totalMissing} un. faltantes).\n\n¿Ingresar solo el faltante al inventario ahora antes de cobrar en POS?`)) {
+                    shortfalls.forEach(({ item, makeQty }) => {
+                        adjustStock(item.id, makeQty, 'IN', item.variantId, `Lote Fabricado Pedido #${order.id}`);
+                    });
+                    updateOrder({ ...order, stockAdded: true });
+                }
+            }
         }
-    }, [orders, sendOrderToPOS, setView]);
+
+        sendOrderToPOS(order);
+        if (setView) setView(AppView.POS);
+    }, [orders, products, adjustStock, updateOrder, sendOrderToPOS, setView]);
 
     const handlePrintOrder = useCallback((order: Order) => {
         const customer = customers.find(c => c.id === order.customerId);
@@ -994,6 +1035,12 @@ export const Orders: React.FC<OrdersProps> = ({ setView }) => {
                                                     onTouchStart={handleTouchStart}
                                                     onSurplus={() => setSurplusOrder(order)}
                                                     onRecordBatch={() => handleRecordBatchToStock(order)}
+                                                    onCompleteWithoutPOS={status === 'READY' ? () => {
+                                                        if (confirm(`¿Marcar el pedido #${order.id} de ${order.customerName} como COMPLETADO sin pasar por POS?\n\nÚsalo solo si ya lo cobraste manualmente en caja. El pedido se conservará en el historial del cliente.`)) {
+                                                            updateOrderStatus(order.id, 'COMPLETED');
+                                                            notify("Pedido Cerrado", `Pedido #${order.id} marcado como completado.`, "success");
+                                                        }
+                                                    } : undefined}
                                                 />
                                             ))}
                                             {columnOrders.length === 0 && (

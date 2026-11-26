@@ -8,7 +8,7 @@ import { roundCurrency, roundQty } from '../utils/financeHelpers';
 import { SignaturePadModal } from '../components/SignaturePadModal';
 
 export const POS: React.FC = () => {
-    const { products, customers, categories, addTransaction, updateTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice, connectBtPrinter, incomingOrder, clearIncomingOrder, completeOrder, posDraft, setPosDraft, clearPosDraft } = useStore();
+    const { products, customers, categories, orders, addTransaction, updateTransaction, updateStockAfterSale, settings, notify, addOrder, transactions, sendBtData, btDevice, connectBtPrinter, incomingOrder, clearIncomingOrder, completeOrder, posDraft, setPosDraft, clearPosDraft } = useStore();
     const [showPosSignature, setShowPosSignature] = useState(false);
     
     // Persistent draft state (survives switching tabs to Settings/CashRegister/etc.)
@@ -553,8 +553,70 @@ export const POS: React.FC = () => {
                 </div>
 
                 {/* Customer Selector (Available in both views) */}
-                <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-2">
                     <div className="relative"><User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" /><select className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 appearance-none text-sm font-medium" value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)}><option value="">Cliente General</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select><div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"><ChevronRight className="w-4 h-4 text-slate-400 rotate-90" /></div></div>
+
+                    {sourceOrderId && (
+                        <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/60 text-xs">
+                            <span className="font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 truncate">
+                                <ClipboardList className="w-3.5 h-3.5 shrink-0" />
+                                Vinculado a Pedido #{sourceOrderId}
+                            </span>
+                            <button
+                                onClick={() => setSourceOrderId(null)}
+                                className="text-emerald-600/70 hover:text-emerald-800 dark:text-emerald-400 p-0.5 rounded"
+                                title="Desvincular pedido"
+                            >
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    )}
+
+                    {selectedCustomerId && !sourceOrderId && (() => {
+                        const activeForCustomer = orders.filter(
+                            o => o.customerId === selectedCustomerId && o.status !== 'COMPLETED'
+                        );
+                        if (activeForCustomer.length === 0) return null;
+                        return (
+                            <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60 space-y-1.5">
+                                <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                    {activeForCustomer.length === 1
+                                        ? 'Este cliente tiene 1 pedido activo:'
+                                        : `Este cliente tiene ${activeForCustomer.length} pedidos activos:`}
+                                </p>
+                                <div className="space-y-1 max-h-24 overflow-y-auto">
+                                    {activeForCustomer.map(ord => (
+                                        <div key={ord.id} className="flex items-center justify-between gap-2 bg-white dark:bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-amber-100 dark:border-amber-900/40">
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-bold text-slate-800 dark:text-white truncate">#{ord.id} · {ord.items.length} prod.</p>
+                                                <p className="text-[10px] text-slate-500">
+                                                    {ord.status === 'READY' ? 'Listo para entregar' : ord.status === 'IN_PROGRESS' ? 'En producción' : 'Pendiente'}
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    setPosDraft(prev => ({
+                                                        ...prev,
+                                                        cart: ord.items,
+                                                        selectedCustomerId: ord.customerId || selectedCustomerId,
+                                                        discountValue: '0',
+                                                        discountType: 'PERCENT',
+                                                        shippingCost: '',
+                                                        sourceOrderId: ord.id
+                                                    }));
+                                                    notify("Pedido Cargado", `Pedido #${ord.id} vinculado. Al cobrar se cerrará automáticamente.`, "success");
+                                                }}
+                                                className="shrink-0 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition-colors"
+                                            >
+                                                Cargar Pedido
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })()}
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
