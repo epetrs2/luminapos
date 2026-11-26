@@ -557,7 +557,8 @@ export const generateEscPosTicket = async (transaction: Transaction, customerNam
         hour: '2-digit',
         minute: '2-digit',
     });
-    addLine(formatTwoCols(`Folio: #${transaction.id}`, formattedDate, widthType));
+    addLine(`Folio: #${transaction.id}`);
+    addLine(`Fecha: ${formattedDate}`);
     addWrapped(`Cliente: ${customerName || 'Publico General'}`);
     const totalUnits = transaction.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
     addLine(formatTwoCols(`Articulos: ${Number(totalUnits.toFixed(3))}`, `Pago: ${transaction.paymentMethod === 'cash' ? 'Efectivo' : transaction.paymentMethod === 'card' ? 'Tarjeta' : transaction.paymentMethod === 'transfer' ? 'Transf.' : transaction.paymentMethod === 'credit' ? 'Credito' : 'Dividido'}`, widthType));
