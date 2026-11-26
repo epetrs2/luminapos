@@ -101,12 +101,26 @@ export const verifyPassword = async (password: string, salt: string, storedHash:
   return hash === storedHash;
 };
 
-// Strict Password Policy Validation
+// Cryptographically strong random recovery/invite code generator
+export const generateSecureCode = (groups = 4, charsPerGroup = 4): string => {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const total = groups * charsPerGroup;
+  const bytes = new Uint8Array(total);
+  window.crypto.getRandomValues(bytes);
+  let out = '';
+  for (let i = 0; i < total; i++) {
+    if (i > 0 && i % charsPerGroup === 0) out += '-';
+    out += alphabet[bytes[i] % alphabet.length];
+  }
+  return out;
+};
+
+// Practical & Strong Password Policy Validation (NIST-aligned)
 export const validatePasswordPolicy = (password: string): { isValid: boolean; errors: string[] } => {
   const errors: string[] = [];
-  
-  if (password.length < 12) {
-    errors.push("Mínimo 12 caracteres");
+
+  if (password.length < 8) {
+    errors.push("Mínimo 8 caracteres");
   }
   if (!/[A-Z]/.test(password)) {
     errors.push("Al menos una letra mayúscula");
@@ -116,9 +130,6 @@ export const validatePasswordPolicy = (password: string): { isValid: boolean; er
   }
   if (!/[0-9]/.test(password)) {
     errors.push("Al menos un número");
-  }
-  if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-    errors.push("Al menos un carácter especial (!@#$...)");
   }
 
   return {

@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { Product, Customer, Supplier, Transaction, CashMovement, Order, Purchase, BusinessSettings } from '../types';
+import { Product, Customer, Supplier, Transaction, CashMovement, Order, Purchase, BusinessSettings, User, ActivityLog } from '../types';
 
 export interface SupabaseSnapshot {
   categories: string[];
@@ -10,6 +10,8 @@ export interface SupabaseSnapshot {
   cashMovements: CashMovement[];
   orders: Order[];
   purchases: Purchase[];
+  profiles: User[];
+  activityLogs: ActivityLog[];
   settingsPartial?: Partial<BusinessSettings>;
 }
 
@@ -34,6 +36,8 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     ordItemRes,
     purchRes,
     purchItemRes,
+    profRes,
+    logsRes,
     setRes,
   ] = await Promise.all([
     supabase.from('categories').select('name').order('name'),
@@ -48,6 +52,8 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     supabase.from('order_items').select('*'),
     supabase.from('purchases').select('*').order('date', { ascending: false }).limit(300),
     supabase.from('purchase_items').select('*'),
+    supabase.from('profiles').select('*').order('created_at', { ascending: true }),
+    supabase.from('activity_logs').select('*').order('timestamp', { ascending: false }).limit(200),
     supabase.from('business_settings').select('*').eq('id', 1).maybeSingle(),
   ]);
 
@@ -216,6 +222,29 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     notes: p.notes || undefined,
   }));
 
+  const profiles: User[] = (profRes.data || []).map(p => ({
+    id: p.id,
+    username: p.username,
+    email: p.email || undefined,
+    fullName: p.full_name,
+    role: p.role || 'CASHIER',
+    active: p.active !== false,
+    passwordHash: '',
+    salt: '',
+    lastLogin: p.last_login || undefined,
+    lastActive: p.updated_at || p.last_login || undefined,
+  }));
+
+  const activityLogs: ActivityLog[] = (logsRes.data || []).map(l => ({
+    id: l.id,
+    userId: l.user_id || 'system',
+    userName: l.user_name || 'Sistema',
+    userRole: l.user_role || 'CASHIER',
+    action: l.action || 'SETTINGS',
+    details: l.details || '',
+    timestamp: l.timestamp,
+  }));
+
   const categories = (catRes.data || []).map(c => c.name);
   const s = setRes.data;
   const settingsPartial: Partial<BusinessSettings> | undefined = s
@@ -244,7 +273,7 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
       }
     : undefined;
 
-  return { categories, products, customers, suppliers, transactions, cashMovements, orders, purchases, settingsPartial };
+  return { categories, products, customers, suppliers, transactions, cashMovements, orders, purchases, profiles, activityLogs, settingsPartial };
 };
 
 /**
@@ -262,6 +291,8 @@ export const subscribeToSupabaseRealtime = (onRemoteChange: () => void): (() => 
 
   const channel = client
     .channel('luminapos-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, trigger)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_logs' }, trigger)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, trigger)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, trigger)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'product_variants' }, trigger)

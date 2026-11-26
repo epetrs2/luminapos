@@ -16,7 +16,8 @@ import { Orders } from './pages/Orders';
 import { NotificationSystem } from './components/NotificationSystem';
 import { StoreProvider, useStore } from './components/StoreContext';
 import { AppView } from './types';
-import { Store, Zap, Lock, LogOut, ArrowRight, EyeOff, X } from 'lucide-react';
+import { Store, Zap, Lock, LogOut, ArrowRight, EyeOff, KeyRound, Check, X, Eye } from 'lucide-react';
+import { validatePasswordPolicy } from './utils/security';
 
 const SplashScreen: React.FC = () => {
     return (
@@ -112,9 +113,107 @@ const LockScreen: React.FC = () => {
     );
 };
 
+// Password Recovery Overlay (Triggered automatically when opening a Supabase Recovery Link)
+const PasswordRecoveryModal: React.FC = () => {
+    const { updateSupabasePassword, clearPasswordRecoveryMode, notify } = useStore();
+    const [newPass, setNewPass] = useState('');
+    const [confirmPass, setConfirmPass] = useState('');
+    const [showPass, setShowPass] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    const { isValid, errors } = validatePasswordPolicy(newPass);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!isValid) {
+            setError('La contraseña no cumple con los requisitos mínimos.');
+            return;
+        }
+        if (newPass !== confirmPass) {
+            setError('Las contraseñas no coinciden.');
+            return;
+        }
+        setSaving(true);
+        setError('');
+        const res = await updateSupabasePassword(newPass);
+        setSaving(false);
+        if (res.ok) {
+            notify('Contraseña Actualizada', 'Ya puedes usar tu nueva contraseña en todos tus dispositivos.', 'success');
+        } else {
+            setError(res.message);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[10000] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 animate-[fadeIn_0.25s]">
+            <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 p-6 md:p-8">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                            <KeyRound className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-800 dark:text-white">Nueva Contraseña</h2>
+                            <p className="text-xs text-slate-500">Enlace de recuperación verificado</p>
+                        </div>
+                    </div>
+                    <button onClick={clearPasswordRecoveryMode} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+                </div>
+
+                {error && <div className="mb-4 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-xs font-bold text-red-600 dark:text-red-300">{error}</div>}
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nueva Contraseña</label>
+                        <div className="relative">
+                            <input
+                                type={showPass ? 'text' : 'password'}
+                                value={newPass}
+                                onChange={e => setNewPass(e.target.value)}
+                                className="w-full pl-4 pr-10 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder="Mínimo 8 caracteres"
+                                autoFocus
+                            />
+                            <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                                {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Confirmar Contraseña</label>
+                        <input
+                            type={showPass ? 'text' : 'password'}
+                            value={confirmPass}
+                            onChange={e => setConfirmPass(e.target.value)}
+                            className={`w-full px-4 py-3 rounded-xl border bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 ${confirmPass && newPass !== confirmPass ? 'border-red-400 focus:ring-red-500' : 'border-slate-200 dark:border-slate-700 focus:ring-indigo-500'}`}
+                            placeholder="Repite tu contraseña"
+                        />
+                    </div>
+                    {newPass && (
+                        <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-1">
+                            <div className={`flex items-center gap-2 ${newPass.length >= 8 ? 'text-emerald-600' : 'text-slate-400'}`}>{newPass.length >= 8 ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} Mínimo 8 caracteres</div>
+                            <div className={`flex items-center gap-2 ${/[A-Z]/.test(newPass) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[A-Z]/.test(newPass) ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} Una mayúscula</div>
+                            <div className={`flex items-center gap-2 ${/[a-z]/.test(newPass) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[a-z]/.test(newPass) ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} Una minúscula</div>
+                            <div className={`flex items-center gap-2 ${/[0-9]/.test(newPass) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[0-9]/.test(newPass) ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} Un número</div>
+                        </div>
+                    )}
+                    <button
+                        type="submit"
+                        disabled={saving || errors.length > 0 || newPass !== confirmPass}
+                        className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg disabled:opacity-50"
+                    >
+                        {saving ? 'Guardando...' : 'Guardar Nueva Contraseña'}
+                    </button>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 // Wrapper component to handle auth state consumption
 const MainApp: React.FC = () => {
-    const { currentUser, isLoggingOut, isAppLocked, settings, manualLockApp } = useStore();
+    const { currentUser, isLoggingOut, isAppLocked, isPasswordRecoveryMode, settings, manualLockApp } = useStore();
     const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
     const [showSplash, setShowSplash] = useState(true);
     const [privacyMode, setPrivacyMode] = useState(false);
@@ -173,6 +272,7 @@ const MainApp: React.FC = () => {
     if (!currentUser) {
         return (
             <div className="animate-[fadeIn_0.5s_ease-out]">
+                {isPasswordRecoveryMode && <PasswordRecoveryModal />}
                 <Login />
             </div>
         );
@@ -180,6 +280,7 @@ const MainApp: React.FC = () => {
 
     return (
         <div className={`relative min-h-screen bg-slate-50 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-200 ${isLoggingOut ? 'animate-[fadeOut_0.3s_ease-in_forwards]' : 'animate-[fadeIn_0.5s_ease-out]'}`}>
+            {isPasswordRecoveryMode && <PasswordRecoveryModal />}
             {isAppLocked && <LockScreen />}
             
             {/* Quick Lock & Privacy Controls (Fixed Bottom Left for Accessibility) */}

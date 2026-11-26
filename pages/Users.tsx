@@ -2,14 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
 import { User, UserRole, ActivityLog } from '../types';
-import { Plus, Search, Shield, User as UserIcon, CheckCircle, XCircle, Edit2, Trash2, Key, Check, AlertTriangle, X, ShieldCheck, Smartphone, Lock, Clock, Activity, FileText, Unlock, Filter, Calendar, KeyRound, RefreshCw, HelpCircle, Timer, Ticket, Copy, Menu } from 'lucide-react';
-import { generateSalt, hashPassword, validatePasswordPolicy, verifyPassword } from '../utils/security';
+import { Plus, Search, Shield, User as UserIcon, CheckCircle, XCircle, Edit2, Trash2, Key, Check, AlertTriangle, X, ShieldCheck, Smartphone, Lock, Clock, Activity, FileText, Unlock, KeyRound, RefreshCw, HelpCircle, Timer, Ticket, Copy, Mail } from 'lucide-react';
+import { generateSalt, hashPassword, validatePasswordPolicy, generateSecureCode } from '../utils/security';
 import { generate2FASecret, generateQRCode, verify2FAToken } from '../utils/twoFactor';
+import { isSupabaseConfigured } from '../services/supabaseClient';
 
-// Helper to generate a random recovery code
-const generateRecoveryCode = () => {
-    return Array.from({length: 4}, () => Math.random().toString(36).substring(2, 6).toUpperCase()).join('-');
-};
+// Cryptographically strong random recovery code
+const generateRecoveryCode = () => generateSecureCode(4, 4);
 
 const SECURITY_QUESTIONS = [
     "¿Cuál es el nombre de tu primera mascota?",
@@ -21,9 +20,18 @@ const SECURITY_QUESTIONS = [
 ];
 
 export const Users: React.FC = () => {
-  const { users, currentUser, addUser, updateUser, deleteUser, settings, activityLogs, generateInvite, userInvites, deleteInvite } = useStore();
+  const {
+    users, currentUser, addUser, updateUser, deleteUser, settings, activityLogs,
+    generateInvite, userInvites, deleteInvite, notify,
+    verifyCurrentUserPassword, adminUpdateSupabaseProfile, sendSupabasePasswordReset, updateSupabasePassword
+  } = useStore();
+  const isCloudMode = isSupabaseConfigured() && Boolean(currentUser?.email);
   const [activeTab, setActiveTab] = useState<'USERS' | 'ACTIVITY' | 'INVITES'>('USERS');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isMyPassModalOpen, setIsMyPassModalOpen] = useState(false);
+  const [myNewPass, setMyNewPass] = useState('');
+  const [myConfirmPass, setMyConfirmPass] = useState('');
+  const [updatingMyPass, setUpdatingMyPass] = useState(false);
   
   // ... (filters state)
   const [filterUser, setFilterUser] = useState<string>('ALL');
@@ -73,7 +81,8 @@ export const Users: React.FC = () => {
 
   const filteredUsers = users.filter(u => 
     u.username.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    u.fullName.toLowerCase().includes(searchTerm.toLowerCase())
+    u.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (u.email && u.email.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const filteredLogs = activityLogs.filter(log => {
@@ -231,7 +240,17 @@ export const Users: React.FC = () => {
         };
 
         if (editingUser) {
-            updateUser(userToSave);
+            if (isCloudMode && /^[0-9a-f-]{36}$/i.test(editingUser.id)) {
+                const res = await adminUpdateSupabaseProfile(editingUser.id, userToSave.fullName, userToSave.role, userToSave.active);
+                if (!res.ok) {
+                    notify('Error', res.message || 'No se pudo actualizar en Supabase', 'error');
+                    setIsSaving(false);
+                    return;
+                }
+                notify('Usuario Actualizado', 'Cambios guardados en Supabase.', 'success');
+            } else {
+                updateUser(userToSave);
+            }
         } else {
             // Check username uniqueness
             if (users.some(u => u.username.toLowerCase() === userToSave.username.toLowerCase())) {
@@ -278,7 +297,7 @@ export const Users: React.FC = () => {
       setAuthError('');
 
       try {
-          const isValid = await verifyPassword(adminPassword, currentUser.salt, currentUser.passwordHash);
+          const isValid = await verifyCurrentUserPassword(adminPassword);
           if (!isValid) {
               setAuthError('Contraseña incorrecta');
               setVerifying(false);
@@ -293,7 +312,17 @@ export const Users: React.FC = () => {
                   setVerifying(false);
                   return;
               }
-              deleteUser(confirmAction.userId);
+              if (isCloudMode && target && /^[0-9a-f-]{36}$/i.test(target.id)) {
+                  const res = await adminUpdateSupabaseProfile(target.id, target.fullName, target.role, false);
+                  if (!res.ok) {
+                      setAuthError(res.message || 'No se pudo desactivar el usuario.');
+                      setVerifying(false);
+                      return;
+                  }
+                  notify('Acceso Revocado', `El usuario @${target.username} fue desactivado en la nube.`, 'info');
+              } else {
+                  deleteUser(confirmAction.userId);
+              }
           } else if (confirmAction?.type === 'TOGGLE_ACTIVE' && confirmAction.targetUser) {
               const isCurrentlyLocked = confirmAction.targetUser.lockoutUntil && new Date(confirmAction.targetUser.lockoutUntil) > new Date();
               const activeAdmins = users.filter(u => u.role === 'ADMIN' && u.active);
@@ -309,13 +338,28 @@ export const Users: React.FC = () => {
                   return;
               }
 
-              const updatedUser = {
-                  ...confirmAction.targetUser,
-                  active: nextActive,
-                  lockoutUntil: undefined,
-                  failedLoginAttempts: 0
-              };
-              updateUser(updatedUser);
+              if (isCloudMode && /^[0-9a-f-]{36}$/i.test(confirmAction.targetUser.id)) {
+                  const res = await adminUpdateSupabaseProfile(
+                      confirmAction.targetUser.id,
+                      confirmAction.targetUser.fullName,
+                      confirmAction.targetUser.role,
+                      nextActive
+                  );
+                  if (!res.ok) {
+                      setAuthError(res.message || 'No se pudo actualizar el estado.');
+                      setVerifying(false);
+                      return;
+                  }
+                  notify('Seguridad', nextActive ? 'Usuario desbloqueado en la nube.' : 'Usuario bloqueado en la nube.', 'success');
+              } else {
+                  const updatedUser = {
+                      ...confirmAction.targetUser,
+                      active: nextActive,
+                      lockoutUntil: undefined,
+                      failedLoginAttempts: 0
+                  };
+                  updateUser(updatedUser);
+              }
           }
 
           setIsConfirmModalOpen(false);
@@ -380,9 +424,43 @@ export const Users: React.FC = () => {
       setGeneratedCode(code);
   };
 
+  const handleSendUserRecovery = async (user: User) => {
+      if (!user.email) {
+          notify('Sin correo', 'Este usuario no tiene un correo registrado en la nube.', 'warning');
+          return;
+      }
+      if (!confirm(`¿Enviar un enlace de recuperación de contraseña a ${user.email}?`)) return;
+      const res = await sendSupabasePasswordReset(user.email);
+      notify('Recuperación', res.message, res.ok ? 'success' : 'error');
+  };
+
+  const handleUpdateMyPassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      const policy = validatePasswordPolicy(myNewPass);
+      if (!policy.isValid) {
+          notify('Contraseña débil', policy.errors.join(', '), 'warning');
+          return;
+      }
+      if (myNewPass !== myConfirmPass) {
+          notify('Error', 'Las contraseñas no coinciden.', 'error');
+          return;
+      }
+      setUpdatingMyPass(true);
+      const res = await updateSupabasePassword(myNewPass);
+      setUpdatingMyPass(false);
+      if (res.ok) {
+          notify('Seguridad', res.message, 'success');
+          setMyNewPass('');
+          setMyConfirmPass('');
+          setIsMyPassModalOpen(false);
+      } else {
+          notify('Error', res.message, 'error');
+      }
+  };
+
   const copyToClipboard = (text: string) => {
       navigator.clipboard.writeText(text);
-      alert('Código copiado al portapapeles');
+      notify('Copiado', 'Código copiado al portapapeles', 'success');
   };
 
   return (
@@ -401,9 +479,16 @@ export const Users: React.FC = () => {
                  <button onClick={() => setActiveTab('ACTIVITY')} className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'ACTIVITY' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>Actividad</button>
               </div>
               {activeTab === 'USERS' && (
-                  <button onClick={() => handleOpenModal()} className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-indigo-200 dark:shadow-none transition-all active:scale-95">
-                    <Plus className="w-5 h-5" /> Nuevo
-                  </button>
+                  <div className="flex gap-2">
+                      {isCloudMode && (
+                          <button onClick={() => { setMyNewPass(''); setMyConfirmPass(''); setIsMyPassModalOpen(true); }} className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 dark:bg-slate-800 dark:hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl font-medium transition-all active:scale-95 text-sm">
+                              <Key className="w-4 h-4" /> Mi Contraseña
+                          </button>
+                      )}
+                      <button onClick={() => handleOpenModal()} className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-indigo-200 dark:shadow-none transition-all active:scale-95">
+                        <Plus className="w-5 h-5" /> Nuevo
+                      </button>
+                  </div>
               )}
               {activeTab === 'INVITES' && (
                   <button onClick={handleOpenInviteModal} className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-emerald-200 dark:shadow-none transition-all active:scale-95">
@@ -444,7 +529,7 @@ export const Users: React.FC = () => {
                                             <p className="font-bold text-slate-800 dark:text-white">{user.fullName}</p>
                                             {user.isTwoFactorEnabled && <ShieldCheck className="w-3 h-3 text-emerald-500" />}
                                         </div>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">@{user.username}</p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">@{user.username}{user.email ? ` • ${user.email}` : ''}</p>
                                     </div>
                                 </div>
                                 {getRoleBadge(user.role)}
@@ -470,6 +555,11 @@ export const Users: React.FC = () => {
                             </div>
 
                             <div className="flex justify-end gap-2 pl-[52px]">
+                                {isCloudMode && user.email && (
+                                    <button onClick={() => handleSendUserRecovery(user)} className="p-2 bg-amber-50 text-amber-600 rounded-lg" title="Enviar enlace de recuperación">
+                                        <Mail className="w-4 h-4" />
+                                    </button>
+                                )}
                                 {user.id !== currentUser?.id && (
                                     <button onClick={() => handleInitiateToggleActive(user)} className={`p-2 rounded-lg transition-colors ${user.active && !isLockedOut ? 'bg-orange-50 text-orange-500' : 'bg-emerald-50 text-emerald-600'}`}>
                                         {user.active && !isLockedOut ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
@@ -511,7 +601,7 @@ export const Users: React.FC = () => {
                                 <div>
                                 <p className="font-bold text-slate-800 dark:text-white">{user.fullName}</p>
                                 <div className="flex items-center gap-2">
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">@{user.username}</p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">@{user.username}{user.email ? ` • ${user.email}` : ''}</p>
                                     {user.isTwoFactorEnabled && <div title="2FA Activado"><ShieldCheck className="w-3 h-3 text-emerald-500" /></div>}
                                 </div>
                                 </div>
@@ -547,6 +637,11 @@ export const Users: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 text-right">
                             <div className="flex justify-end gap-2">
+                                {isCloudMode && user.email && (
+                                    <button onClick={() => handleSendUserRecovery(user)} className="p-2 hover:bg-amber-50 dark:hover:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-lg transition-colors" title="Enviar enlace de recuperación por correo">
+                                        <Mail className="w-4 h-4" />
+                                    </button>
+                                )}
                                 {user.id !== currentUser?.id && (
                                     <button onClick={() => handleInitiateToggleActive(user)} className={`p-2 rounded-lg transition-colors ${user.active && !isLockedOut ? 'hover:bg-orange-50 dark:hover:bg-orange-900/30 text-orange-500' : 'hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-emerald-600'}`} title={user.active ? "Bloquear Acceso" : "Desbloquear Acceso"}>
                                         {user.active && !isLockedOut ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
@@ -786,11 +881,10 @@ export const Users: React.FC = () => {
                       <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-800 text-xs">
                           <p className="font-bold text-slate-500 dark:text-slate-400 mb-2">Requisitos de Seguridad:</p>
                           <ul className="space-y-1">
-                              <li className={`flex items-center gap-2 ${password.length >= 12 ? 'text-emerald-600' : 'text-slate-400'}`}>{password.length >= 12 ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} Mínimo 12 caracteres</li>
+                              <li className={`flex items-center gap-2 ${password.length >= 8 ? 'text-emerald-600' : 'text-slate-400'}`}>{password.length >= 8 ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} Mínimo 8 caracteres</li>
                               <li className={`flex items-center gap-2 ${/[A-Z]/.test(password) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[A-Z]/.test(password) ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} Mayúscula</li>
                               <li className={`flex items-center gap-2 ${/[a-z]/.test(password) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[a-z]/.test(password) ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} Minúscula</li>
                               <li className={`flex items-center gap-2 ${/[0-9]/.test(password) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[0-9]/.test(password) ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} Número</li>
-                              <li className={`flex items-center gap-2 ${/[!@#$%^&*(),.?":{}|<>]/.test(password) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[!@#$%^&*(),.?":{}|<>]/.test(password) ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} Símbolo especial</li>
                           </ul>
                           {passwordErrors.length > 0 && (<div className="mt-2 text-red-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /><span className="font-bold">Contraseña débil</span></div>)}
                       </div>
@@ -845,6 +939,40 @@ export const Users: React.FC = () => {
                           </div>
                       </div>
                   )}
+              </div>
+          </div>
+      )}
+
+      {/* CHANGE MY PASSWORD MODAL (Supabase Cloud Auth) */}
+      {isMyPassModalOpen && (
+          <div className="fixed inset-0 bg-black/60 z-[120] flex items-end md:items-center justify-center backdrop-blur-sm p-0 md:p-4">
+              <div className="bg-white dark:bg-slate-900 rounded-t-3xl md:rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-100 dark:border-slate-800 animate-[slideUp_0.3s_ease-out]">
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2"><Key className="w-5 h-5 text-indigo-500" /> Cambiar Mi Contraseña</h3>
+                      <button onClick={() => setIsMyPassModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+                  </div>
+                  <form onSubmit={handleUpdateMyPassword} className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nueva Contraseña</label>
+                          <input type="password" value={myNewPass} onChange={e => setMyNewPass(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Mínimo 8 caracteres" autoFocus />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Confirmar Contraseña</label>
+                          <input type="password" value={myConfirmPass} onChange={e => setMyConfirmPass(e.target.value)} className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 dark:bg-slate-800 dark:text-white outline-none focus:ring-2 ${myConfirmPass && myNewPass !== myConfirmPass ? 'border-red-400 focus:ring-red-500' : 'border-slate-200 dark:border-slate-700 focus:ring-indigo-500'}`} placeholder="Repite tu contraseña" />
+                      </div>
+                      {myNewPass && (
+                          <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs grid grid-cols-2 gap-1">
+                              <span className={`flex items-center gap-1 ${myNewPass.length >= 8 ? 'text-emerald-600' : 'text-slate-400'}`}>{myNewPass.length >= 8 ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} 8+ caracteres</span>
+                              <span className={`flex items-center gap-1 ${/[A-Z]/.test(myNewPass) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[A-Z]/.test(myNewPass) ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} Mayúscula</span>
+                              <span className={`flex items-center gap-1 ${/[a-z]/.test(myNewPass) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[a-z]/.test(myNewPass) ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} Minúscula</span>
+                              <span className={`flex items-center gap-1 ${/[0-9]/.test(myNewPass) ? 'text-emerald-600' : 'text-slate-400'}`}>{/[0-9]/.test(myNewPass) ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>} Número</span>
+                          </div>
+                      )}
+                      <div className="flex gap-2 pt-2">
+                          <button type="button" onClick={() => setIsMyPassModalOpen(false)} className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-medium text-sm">Cancelar</button>
+                          <button type="submit" disabled={updatingMyPass || !validatePasswordPolicy(myNewPass).isValid || myNewPass !== myConfirmPass} className="flex-[2] py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm disabled:opacity-50">{updatingMyPass ? 'Guardando...' : 'Actualizar'}</button>
+                      </div>
+                  </form>
               </div>
           </div>
       )}

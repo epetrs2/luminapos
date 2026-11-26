@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../components/StoreContext';
-import { Store, User, Lock, AlertCircle, Loader2, ShieldCheck, ArrowLeft, Smartphone, RefreshCw, X, Ticket, Wifi, WifiOff, Eye, EyeOff, Mail, UserPlus } from 'lucide-react';
+import { Store, User, Lock, AlertCircle, Loader2, ShieldCheck, ArrowLeft, Smartphone, RefreshCw, X, Ticket, Wifi, WifiOff, Eye, EyeOff, Mail, UserPlus, Check, Sparkles } from 'lucide-react';
 import { validatePasswordPolicy, verifyPassword } from '../utils/security';
 import { generate2FASecret, generateQRCode, verify2FAToken } from '../utils/twoFactor';
 import { isSupabaseConfigured } from '../services/supabaseClient';
@@ -16,13 +16,14 @@ const SECURITY_QUESTIONS = [
 ];
 
 export const Login: React.FC = () => {
-  const { login, loginWithSupabase, signUpWithSupabase, recoverAccount, getUserPublicInfo, settings, users, registerWithInvite } = useStore();
-  const [view, setView] = useState<'LOGIN' | 'SIGNUP_CLOUD' | 'RECOVER_INIT' | 'RECOVER_METHOD' | 'RECOVER_RESET' | 'REGISTER'>('LOGIN');
+  const { login, loginWithSupabase, signUpWithSupabase, sendSupabasePasswordReset, sendSupabaseMagicLink, recoverAccount, getUserPublicInfo, settings, users, registerWithInvite } = useStore();
+  const [view, setView] = useState<'LOGIN' | 'SIGNUP_CLOUD' | 'RECOVER_CLOUD' | 'RECOVER_INIT' | 'RECOVER_METHOD' | 'RECOVER_RESET' | 'REGISTER'>('LOGIN');
   const [step, setStep] = useState<'CREDENTIALS' | '2FA'>('CREDENTIALS');
   
   // Login State
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPasswordCloud, setConfirmPasswordCloud] = useState('');
   const [fullNameCloud, setFullNameCloud] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState('');
@@ -127,8 +128,13 @@ export const Login: React.FC = () => {
       setError('Completa tu nombre, correo y contraseña');
       return;
     }
-    if (password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres');
+    const policy = validatePasswordPolicy(password);
+    if (!policy.isValid) {
+      setError('Contraseña insegura: ' + policy.errors.join(', '));
+      return;
+    }
+    if (password !== confirmPasswordCloud) {
+      setError('Las contraseñas no coinciden');
       return;
     }
     setLoading(true);
@@ -138,9 +144,29 @@ export const Login: React.FC = () => {
     setLoading(false);
     if (res.ok) {
       setSuccessMsg(res.message || 'Cuenta creada. Revisa tu correo o inicia sesión.');
+      setConfirmPasswordCloud('');
       setView('LOGIN');
     } else {
       setError(res.message || 'No se pudo crear la cuenta');
+    }
+  };
+
+  const handleCloudRecovery = async (mode: 'RESET' | 'MAGIC') => {
+    if (!username.trim() || !username.includes('@')) {
+      setError('Ingresa un correo electrónico válido');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    setSuccessMsg('');
+    const res = mode === 'RESET'
+      ? await sendSupabasePasswordReset(username.trim())
+      : await sendSupabaseMagicLink(username.trim());
+    setLoading(false);
+    if (res.ok) {
+      setSuccessMsg(res.message);
+    } else {
+      setError(res.message);
     }
   };
 
@@ -282,6 +308,37 @@ export const Login: React.FC = () => {
                 </div>
               )}
 
+              {/* VIEW: CLOUD RECOVERY (Recovery Link + Magic Link) */}
+              {view === 'RECOVER_CLOUD' && (
+                  <div className="space-y-4">
+                      <div className="flex justify-between items-center mb-1">
+                          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Recuperar Acceso</h2>
+                          <button type="button" onClick={() => { setView('LOGIN'); setError(''); setSuccessMsg(''); }}><X className="w-5 h-5 text-slate-400" /></button>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Ingresa tu correo y te enviaremos un enlace seguro para restablecer tu contraseña o iniciar sesión sin contraseña.
+                      </p>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1">Correo Electrónico</label>
+                          <div className="relative">
+                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                              <input type="email" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium" placeholder="tu@correo.com" />
+                          </div>
+                      </div>
+                      <button type="button" onClick={() => handleCloudRecovery('RESET')} disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-70 text-sm">
+                          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                          Enviar Enlace de Recuperación
+                      </button>
+                      <button type="button" onClick={() => handleCloudRecovery('MAGIC')} disabled={loading} className="w-full bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 text-sm">
+                          <Sparkles className="w-4 h-4" />
+                          Enviar Magic Link (Entrar sin contraseña)
+                      </button>
+                      <button type="button" onClick={() => { setView('LOGIN'); setError(''); setSuccessMsg(''); }} className="w-full py-2 text-xs text-slate-500 hover:text-slate-700 font-medium">
+                          Volver a Iniciar Sesión
+                      </button>
+                  </div>
+              )}
+
               {/* VIEW: CLOUD SIGNUP */}
               {view === 'SIGNUP_CLOUD' && (
                   <form onSubmit={handleCloudSignUp} className="space-y-4">
@@ -307,13 +364,28 @@ export const Login: React.FC = () => {
                           <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1">Contraseña</label>
                           <div className="relative">
                               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                              <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-10 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium" placeholder="Mínimo 6 caracteres" />
+                              <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-10 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium" placeholder="Mínimo 8 caracteres" />
                               <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
                                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                               </button>
                           </div>
                       </div>
-                      <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-70">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1">Confirmar Contraseña</label>
+                          <div className="relative">
+                              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                              <input type={showPassword ? "text" : "password"} value={confirmPasswordCloud} onChange={(e) => setConfirmPasswordCloud(e.target.value)} className={`w-full pl-10 pr-4 py-3 rounded-xl border bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 font-medium ${confirmPasswordCloud && password !== confirmPasswordCloud ? 'border-red-400 focus:ring-red-500' : 'border-slate-200 dark:border-slate-700 focus:ring-indigo-500'}`} placeholder="Repite tu contraseña" />
+                          </div>
+                      </div>
+                      {password && (
+                          <div className="bg-slate-50 dark:bg-slate-900/70 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] grid grid-cols-2 gap-1.5">
+                              <div className={`flex items-center gap-1.5 ${password.length >= 8 ? 'text-emerald-600 font-semibold' : 'text-slate-400'}`}>{password.length >= 8 ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} 8+ caracteres</div>
+                              <div className={`flex items-center gap-1.5 ${/[A-Z]/.test(password) ? 'text-emerald-600 font-semibold' : 'text-slate-400'}`}>{/[A-Z]/.test(password) ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} Mayúscula</div>
+                              <div className={`flex items-center gap-1.5 ${/[a-z]/.test(password) ? 'text-emerald-600 font-semibold' : 'text-slate-400'}`}>{/[a-z]/.test(password) ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} Minúscula</div>
+                              <div className={`flex items-center gap-1.5 ${/[0-9]/.test(password) ? 'text-emerald-600 font-semibold' : 'text-slate-400'}`}>{/[0-9]/.test(password) ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} Número</div>
+                          </div>
+                      )}
+                      <button type="submit" disabled={loading || (!!password && !validatePasswordPolicy(password).isValid) || password !== confirmPasswordCloud} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50">
                           {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Crear Cuenta'}
                       </button>
                   </form>
@@ -356,7 +428,7 @@ export const Login: React.FC = () => {
 
                     <div className="flex flex-col gap-3 text-center mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
                         <div className="flex justify-between items-center px-2">
-                            <button type="button" onClick={() => setView('RECOVER_INIT')} className="text-xs text-slate-500 hover:text-indigo-600 font-medium">¿Olvidaste pass?</button>
+                            <button type="button" onClick={() => { setView(isCloudConfigured ? 'RECOVER_CLOUD' : 'RECOVER_INIT'); setError(''); setSuccessMsg(''); }} className="text-xs text-slate-500 hover:text-indigo-600 font-medium">¿Olvidaste pass?</button>
                             {isCloudConfigured ? (
                                 <button type="button" onClick={() => { setView('SIGNUP_CLOUD'); setError(''); }} className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1">
                                     <UserPlus className="w-3 h-3" /> Crear Cuenta

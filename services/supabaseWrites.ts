@@ -385,3 +385,88 @@ export const sbUpdateSettings = async (s: BusinessSettings) => {
     .eq('id', 1);
   if (error) console.warn('sbUpdateSettings error:', error.message);
 };
+
+// --- USERS, AUTH RECOVERY & ACTIVITY LOGS ---
+
+export const sbAdminUpdateProfile = async (
+  targetId: string,
+  fullName: string,
+  role: 'ADMIN' | 'MANAGER' | 'CASHIER',
+  active: boolean
+): Promise<{ ok: boolean; message?: string }> => {
+  if (!supabase || !(await isSignedIn())) {
+    return { ok: false, message: 'Sesión de Supabase no activa.' };
+  }
+
+  // Prefer hardened server-side RPC (from migration 005)
+  const { error: rpcError } = await supabase.rpc('rpc_admin_update_profile', {
+    p_target_id: targetId,
+    p_full_name: fullName,
+    p_role: role,
+    p_active: active,
+  });
+
+  if (!rpcError) return { ok: true };
+
+  // Fallback if migration 005 hasn't been executed yet
+  if (rpcError.message?.includes('rpc_admin_update_profile')) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ full_name: fullName, role, active })
+      .eq('id', targetId);
+    if (error) return { ok: false, message: error.message };
+    return { ok: true };
+  }
+
+  return { ok: false, message: rpcError.message };
+};
+
+export const sbSendPasswordRecovery = async (email: string): Promise<{ ok: boolean; message: string }> => {
+  if (!supabase) return { ok: false, message: 'Supabase no configurado.' };
+  const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+  if (error) return { ok: false, message: error.message };
+  return { ok: true, message: `Se envió el enlace de recuperación a ${email.trim()}.` };
+};
+
+export const sbSendMagicLink = async (email: string): Promise<{ ok: boolean; message: string }> => {
+  if (!supabase) return { ok: false, message: 'Supabase no configurado.' };
+  const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim(),
+    options: { emailRedirectTo: redirectTo, shouldCreateUser: false },
+  });
+  if (error) return { ok: false, message: error.message };
+  return { ok: true, message: `Se envió un Magic Link de acceso rápido a ${email.trim()}.` };
+};
+
+export const sbUpdateMyPassword = async (newPassword: string): Promise<{ ok: boolean; message: string }> => {
+  if (!supabase) return { ok: false, message: 'Supabase no configurado.' };
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) return { ok: false, message: error.message };
+  return { ok: true, message: 'Contraseña actualizada correctamente.' };
+};
+
+export const sbVerifyCurrentUserPassword = async (email: string, password: string): Promise<boolean> => {
+  if (!supabase || !email) return false;
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  return !error;
+};
+
+export const sbLogActivity = async (
+  action: string,
+  details: string,
+  userName: string,
+  userRole: string,
+  userId?: string
+) => {
+  if (!supabase || !(await isSignedIn())) return;
+  const isUuid = Boolean(userId && /^[0-9a-f-]{36}$/i.test(userId));
+  await supabase.from('activity_logs').insert({
+    user_id: isUuid ? userId : null,
+    user_name: userName,
+    user_role: userRole,
+    action,
+    details,
+  });
+};

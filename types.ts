@@ -123,6 +123,7 @@ export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER';
 export interface User {
   id: string;
   username: string;
+  email?: string;
   passwordHash: string;
   salt: string;
   fullName: string;

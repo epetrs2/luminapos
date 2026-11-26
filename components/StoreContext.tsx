@@ -27,6 +27,12 @@ import {
     sbDeleteOrder,
     sbSavePurchase,
     sbUpdateSettings,
+    sbAdminUpdateProfile,
+    sbSendPasswordRecovery,
+    sbSendMagicLink,
+    sbUpdateMyPassword,
+    sbVerifyCurrentUserPassword,
+    sbLogActivity,
 } from '../services/supabaseWrites';
 import { roundCurrency, roundQty, generateId } from '../utils/financeHelpers';
 
@@ -129,6 +135,13 @@ interface StoreContextType {
     login: (u: string, p: string, code?: string) => Promise<string>;
     loginWithSupabase: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
     signUpWithSupabase: (email: string, password: string, fullName: string) => Promise<{ ok: boolean; message?: string }>;
+    sendSupabasePasswordReset: (email: string) => Promise<{ ok: boolean; message: string }>;
+    sendSupabaseMagicLink: (email: string) => Promise<{ ok: boolean; message: string }>;
+    updateSupabasePassword: (newPassword: string) => Promise<{ ok: boolean; message: string }>;
+    adminUpdateSupabaseProfile: (targetId: string, fullName: string, role: UserRole, active: boolean) => Promise<{ ok: boolean; message?: string }>;
+    verifyCurrentUserPassword: (password: string) => Promise<boolean>;
+    isPasswordRecoveryMode: boolean;
+    clearPasswordRecoveryMode: () => void;
     syncFromSupabase: (silent?: boolean) => Promise<boolean>;
     logout: () => void;
     manualLockApp: () => void;
@@ -273,6 +286,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [hasPendingChanges, setHasPendingChanges] = useState(false);
     const [incomingOrder, setIncomingOrder] = useState<Order | null>(null);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [isPasswordRecoveryMode, setIsPasswordRecoveryMode] = useState<boolean>(() => {
+        if (typeof window === 'undefined') return false;
+        return window.location.hash.includes('type=recovery');
+    });
 
     // Bluetooth
     const [btDevice, setBtDevice] = useState<BluetoothDevice | null>(null);
@@ -388,6 +405,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             timestamp: new Date().toISOString()
         };
         setActivityLogs(prev => [log, ...prev].slice(0, 1000));
+        sbLogActivity(action, details, log.userName, log.userRole, log.userId);
     };
 
     // --- BLUETOOTH REAL IMPLEMENTATION (with sequential write queue) ---
@@ -1120,6 +1138,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (snap.cashMovements.length > 0) setCashMovements(snap.cashMovements);
             if (snap.orders.length > 0) setOrders(snap.orders);
             if (snap.purchases.length > 0) setPurchases(snap.purchases);
+            if (snap.profiles.length > 0) setUsers(snap.profiles);
+            if (snap.activityLogs.length > 0) setActivityLogs(snap.activityLogs);
             if (snap.settingsPartial) setSettings(prev => mergeSettings({ ...prev, ...snap.settingsPartial }));
             if (!silent) notify("Nube Sincronizada", "Datos actualizados desde Supabase.", "success");
             return true;
@@ -1129,18 +1149,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     };
 
-    const hydrateUserFromSupabaseSession = async (sessionUser: any) => {
-        if (!supabase || !sessionUser) return;
+    const hydrateUserFromSupabaseSession = async (sessionUser: any): Promise<boolean> => {
+        if (!supabase || !sessionUser) return false;
         const { data: profile } = await supabase
             .from('profiles')
-            .select('id, username, full_name, role, active')
+            .select('id, username, email, full_name, role, active')
             .eq('id', sessionUser.id)
             .maybeSingle();
 
-        const email = sessionUser.email || 'usuario@luminapos.app';
+        // Enforce disabled account block immediately
+        if (profile && profile.active === false) {
+            await supabase.auth.signOut();
+            setCurrentUser(null);
+            notify("Acceso Bloqueado", "Tu cuenta ha sido desactivada por un administrador.", "error");
+            return false;
+        }
+
+        const email = profile?.email || sessionUser.email || 'usuario@luminapos.app';
         const sbUser: User = {
             id: sessionUser.id,
             username: profile?.username || email.split('@')[0],
+            email,
             fullName: profile?.full_name || sessionUser.user_metadata?.full_name || email.split('@')[0],
             role: (profile?.role as UserRole) || 'ADMIN',
             active: profile?.active !== false,
@@ -1149,6 +1178,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             lastLogin: new Date().toISOString(),
         };
         setCurrentUser(sbUser);
+        return true;
     };
 
     const loginWithSupabase = async (email: string, password: string): Promise<{ ok: boolean; message?: string }> => {
@@ -1157,17 +1187,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (error || !data.session) {
             return { ok: false, message: error?.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos' : (error?.message || 'Error al iniciar sesión') };
         }
-        await hydrateUserFromSupabaseSession(data.user);
+        const allowed = await hydrateUserFromSupabaseSession(data.user);
+        if (!allowed) {
+            return { ok: false, message: 'Tu cuenta está desactivada. Contacta al administrador.' };
+        }
         await syncFromSupabase(true);
         return { ok: true };
     };
 
     const signUpWithSupabase = async (email: string, password: string, fullName: string): Promise<{ ok: boolean; message?: string }> => {
         if (!supabase) return { ok: false, message: 'Supabase no configurado.' };
+        const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
         const { data, error } = await supabase.auth.signUp({
             email,
             password,
-            options: { data: { full_name: fullName } },
+            options: { data: { full_name: fullName }, emailRedirectTo: redirectTo },
         });
         if (error) return { ok: false, message: error.message };
         if (data.session && data.user) {
@@ -1176,6 +1210,57 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return { ok: true, message: '¡Cuenta creada y sesión iniciada!' };
         }
         return { ok: true, message: 'Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.' };
+    };
+
+    const sendSupabasePasswordReset = async (email: string) => {
+        const res = await sbSendPasswordRecovery(email);
+        if (res.ok) logActivity('RECOVERY', `Enlace de recuperación enviado a ${email}`);
+        return res;
+    };
+
+    const sendSupabaseMagicLink = async (email: string) => {
+        const res = await sbSendMagicLink(email);
+        if (res.ok) logActivity('LOGIN', `Magic Link enviado a ${email}`);
+        return res;
+    };
+
+    const updateSupabasePassword = async (newPassword: string) => {
+        const res = await sbUpdateMyPassword(newPassword);
+        if (res.ok) {
+            setIsPasswordRecoveryMode(false);
+            if (typeof window !== 'undefined' && window.location.hash.includes('type=recovery')) {
+                window.history.replaceState(null, '', window.location.pathname);
+            }
+            logActivity('SECURITY', 'Contraseña actualizada correctamente');
+        }
+        return res;
+    };
+
+    const adminUpdateSupabaseProfile = async (targetId: string, fullName: string, role: UserRole, active: boolean) => {
+        const res = await sbAdminUpdateProfile(targetId, fullName, role, active);
+        if (res.ok) {
+            setUsers(prev => prev.map(u => u.id === targetId ? { ...u, fullName, role, active } : u));
+            await syncFromSupabase(true);
+        }
+        return res;
+    };
+
+    const verifyCurrentUserPassword = async (password: string): Promise<boolean> => {
+        if (!currentUser || !password) return false;
+        if (currentUser.email && supabase) {
+            return await sbVerifyCurrentUserPassword(currentUser.email, password);
+        }
+        if (currentUser.salt && currentUser.passwordHash) {
+            return await verifyPassword(password, currentUser.salt, currentUser.passwordHash);
+        }
+        return false;
+    };
+
+    const clearPasswordRecoveryMode = () => {
+        setIsPasswordRecoveryMode(false);
+        if (typeof window !== 'undefined' && window.location.hash.includes('type=recovery')) {
+            window.history.replaceState(null, '', window.location.pathname);
+        }
     };
 
     const logout = () => {
@@ -1193,7 +1278,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const manualLockApp = () => setIsAppLocked(true);
     const unlockApp = async (password: string) => {
         if (!currentUser) return false;
-        const valid = await verifyPassword(password, currentUser.salt, currentUser.passwordHash);
+        const valid = await verifyCurrentUserPassword(password);
         if (valid) setIsAppLocked(false);
         return valid;
     };
@@ -1359,7 +1444,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
 
         setupRealtime();
-        const { data: authSub } = client.auth.onAuthStateChange((_ev, session) => {
+        const { data: authSub } = client.auth.onAuthStateChange((event, session) => {
+            if (event === 'PASSWORD_RECOVERY') {
+                setIsPasswordRecoveryMode(true);
+            }
             if (unsubscribeRealtime) {
                 unsubscribeRealtime();
                 unsubscribeRealtime = null;
@@ -1401,7 +1489,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             addCategory, removeCategory,
             addPeriodClosure,
             updateSettings,
-            login, loginWithSupabase, signUpWithSupabase, syncFromSupabase, logout, manualLockApp, unlockApp, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
+            login, loginWithSupabase, signUpWithSupabase, sendSupabasePasswordReset, sendSupabaseMagicLink, updateSupabasePassword, adminUpdateSupabaseProfile, verifyCurrentUserPassword, isPasswordRecoveryMode, clearPasswordRecoveryMode, syncFromSupabase, logout, manualLockApp, unlockApp, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
             pushToCloud, pullFromCloud, hardReset, importData,
             notify, removeToast, flagChange, logActivity,
             connectBtPrinter, disconnectBtPrinter, sendBtData
