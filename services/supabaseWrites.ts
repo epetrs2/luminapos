@@ -17,20 +17,34 @@ const isSignedIn = async (): Promise<boolean> => {
   return Boolean(data.session);
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const resolveCustomerUuid = async (customerCode?: string): Promise<string | null> => {
   if (!supabase || !customerCode) return null;
+  if (UUID_REGEX.test(customerCode)) {
+    const { data } = await supabase.from('customers').select('id').eq('id', customerCode).maybeSingle();
+    if (data?.id) return data.id;
+  }
   const { data } = await supabase.from('customers').select('id').eq('code', customerCode).maybeSingle();
   return data?.id || null;
 };
 
 const resolveProductUuid = async (legacyId?: string): Promise<string | null> => {
   if (!supabase || !legacyId) return null;
+  if (UUID_REGEX.test(legacyId)) {
+    const { data } = await supabase.from('products').select('id').eq('id', legacyId).maybeSingle();
+    if (data?.id) return data.id;
+  }
   const { data } = await supabase.from('products').select('id').eq('legacy_id', legacyId).maybeSingle();
   return data?.id || null;
 };
 
 const resolveVariantUuid = async (legacyId?: string): Promise<string | null> => {
   if (!supabase || !legacyId) return null;
+  if (UUID_REGEX.test(legacyId)) {
+    const { data } = await supabase.from('product_variants').select('id').eq('id', legacyId).maybeSingle();
+    if (data?.id) return data.id;
+  }
   const { data } = await supabase.from('product_variants').select('id').eq('legacy_id', legacyId).maybeSingle();
   return data?.id || null;
 };
@@ -142,85 +156,125 @@ export const sbDeleteSupplier = async (legacyId: string) => {
   await supabase.from('suppliers').delete().eq('legacy_id', legacyId);
 };
 
-export const sbSaveTransaction = async (tx: Transaction) => {
-  if (!supabase || !(await isSignedIn())) return;
-  const customerUuid = await resolveCustomerUuid(tx.customerId);
-  const paymentMethod = ['cash', 'card', 'transfer', 'split', 'credit'].includes(tx.paymentMethod)
-    ? tx.paymentMethod
-    : 'cash';
-  const paymentStatus = ['paid', 'pending', 'partial'].includes(tx.paymentStatus)
-    ? tx.paymentStatus
-    : 'paid';
-  const status = ['completed', 'cancelled', 'returned'].includes(tx.status || 'completed')
-    ? tx.status || 'completed'
-    : 'completed';
+export const sbSaveTransaction = async (tx: Transaction): Promise<{ ok: boolean; error?: string }> => {
+  try {
+    if (!supabase || !(await isSignedIn())) {
+      return { ok: false, error: 'Sesión de Supabase no activa' };
+    }
+    const customerUuid = await resolveCustomerUuid(tx.customerId);
+    const paymentMethod = ['cash', 'card', 'transfer', 'split', 'credit'].includes(tx.paymentMethod)
+      ? tx.paymentMethod
+      : 'cash';
+    const paymentStatus = ['paid', 'pending', 'partial'].includes(tx.paymentStatus)
+      ? tx.paymentStatus
+      : 'paid';
+    const status = ['completed', 'cancelled', 'returned'].includes(tx.status || 'completed')
+      ? tx.status || 'completed'
+      : 'completed';
 
-  const { data: txRow, error } = await supabase
-    .from('transactions')
-    .upsert(
-      {
-        ticket_number: tx.id,
-        date: tx.date || new Date().toISOString(),
-        customer_id: customerUuid,
-        customer_name: (tx as any).customerName || null,
-        subtotal: roundCurrency(tx.subtotal || 0),
-        tax_amount: roundCurrency(tx.taxAmount || 0),
-        discount: roundCurrency(tx.discount || 0),
-        shipping: roundCurrency(tx.shipping || 0),
-        total: roundCurrency(tx.total || 0),
-        payment_method: paymentMethod,
-        payment_status: paymentStatus,
-        amount_paid: roundCurrency(tx.amountPaid || 0),
-        tendered_amount: tx.tenderedAmount != null ? roundCurrency(tx.tenderedAmount) : null,
-        split_details: tx.splitDetails || null,
-        status,
-        delivery_signature: tx.deliverySignature || null,
-      },
-      { onConflict: 'ticket_number' }
-    )
-    .select('id')
-    .single();
+    const basePayload: Record<string, any> = {
+      ticket_number: tx.id,
+      date: tx.date || new Date().toISOString(),
+      customer_id: customerUuid,
+      customer_name: (tx as any).customerName || null,
+      subtotal: roundCurrency(tx.subtotal || 0),
+      tax_amount: roundCurrency(tx.taxAmount || 0),
+      discount: roundCurrency(tx.discount || 0),
+      shipping: roundCurrency(tx.shipping || 0),
+      total: roundCurrency(tx.total || 0),
+      payment_method: paymentMethod,
+      payment_status: paymentStatus,
+      amount_paid: roundCurrency(tx.amountPaid || 0),
+      tendered_amount: tx.tenderedAmount != null ? roundCurrency(tx.tenderedAmount) : null,
+      split_details: tx.splitDetails || null,
+      status,
+    };
 
-  if (error || !txRow) {
-    console.warn('sbSaveTransaction error:', error?.message);
-    return;
-  }
+    const payloadWithSig = tx.deliverySignature
+      ? { ...basePayload, delivery_signature: tx.deliverySignature }
+      : basePayload;
 
-  if (tx.items && tx.items.length > 0) {
-    await supabase.from('transaction_items').delete().eq('transaction_id', txRow.id);
-    const itemsToInsert = await Promise.all(
-      tx.items.map(async it => ({
-        transaction_id: txRow.id,
-        product_id: await resolveProductUuid(it.id),
-        variant_id: await resolveVariantUuid(it.variantId),
-        variant_name: it.variantName || null,
-        name: it.name || 'Producto',
-        sku: it.sku || '',
-        category: it.category || 'General',
-        unit: it.unit || 'PIECE',
-        is_consignment: Boolean(it.isConsignment),
-        quantity: Math.max(0.001, roundQty(it.quantity || 1)),
-        price: roundCurrency(Math.max(0, it.price || 0)),
-        tax_rate: Number.isFinite(it.taxRate) ? it.taxRate : 0,
-      }))
-    );
-    const { error: itemErr } = await supabase.from('transaction_items').insert(itemsToInsert);
-    if (itemErr) console.warn('sbSaveTransaction items error:', itemErr.message);
+    let { data: txRow, error } = await supabase
+      .from('transactions')
+      .upsert(payloadWithSig, { onConflict: 'ticket_number' })
+      .select('id')
+      .single();
+
+    // Auto-fallback if migration 008 (delivery_signature column) hasn't been executed in Supabase yet
+    if (error && /delivery_signature/i.test(error.message || '')) {
+      console.warn('sbSaveTransaction retrying without delivery_signature (run migration 008):', error.message);
+      const retry = await supabase
+        .from('transactions')
+        .upsert(basePayload, { onConflict: 'ticket_number' })
+        .select('id')
+        .single();
+      txRow = retry.data;
+      error = retry.error;
+    }
+
+    if (error || !txRow) {
+      console.warn('sbSaveTransaction error:', error?.message);
+      return { ok: false, error: error?.message || 'Error al guardar venta' };
+    }
+
+    if (tx.items && tx.items.length > 0) {
+      await supabase.from('transaction_items').delete().eq('transaction_id', txRow.id);
+      const itemsToInsert = await Promise.all(
+        tx.items.map(async it => ({
+          transaction_id: txRow.id,
+          product_id: await resolveProductUuid(it.id),
+          variant_id: await resolveVariantUuid(it.variantId),
+          variant_name: it.variantName || null,
+          name: it.name || 'Producto',
+          sku: it.sku || '',
+          category: it.category || 'General',
+          unit: it.unit || 'PIECE',
+          is_consignment: Boolean(it.isConsignment),
+          quantity: Math.max(0.001, roundQty(it.quantity || 1)),
+          price: roundCurrency(Math.max(0, it.price || 0)),
+          tax_rate: Number.isFinite(it.taxRate) ? it.taxRate : 0,
+        }))
+      );
+      const { error: itemErr } = await supabase.from('transaction_items').insert(itemsToInsert);
+      if (itemErr) console.warn('sbSaveTransaction items error:', itemErr.message);
+    }
+
+    return { ok: true };
+  } catch (err: any) {
+    console.warn('sbSaveTransaction exception:', err?.message);
+    return { ok: false, error: err?.message || 'Error de red' };
   }
 };
 
-export const sbUpdateTransaction = async (ticketNumber: string, updates: Partial<Transaction>) => {
-  if (!supabase || !(await isSignedIn())) return;
-  const patch: Record<string, any> = {};
-  if (updates.status !== undefined) patch.status = updates.status;
-  if (updates.paymentStatus !== undefined) patch.payment_status = updates.paymentStatus;
-  if (updates.amountPaid !== undefined) patch.amount_paid = roundCurrency(updates.amountPaid);
-  if (updates.total !== undefined) patch.total = roundCurrency(updates.total);
-  if (updates.deliverySignature !== undefined) patch.delivery_signature = updates.deliverySignature;
-  if (Object.keys(patch).length === 0) return;
+export const sbUpdateTransaction = async (ticketNumber: string, updates: Partial<Transaction>): Promise<{ ok: boolean; error?: string }> => {
+  try {
+    if (!supabase || !(await isSignedIn())) return { ok: false, error: 'Sesión no activa' };
+    const patch: Record<string, any> = {};
+    if (updates.status !== undefined) patch.status = updates.status;
+    if (updates.paymentStatus !== undefined) patch.payment_status = updates.paymentStatus;
+    if (updates.amountPaid !== undefined) patch.amount_paid = roundCurrency(updates.amountPaid);
+    if (updates.total !== undefined) patch.total = roundCurrency(updates.total);
+    if (updates.deliverySignature !== undefined) patch.delivery_signature = updates.deliverySignature;
+    if (Object.keys(patch).length === 0) return { ok: true };
 
-  const { error } = await supabase.from('transactions').update(patch).eq('ticket_number', ticketNumber);
-  if (error) console.warn('sbUpdateTransaction error:', error.message);
+    let { error } = await supabase.from('transactions').update(patch).eq('ticket_number', ticketNumber);
+    if (error && /delivery_signature/i.test(error.message || '')) {
+      const { delivery_signature: _ignored, ...rest } = patch;
+      if (Object.keys(rest).length > 0) {
+        const retry = await supabase.from('transactions').update(rest).eq('ticket_number', ticketNumber);
+        error = retry.error;
+      } else {
+        return { ok: false, error: 'Falta migración 008_delivery_signature.sql en Supabase' };
+      }
+    }
+    if (error) {
+      console.warn('sbUpdateTransaction error:', error.message);
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Error de red' };
+  }
 };
 
 export const sbSaveCashMovement = async (m: CashMovement) => {
@@ -254,54 +308,83 @@ export const sbDeleteCashMovement = async (id: string) => {
   }
 };
 
-export const sbUpsertOrder = async (o: Order) => {
-  if (!supabase || !(await isSignedIn())) return;
-  const customerUuid = await resolveCustomerUuid(o.customerId);
-  const { data: ordRow, error } = await supabase
-    .from('orders')
-    .upsert(
-      {
-        order_number: o.id,
-        customer_id: customerUuid,
-        customer_name: o.customerName || 'Cliente General',
-        date: o.date || new Date().toISOString(),
-        delivery_date: o.deliveryDate ? o.deliveryDate.slice(0, 10) : null,
-        total: roundCurrency(o.total || 0),
-        status: o.status || 'PENDING',
-        priority: o.priority || 'NORMAL',
-        notes: o.notes || null,
-        stock_added: Boolean(o.stockAdded),
-      },
-      { onConflict: 'order_number' }
-    )
-    .select('id')
-    .single();
+export const sbUpsertOrder = async (o: Order): Promise<{ ok: boolean; error?: string }> => {
+  try {
+    if (!supabase || !(await isSignedIn())) {
+      return { ok: false, error: 'Sesión de Supabase no activa' };
+    }
+    const customerUuid = await resolveCustomerUuid(o.customerId);
+    const basePayload: Record<string, any> = {
+      order_number: o.id,
+      customer_id: customerUuid,
+      customer_name: o.customerName || 'Cliente General',
+      date: o.date || new Date().toISOString(),
+      delivery_date: o.deliveryDate ? o.deliveryDate.slice(0, 10) : null,
+      total: roundCurrency(o.total || 0),
+      status: o.status || 'PENDING',
+      priority: o.priority || 'NORMAL',
+      notes: o.notes || null,
+      stock_added: Boolean(o.stockAdded),
+    };
 
-  if (error || !ordRow) {
-    console.warn('sbUpsertOrder error:', error?.message);
-    return;
-  }
+    let { data: ordRow, error } = await supabase
+      .from('orders')
+      .upsert(basePayload, { onConflict: 'order_number' })
+      .select('id')
+      .single();
 
-  if (o.items && o.items.length > 0) {
-    await supabase.from('order_items').delete().eq('order_id', ordRow.id);
-    const itemsToInsert = await Promise.all(
-      o.items.map(async it => ({
-        order_id: ordRow.id,
-        product_id: await resolveProductUuid(it.id),
-        variant_id: await resolveVariantUuid(it.variantId),
-        variant_name: it.variantName || null,
-        name: it.name || 'Producto',
-        quantity: Math.max(0.001, roundQty(it.quantity || 1)),
-        price: roundCurrency(Math.max(0, it.price || 0)),
-      }))
-    );
-    await supabase.from('order_items').insert(itemsToInsert);
+    if (error && /stock_added/i.test(error.message || '')) {
+      const { stock_added: _ignored, ...fallbackPayload } = basePayload;
+      const retry = await supabase
+        .from('orders')
+        .upsert(fallbackPayload, { onConflict: 'order_number' })
+        .select('id')
+        .single();
+      ordRow = retry.data;
+      error = retry.error;
+    }
+
+    if (error || !ordRow) {
+      console.warn('sbUpsertOrder error:', error?.message);
+      return { ok: false, error: error?.message || 'Error al guardar pedido' };
+    }
+
+    if (o.items && o.items.length > 0) {
+      await supabase.from('order_items').delete().eq('order_id', ordRow.id);
+      const itemsToInsert = await Promise.all(
+        o.items.map(async it => ({
+          order_id: ordRow.id,
+          product_id: await resolveProductUuid(it.id),
+          variant_id: await resolveVariantUuid(it.variantId),
+          variant_name: it.variantName || null,
+          name: it.name || 'Producto',
+          quantity: Math.max(0.001, roundQty(it.quantity || 1)),
+          price: roundCurrency(Math.max(0, it.price || 0)),
+        }))
+      );
+      const { error: itemErr } = await supabase.from('order_items').insert(itemsToInsert);
+      if (itemErr) console.warn('sbUpsertOrder items error:', itemErr.message);
+    }
+
+    return { ok: true };
+  } catch (err: any) {
+    console.warn('sbUpsertOrder exception:', err?.message);
+    return { ok: false, error: err?.message || 'Error de red' };
   }
 };
 
-export const sbUpdateOrderStatus = async (orderNumber: string, status: Order['status']) => {
-  if (!supabase || !(await isSignedIn())) return;
-  await supabase.from('orders').update({ status }).eq('order_number', orderNumber);
+export const sbUpdateOrderStatus = async (orderNumber: string, status: Order['status']): Promise<{ ok: boolean; error?: string }> => {
+  try {
+    if (!supabase || !(await isSignedIn())) return { ok: false, error: 'Sesión no activa' };
+    const { error } = await supabase.from('orders').update({ status }).eq('order_number', orderNumber);
+    if (error) {
+      console.warn('sbUpdateOrderStatus error:', error.message);
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Error de red' };
+  }
 };
 
 export const sbDeleteOrder = async (orderNumber: string) => {

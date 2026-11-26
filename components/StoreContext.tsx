@@ -308,6 +308,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Sync version counter to prevent clearing hasPendingChanges if new edits arrive mid-push
     const changeVersionRef = useRef(0);
 
+    // Live refs for safe bidirectional merge during async Supabase sync
+    const transactionsRef = useRef<Transaction[]>(transactions);
+    const ordersRef = useRef<Order[]>(orders);
+    useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
+    useEffect(() => { ordersRef.current = orders; }, [orders]);
+
+    // Persistent offline retry queues for failed Supabase writes
+    const getPendingIds = (key: string): string[] => safeLoad<string[]>(key, []);
+    const addPendingId = (key: string, id: string) => {
+        const cur = getPendingIds(key);
+        if (!cur.includes(id)) safeSave(key, [...cur, id]);
+    };
+    const removePendingId = (key: string, id: string) => {
+        const cur = getPendingIds(key);
+        if (cur.includes(id)) safeSave(key, cur.filter(x => x !== id));
+    };
+
     // --- PERSISTENCE ---
     useEffect(() => { safeSave('products', products); }, [products]);
     useEffect(() => { safeSave('transactions', transactions); }, [transactions]);
@@ -576,7 +593,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             amountPaid: roundCurrency(t.amountPaid || 0),
         };
         setTransactions(prev => [...prev, cleanTx]);
-        sbSaveTransaction(cleanTx);
+        sbSaveTransaction(cleanTx).then(res => {
+            if (!res.ok) {
+                addPendingId('lumina_pending_tx_ids', cleanTx.id);
+                notify("Guardado Local", `Venta #${cleanTx.id} guardada en este dispositivo (pendiente de subir a la nube).`, "warning");
+            } else {
+                removePendingId('lumina_pending_tx_ids', cleanTx.id);
+            }
+        });
 
         // Update customer debt if pending or partial
         if (cleanTx.paymentStatus === 'pending' || cleanTx.paymentStatus === 'partial') {
@@ -1004,18 +1028,39 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const id = o.id || `ORD-${Date.now().toString().slice(-6)}`;
         const newOrder = { ...o, id };
         setOrders(prev => [...prev, newOrder]);
-        sbUpsertOrder(newOrder);
+        sbUpsertOrder(newOrder).then(res => {
+            if (!res.ok) {
+                addPendingId('lumina_pending_order_ids', newOrder.id);
+                notify("Guardado Local", `Pedido #${newOrder.id} guardado localmente (pendiente de subir a la nube).`, "warning");
+            } else {
+                removePendingId('lumina_pending_order_ids', newOrder.id);
+            }
+        });
         notify("Pedido", "Creado exitosamente", "success");
         flagChange();
     };
-    const updateOrder = (o: Order) => { setOrders(prev => prev.map(ord => ord.id === o.id ? o : ord)); sbUpsertOrder(o); flagChange(); };
+    const updateOrder = (o: Order) => {
+        setOrders(prev => prev.map(ord => ord.id === o.id ? o : ord));
+        sbUpsertOrder(o).then(res => {
+            if (!res.ok) addPendingId('lumina_pending_order_ids', o.id);
+            else removePendingId('lumina_pending_order_ids', o.id);
+        });
+        flagChange();
+    };
     const updateOrderStatus = (id: string, status: Order['status']) => {
         setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
-        sbUpdateOrderStatus(id, status);
+        sbUpdateOrderStatus(id, status).then(res => {
+            if (!res.ok) addPendingId('lumina_pending_order_ids', id);
+        });
         notify("Estado", "Actualizado", "info");
         flagChange();
     };
-    const deleteOrder = (id: string) => { setOrders(prev => prev.filter(o => o.id !== id)); sbDeleteOrder(id); flagChange(); };
+    const deleteOrder = (id: string) => {
+        setOrders(prev => prev.filter(o => o.id !== id));
+        removePendingId('lumina_pending_order_ids', id);
+        sbDeleteOrder(id);
+        flagChange();
+    };
     const completeOrder = (id: string) => updateOrderStatus(id, 'COMPLETED');
     const sendOrderToPOS = (order: Order) => {
         setIncomingOrder(order);
@@ -1211,21 +1256,104 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!supabase) return false;
         setIsSyncing(true);
         try {
+            // 1. Flush any queued local transactions & orders BEFORE pulling from cloud
+            const pendingTxIds = getPendingIds('lumina_pending_tx_ids');
+            if (pendingTxIds.length > 0) {
+                for (const txId of pendingTxIds) {
+                    const localTx = transactionsRef.current.find(t => t.id === txId);
+                    if (!localTx) { removePendingId('lumina_pending_tx_ids', txId); continue; }
+                    const res = await sbSaveTransaction(localTx);
+                    if (res.ok) removePendingId('lumina_pending_tx_ids', txId);
+                }
+            }
+            const pendingOrderIds = getPendingIds('lumina_pending_order_ids');
+            if (pendingOrderIds.length > 0) {
+                for (const ordId of pendingOrderIds) {
+                    const localOrd = ordersRef.current.find(o => o.id === ordId);
+                    if (!localOrd) { removePendingId('lumina_pending_order_ids', ordId); continue; }
+                    const res = await sbUpsertOrder(localOrd);
+                    if (res.ok) removePendingId('lumina_pending_order_ids', ordId);
+                }
+            }
+
+            // 2. Fetch fresh snapshot from Supabase
             const snap = await fetchAllFromSupabase();
             if (!snap) return false;
+
             if (snap.categories.length > 0) setCategories(snap.categories);
             if (snap.products.length > 0) setProducts(snap.products);
             if (snap.customers.length > 0) setCustomers(snap.customers);
             if (snap.suppliers.length > 0) setSuppliers(snap.suppliers);
-            if (snap.transactions.length > 0) setTransactions(snap.transactions);
+
+            // 3. SAFE MERGE for Transactions: NEVER wipe local-only sales (e.g. made offline in a store)
+            //    and NEVER wipe local deliverySignature if Supabase hasn't migrated column 008 yet!
+            const localTxMap = new Map<string, Transaction>(transactionsRef.current.map(t => [t.id, t]));
+            const remoteTxIds = new Set(snap.transactions.map(t => t.id));
+            const mergedRemoteTxs = snap.transactions.map(rt => {
+                const lt = localTxMap.get(rt.id);
+                if (lt?.deliverySignature && !rt.deliverySignature) {
+                    return { ...rt, deliverySignature: lt.deliverySignature };
+                }
+                if (lt?.excludeFromReports && !rt.excludeFromReports) {
+                    return { ...rt, excludeFromReports: lt.excludeFromReports };
+                }
+                return rt;
+            });
+            const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+            const localOnlyTxs = transactionsRef.current.filter(lt => {
+                if (remoteTxIds.has(lt.id)) return false;
+                if (lt.status === 'cancelled' && Date.now() - new Date(lt.date).getTime() > THIRTY_DAYS_MS) return false;
+                return true;
+            });
+            if (localOnlyTxs.length > 0) {
+                // Auto-rescue local-only transactions by pushing them to Supabase in background!
+                localOnlyTxs.forEach(lt => {
+                    sbSaveTransaction(lt).then(res => {
+                        if (res.ok) removePendingId('lumina_pending_tx_ids', lt.id);
+                        else addPendingId('lumina_pending_tx_ids', lt.id);
+                    });
+                });
+            }
+            if (mergedRemoteTxs.length > 0 || localOnlyTxs.length > 0) {
+                setTransactions([...localOnlyTxs, ...mergedRemoteTxs]);
+            }
+
             if (snap.cashMovements.length > 0) setCashMovements(snap.cashMovements);
-            if (snap.orders.length > 0) setOrders(snap.orders);
+
+            // 4. SAFE MERGE for Orders: preserve queued local orders & auto-upload stranded active orders
+            const remoteOrdIds = new Set(snap.orders.map(o => o.id));
+            const stillPendingOrderIds = new Set(getPendingIds('lumina_pending_order_ids'));
+            const localOnlyOrders = ordersRef.current.filter(lo => {
+                if (remoteOrdIds.has(lo.id)) return false;
+                if (stillPendingOrderIds.has(lo.id)) return true;
+                // If cloud has 0 orders (or active order never reached cloud), rescue active local orders
+                return snap.orders.length === 0 && lo.status !== 'COMPLETED';
+            });
+            if (localOnlyOrders.length > 0) {
+                localOnlyOrders.forEach(lo => {
+                    sbUpsertOrder(lo).then(res => {
+                        if (res.ok) removePendingId('lumina_pending_order_ids', lo.id);
+                        else addPendingId('lumina_pending_order_ids', lo.id);
+                    });
+                });
+            }
+            if (snap.orders.length > 0 || localOnlyOrders.length > 0) {
+                setOrders([...localOnlyOrders, ...snap.orders]);
+            }
+
             if (snap.purchases.length > 0) setPurchases(snap.purchases);
             if (snap.profiles.length > 0) setUsers(snap.profiles);
             if (snap.activityLogs.length > 0) setActivityLogs(snap.activityLogs);
             if (snap.settingsPartial) setSettings(prev => mergeSettings({ ...prev, ...snap.settingsPartial }));
             if (!silent) {
-                notify("Nube Sincronizada", "Datos actualizados desde Supabase.", "success");
+                const rescuedCount = localOnlyTxs.length + localOnlyOrders.length;
+                notify(
+                    "Nube Sincronizada",
+                    rescuedCount > 0
+                        ? `Datos actualizados y ${rescuedCount} registro(s) local(es) subidos a la nube.`
+                        : "Datos actualizados desde Supabase.",
+                    "success"
+                );
                 if (settings.soundConfig?.enabled !== false) {
                     playSystemSound(settings.soundConfig?.notificationSound || 'NOTE', (settings.soundConfig?.volume ?? 0.5) * 0.6);
                 }
@@ -1553,7 +1681,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
         });
 
+        const handleOnline = () => {
+            syncFromSupabase(true);
+        };
+        window.addEventListener('online', handleOnline);
+
         return () => {
+            window.removeEventListener('online', handleOnline);
             if (unsubscribeRealtime) unsubscribeRealtime();
             authSub.subscription.unsubscribe();
         };

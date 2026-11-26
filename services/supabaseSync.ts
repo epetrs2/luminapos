@@ -59,11 +59,15 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
 
   if (prodRes.error) throw new Error(prodRes.error.message);
 
+  // Build UUID -> canonical app ID lookup maps so cross-device references always match!
+  const variantLegacyByUuid = new Map<string, string>();
   const variantsByProd = new Map<string, any[]>();
   (varRes.data || []).forEach(v => {
+    const canonicalVarId = v.legacy_id || v.id;
+    variantLegacyByUuid.set(v.id, canonicalVarId);
     const list = variantsByProd.get(v.product_id) || [];
     list.push({
-      id: v.legacy_id || v.id,
+      id: canonicalVarId,
       name: v.name,
       sku: v.sku || '',
       price: Number(v.price) || 0,
@@ -72,37 +76,47 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     variantsByProd.set(v.product_id, list);
   });
 
-  const products: Product[] = (prodRes.data || []).map(p => ({
-    id: p.legacy_id || p.id,
-    name: p.name,
-    sku: p.sku || '',
-    category: p.category || 'General',
-    type: p.type || 'PRODUCT',
-    unit: p.unit || 'PIECE',
-    presentationValue: p.presentation_value != null ? Number(p.presentation_value) : undefined,
-    price: Number(p.price) || 0,
-    cost: Number(p.cost) || 0,
-    stock: Number(p.stock) || 0,
-    taxRate: Number(p.tax_rate) || 0,
-    hasVariants: Boolean(p.has_variants),
-    variants: variantsByProd.get(p.id),
-    isConsignment: Boolean(p.is_consignment),
-    isActive: p.is_active !== false,
-    description: p.description || undefined,
-  }));
+  const productLegacyByUuid = new Map<string, string>();
+  const products: Product[] = (prodRes.data || []).map(p => {
+    const canonicalProdId = p.legacy_id || p.id;
+    productLegacyByUuid.set(p.id, canonicalProdId);
+    return {
+      id: canonicalProdId,
+      name: p.name,
+      sku: p.sku || '',
+      category: p.category || 'General',
+      type: p.type || 'PRODUCT',
+      unit: p.unit || 'PIECE',
+      presentationValue: p.presentation_value != null ? Number(p.presentation_value) : undefined,
+      price: Number(p.price) || 0,
+      cost: Number(p.cost) || 0,
+      stock: Number(p.stock) || 0,
+      taxRate: Number(p.tax_rate) || 0,
+      hasVariants: Boolean(p.has_variants),
+      variants: variantsByProd.get(p.id),
+      isConsignment: Boolean(p.is_consignment),
+      isActive: p.is_active !== false,
+      description: p.description || undefined,
+    };
+  });
 
-  const customers: Customer[] = (custRes.data || []).map(c => ({
-    id: c.code || c.id,
-    name: c.name,
-    email: c.email || '',
-    phone: c.phone || '',
-    address: c.address || '',
-    notes: c.notes || '',
-    clientType: c.client_type || 'INDIVIDUAL',
-    creditLimit: Number(c.credit_limit) || 0,
-    currentDebt: Number(c.current_debt) || 0,
-    hasUnlimitedCredit: Boolean(c.has_unlimited_credit),
-  }));
+  const customerCodeByUuid = new Map<string, string>();
+  const customers: Customer[] = (custRes.data || []).map(c => {
+    const canonicalCustId = c.code || c.id;
+    customerCodeByUuid.set(c.id, canonicalCustId);
+    return {
+      id: canonicalCustId,
+      name: c.name,
+      email: c.email || '',
+      phone: c.phone || '',
+      address: c.address || '',
+      notes: c.notes || '',
+      clientType: c.client_type || 'INDIVIDUAL',
+      creditLimit: Number(c.credit_limit) || 0,
+      currentDebt: Number(c.current_debt) || 0,
+      hasUnlimitedCredit: Boolean(c.has_unlimited_credit),
+    };
+  });
 
   const suppliers: Supplier[] = (supRes.data || []).map(s => ({
     id: s.legacy_id || s.id,
@@ -117,8 +131,8 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
   (txItemRes.data || []).forEach(it => {
     const list = txItemsByTx.get(it.transaction_id) || [];
     list.push({
-      id: it.product_id || it.id,
-      variantId: it.variant_id || undefined,
+      id: (it.product_id && productLegacyByUuid.get(it.product_id)) || it.product_id || it.id,
+      variantId: (it.variant_id && variantLegacyByUuid.get(it.variant_id)) || it.variant_id || undefined,
       variantName: it.variant_name || undefined,
       name: it.name,
       sku: it.sku || '',
@@ -147,7 +161,7 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     amountPaid: Number(t.amount_paid) || 0,
     tenderedAmount: t.tendered_amount != null ? Number(t.tendered_amount) : undefined,
     splitDetails: t.split_details || undefined,
-    customerId: t.customer_id || undefined,
+    customerId: (t.customer_id && customerCodeByUuid.get(t.customer_id)) || t.customer_id || undefined,
     customerName: t.customer_name || undefined,
     status: t.status || 'completed',
     deliverySignature: t.delivery_signature || undefined,
@@ -162,7 +176,7 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
     category: m.category || 'OTHER',
     subCategory: m.sub_category || undefined,
     channel: m.channel || 'CASH',
-    customerId: m.customer_id || undefined,
+    customerId: (m.customer_id && customerCodeByUuid.get(m.customer_id)) || m.customer_id || undefined,
     isZCut: Boolean(m.is_z_cut),
     zReportData: m.z_report_data || undefined,
   }));
@@ -171,8 +185,8 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
   (ordItemRes.data || []).forEach(it => {
     const list = ordItemsByOrd.get(it.order_id) || [];
     list.push({
-      id: it.product_id || it.id,
-      variantId: it.variant_id || undefined,
+      id: (it.product_id && productLegacyByUuid.get(it.product_id)) || it.product_id || it.id,
+      variantId: (it.variant_id && variantLegacyByUuid.get(it.variant_id)) || it.variant_id || undefined,
       variantName: it.variant_name || undefined,
       name: it.name,
       quantity: Number(it.quantity) || 1,
@@ -186,7 +200,7 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
 
   const orders: Order[] = (ordRes.data || []).map(o => ({
     id: o.order_number || o.id,
-    customerId: o.customer_id || undefined,
+    customerId: (o.customer_id && customerCodeByUuid.get(o.customer_id)) || o.customer_id || undefined,
     customerName: o.customer_name || 'Cliente General',
     date: o.date,
     deliveryDate: o.delivery_date || undefined,
@@ -202,9 +216,9 @@ export const fetchAllFromSupabase = async (): Promise<SupabaseSnapshot | null> =
   (purchItemRes.data || []).forEach(it => {
     const list = purchItemsByPurch.get(it.purchase_id) || [];
     list.push({
-      productId: it.product_id,
+      productId: (it.product_id && productLegacyByUuid.get(it.product_id)) || it.product_id,
       productName: it.name,
-      variantId: it.variant_id || undefined,
+      variantId: (it.variant_id && variantLegacyByUuid.get(it.variant_id)) || it.variant_id || undefined,
       variantName: it.variant_name || undefined,
       quantity: Number(it.quantity) || 1,
       unitCost: Number(it.unit_cost) || 0,
