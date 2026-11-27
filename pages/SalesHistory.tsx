@@ -983,9 +983,13 @@ export const SalesHistory: React.FC = () => {
   const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('DESC'); 
 
   // ... (rest of helper functions) ...
-  const getCustomerName = (id?: string) => {
-      if (!id) return 'Cliente General';
-      return customers.find(c => c.id === id)?.name || 'Desconocido';
+  const getCustomerName = (id?: string, fallbackName?: string) => {
+      if (id) {
+          const found = customers.find(c => c.id === id);
+          if (found) return found.name;
+      }
+      if (fallbackName && fallbackName.trim()) return fallbackName.trim();
+      return id ? 'Desconocido' : 'Cliente General';
   };
 
   const getCustomer = (id?: string) => {
@@ -1274,7 +1278,7 @@ export const SalesHistory: React.FC = () => {
                           </div>
                       </div>
                       <div className="flex justify-between items-center">
-                          <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400 truncate max-w-[180px]">{getCustomerName(t.customerId)}</p>
+                          <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400 truncate max-w-[180px]">{getCustomerName(t.customerId, (t as any).customerName)}</p>
                           {t.status === 'returned' ? (
                               <span className="text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 rounded">DEVUELTO</span>
                           ) : t.status === 'cancelled' ? (
@@ -1331,7 +1335,7 @@ export const SalesHistory: React.FC = () => {
                       <span className="text-xs text-slate-400 block">{new Date(t.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                     </td>
                     <td className="px-6 py-4 font-medium text-slate-800 dark:text-white">
-                      {getCustomerName(t.customerId)}
+                      {getCustomerName(t.customerId, (t as any).customerName)}
                     </td>
                     <td className="px-6 py-4 text-center">
                       {t.status === 'returned' ? (

@@ -187,7 +187,15 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION public.rpc_touch_my_activity(BOOLEAN) TO authenticated;
 
--- 7. Cleanly recreate ALL RLS policies across all 19 tables
+-- 7. Grant schema/table/sequence/function privileges to authenticated role (required on Postgres 15+)
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO authenticated, service_role;
+
+-- 7b. Cleanly recreate ALL RLS policies across all 19 tables
 DO $$
 DECLARE
   tbl TEXT;

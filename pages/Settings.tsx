@@ -227,7 +227,7 @@ const InputField = ({ label, value, onChange, type = "text", placeholder = "", i
 
 // ... Main Settings Component ...
 export const Settings: React.FC = () => {
-  const { settings, updateSettings, hardReset, pushToCloud, pullFromCloud, notify, btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, importData } = useStore();
+  const { settings, updateSettings, hardReset, pushToCloud, pullFromCloud, notify, btDevice, btCharacteristic, connectBtPrinter, disconnectBtPrinter, sendBtData, products, transactions, customers, suppliers, cashMovements, orders, purchases, users, userInvites, categories, activityLogs, importData, setSyncSuspended, clearPendingSyncQueues, syncFromSupabase } = useStore();
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'OPERATIONS' | 'TICKETS' | 'DATA' | 'BLUETOOTH' | 'NOTIFICATIONS' | 'SECURITY' | 'BACKUP'>('GENERAL');
   const [formData, setFormData] = useState(settings);
   const [cropImage, setCropImage] = useState<string | null>(null);
@@ -332,6 +332,7 @@ export const Settings: React.FC = () => {
       }
       if (!confirm('¿Migrar toda tu base de datos (productos, clientes, proveedores, ventas, caja, pedidos, compras y configuración) hacia Supabase PostgreSQL?')) return;
       setMigratingSupabase(true);
+      setSyncSuspended(true);
       try {
           const report = await migrateLocalDataToSupabase({
               categories,
@@ -344,6 +345,7 @@ export const Settings: React.FC = () => {
               purchases,
               settings: formData,
           });
+          clearPendingSyncQueues();
           const summary = `Migrados: ${report.products} prod, ${report.customers} clientes, ${report.transactions} ventas, ${report.cashMovements} mov. caja, ${report.orders} pedidos, ${report.purchases} compras.`;
           const errPreview = report.errors.length > 0 ? ` — Detalle: ${report.errors.slice(0, 2).join(' | ')}` : '';
           setSupabaseStatus(report.errors.length > 0 ? `${summary} (${report.errors.length} avisos)${errPreview}` : summary);
@@ -351,7 +353,9 @@ export const Settings: React.FC = () => {
       } catch (err: any) {
           notify('Error Migración', err?.message || 'No se pudo migrar a Supabase', 'error');
       } finally {
+          setSyncSuspended(false);
           setMigratingSupabase(false);
+          await syncFromSupabase(true);
       }
   };
 
@@ -493,23 +497,54 @@ export const Settings: React.FC = () => {
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      if (!window.confirm("¡ADVERTENCIA! Al restaurar, se SOBRESCRIBIRÁN todos los datos actuales con los del archivo. ¿Estás seguro?")) {
+      if (!window.confirm("¡ADVERTENCIA! Al restaurar, se SOBRESCRIBIRÁN todos los datos actuales (y la nube Supabase si estás conectado) con los del archivo de respaldo. ¿Estás seguro?")) {
           e.target.value = ''; 
           return;
       }
       const reader = new FileReader();
       reader.onload = async (evt) => {
+          setSyncSuspended(true);
           try {
               const json = JSON.parse(evt.target?.result as string);
               const success = await importData(json);
-              if (success) {
-                  notify("Restauración Completa", "Los datos han sido recuperados.", "success");
-                  setTimeout(() => window.location.reload(), 1500);
-              } else {
+              if (!success) {
                   notify("Error", "El archivo parece estar dañado o inválido.", "error");
+                  setSyncSuspended(false);
+                  return;
               }
+
+              // If Supabase is active, replace cloud cleanly with the restored backup so reload never brings back stale/duplicate data!
+              if (supabaseReady && sbUserEmail) {
+                  setMigratingSupabase(true);
+                  notify("Sincronizando Respaldo", "Subiendo copia limpia a Supabase (logo, clientes, ventas y pedidos)...", "info");
+                  const report = await migrateLocalDataToSupabase(
+                      {
+                          categories: json.categories,
+                          products: json.products,
+                          customers: json.customers,
+                          suppliers: json.suppliers,
+                          transactions: json.transactions,
+                          cashMovements: json.cashMovements,
+                          orders: json.orders,
+                          purchases: json.purchases,
+                          settings: json.settings,
+                      },
+                      { replaceExisting: true }
+                  );
+                  clearPendingSyncQueues();
+                  setMigratingSupabase(false);
+                  const summary = `Restaurado y subido a la nube: ${report.products} prod, ${report.customers} clientes, ${report.transactions} ventas, ${report.orders} pedidos.`;
+                  notify("Restauración Completa", report.errors.length > 0 ? `${summary} (${report.errors[0]})` : summary, report.errors.length > 0 ? "warning" : "success");
+              } else {
+                  notify("Restauración Completa", "Los datos han sido recuperados.", "success");
+              }
+
+              setSyncSuspended(false);
+              setTimeout(() => window.location.reload(), 1200);
           } catch (err) {
               console.error(err);
+              setMigratingSupabase(false);
+              setSyncSuspended(false);
               notify("Error", "No se pudo leer el archivo de respaldo.", "error");
           }
       };

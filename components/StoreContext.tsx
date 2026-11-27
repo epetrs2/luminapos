@@ -37,6 +37,7 @@ import {
     sbLogActivity,
 } from '../services/supabaseWrites';
 import { roundCurrency, roundQty, generateId } from '../utils/financeHelpers';
+import { mergeRemoteSettings, mergeTransactionsSafely } from '../utils/syncHelpers';
 import { playLoginChime, playSystemSound } from '../utils/sound';
 
 export interface PosDraft {
@@ -151,6 +152,8 @@ interface StoreContextType {
     isPasswordRecoveryMode: boolean;
     clearPasswordRecoveryMode: () => void;
     syncFromSupabase: (silent?: boolean) => Promise<boolean>;
+    setSyncSuspended: (suspended: boolean) => void;
+    clearPendingSyncQueues: () => void;
     logout: () => void;
     manualLockApp: () => void;
     unlockApp: (password: string) => Promise<boolean>;
@@ -311,8 +314,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Live refs for safe bidirectional merge during async Supabase sync
     const transactionsRef = useRef<Transaction[]>(transactions);
     const ordersRef = useRef<Order[]>(orders);
+    const isSyncSuspendedRef = useRef<boolean>(false);
     useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
     useEffect(() => { ordersRef.current = orders; }, [orders]);
+
+    const setSyncSuspended = (suspended: boolean) => {
+        isSyncSuspendedRef.current = suspended;
+    };
+
+    const clearPendingSyncQueues = () => {
+        safeSave('lumina_pending_tx_ids', []);
+        safeSave('lumina_pending_order_ids', []);
+    };
 
     // Persistent offline retry queues for failed Supabase writes
     const getPendingIds = (key: string): string[] => safeLoad<string[]>(key, []);
@@ -1253,7 +1266,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const syncFromSupabase = async (silent = true): Promise<boolean> => {
-        if (!supabase) return false;
+        if (!supabase || isSyncSuspendedRef.current) return false;
         setIsSyncing(true);
         try {
             // 1. Flush any queued local transactions & orders BEFORE pulling from cloud
@@ -1278,62 +1291,45 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             // 2. Fetch fresh snapshot from Supabase
             const snap = await fetchAllFromSupabase();
-            if (!snap) return false;
+            if (!snap || isSyncSuspendedRef.current) return false;
 
             if (snap.categories.length > 0) setCategories(snap.categories);
             if (snap.products.length > 0) setProducts(snap.products);
             if (snap.customers.length > 0) setCustomers(snap.customers);
             if (snap.suppliers.length > 0) setSuppliers(snap.suppliers);
 
-            // 3. SAFE MERGE for Transactions: NEVER wipe local-only sales (e.g. made offline in a store)
-            //    and NEVER wipe local deliverySignature if Supabase hasn't migrated column 008 yet!
-            const localTxMap = new Map<string, Transaction>(transactionsRef.current.map(t => [t.id, t]));
-            const remoteTxIds = new Set(snap.transactions.map(t => t.id));
-            const mergedRemoteTxs = snap.transactions.map(rt => {
-                const lt = localTxMap.get(rt.id);
-                if (lt?.deliverySignature && !rt.deliverySignature) {
-                    return { ...rt, deliverySignature: lt.deliverySignature };
-                }
-                if (lt?.excludeFromReports && !rt.excludeFromReports) {
-                    return { ...rt, excludeFromReports: lt.excludeFromReports };
-                }
-                return rt;
-            });
-            const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-            const localOnlyTxs = transactionsRef.current.filter(lt => {
-                if (remoteTxIds.has(lt.id)) return false;
-                if (lt.status === 'cancelled' && Date.now() - new Date(lt.date).getTime() > THIRTY_DAYS_MS) return false;
-                return true;
-            });
-            if (localOnlyTxs.length > 0) {
-                // Auto-rescue local-only transactions by pushing them to Supabase in background!
-                localOnlyTxs.forEach(lt => {
+            // 3. SAFE MERGE for Transactions: ONLY rescue explicitly queued offline sales
+            //    (NEVER duplicate legacy renamed/empty-ID rows!)
+            const remainingPendingTxIds = getPendingIds('lumina_pending_tx_ids');
+            const { merged: mergedTxs, toUpload: txsToUpload } = mergeTransactionsSafely(
+                transactionsRef.current,
+                snap.transactions,
+                remainingPendingTxIds
+            );
+            if (txsToUpload.length > 0) {
+                txsToUpload.forEach(lt => {
                     sbSaveTransaction(lt).then(res => {
                         if (res.ok) removePendingId('lumina_pending_tx_ids', lt.id);
-                        else addPendingId('lumina_pending_tx_ids', lt.id);
                     });
                 });
             }
-            if (mergedRemoteTxs.length > 0 || localOnlyTxs.length > 0) {
-                setTransactions([...localOnlyTxs, ...mergedRemoteTxs]);
+            if (mergedTxs.length > 0) {
+                setTransactions(mergedTxs);
             }
 
             if (snap.cashMovements.length > 0) setCashMovements(snap.cashMovements);
 
-            // 4. SAFE MERGE for Orders: preserve queued local orders & auto-upload stranded active orders
+            // 4. SAFE MERGE for Orders: preserve queued local orders only
             const remoteOrdIds = new Set(snap.orders.map(o => o.id));
             const stillPendingOrderIds = new Set(getPendingIds('lumina_pending_order_ids'));
             const localOnlyOrders = ordersRef.current.filter(lo => {
                 if (remoteOrdIds.has(lo.id)) return false;
-                if (stillPendingOrderIds.has(lo.id)) return true;
-                // If cloud has 0 orders (or active order never reached cloud), rescue active local orders
-                return snap.orders.length === 0 && lo.status !== 'COMPLETED';
+                return stillPendingOrderIds.has(lo.id);
             });
             if (localOnlyOrders.length > 0) {
                 localOnlyOrders.forEach(lo => {
                     sbUpsertOrder(lo).then(res => {
                         if (res.ok) removePendingId('lumina_pending_order_ids', lo.id);
-                        else addPendingId('lumina_pending_order_ids', lo.id);
                     });
                 });
             }
@@ -1344,9 +1340,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (snap.purchases.length > 0) setPurchases(snap.purchases);
             if (snap.profiles.length > 0) setUsers(snap.profiles);
             if (snap.activityLogs.length > 0) setActivityLogs(snap.activityLogs);
-            if (snap.settingsPartial) setSettings(prev => mergeSettings({ ...prev, ...snap.settingsPartial }));
+            if (snap.settingsPartial) {
+                setSettings(prev => mergeSettings(mergeRemoteSettings(prev, snap.settingsPartial)));
+            }
             if (!silent) {
-                const rescuedCount = localOnlyTxs.length + localOnlyOrders.length;
+                const rescuedCount = txsToUpload.length + localOnlyOrders.length;
                 notify(
                     "Nube Sincronizada",
                     rescuedCount > 0
@@ -1752,7 +1750,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             addCategory, removeCategory,
             addPeriodClosure,
             updateSettings,
-            login, loginWithSupabase, signUpWithSupabase, sendSupabasePasswordReset, sendSupabaseMagicLink, updateSupabasePassword, adminUpdateSupabaseProfile, verifyCurrentUserPassword, isPasswordRecoveryMode, clearPasswordRecoveryMode, syncFromSupabase, logout, manualLockApp, unlockApp, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
+            login, loginWithSupabase, signUpWithSupabase, sendSupabasePasswordReset, sendSupabaseMagicLink, updateSupabasePassword, adminUpdateSupabaseProfile, verifyCurrentUserPassword, isPasswordRecoveryMode, clearPasswordRecoveryMode, syncFromSupabase, setSyncSuspended, clearPendingSyncQueues, logout, manualLockApp, unlockApp, recoverAccount, verifyRecoveryAttempt, getUserPublicInfo,
             pushToCloud, pullFromCloud, hardReset, importData,
             notify, removeToast, flagChange, logActivity,
             connectBtPrinter, disconnectBtPrinter, sendBtData
