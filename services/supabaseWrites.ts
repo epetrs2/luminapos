@@ -10,6 +10,7 @@ import {
   BusinessSettings,
 } from '../types';
 import { roundCurrency, roundQty } from '../utils/financeHelpers';
+import { sanitizeBusinessSettingsForSupabase } from '../utils/syncHelpers';
 
 const isSignedIn = async (): Promise<boolean> => {
   if (!supabase) return false;
@@ -441,35 +442,24 @@ export const sbSavePurchase = async (p: Purchase, channel: 'CASH' | 'VIRTUAL' = 
   }
 };
 
-export const sbUpdateSettings = async (s: BusinessSettings) => {
-  if (!supabase || !(await isSignedIn())) return;
-  const { error } = await supabase
-    .from('business_settings')
-    .update({
-      name: s.name,
-      address: s.address || '',
-      phone: s.phone || '',
-      email: s.email || '',
-      website: s.website || '',
-      tax_id: s.taxId || '',
-      currency: s.currency || 'MXN',
-      tax_rate: s.taxRate || 0,
-      enable_tax: Boolean(s.enableTax),
-      logo_url: s.logo || null,
-      receipt_logo_url: s.receiptLogo || null,
-      receipt_header: s.receiptHeader || '',
-      receipt_footer: s.receiptFooter || '',
-      ticket_paper_width: s.ticketPaperWidth || '58mm',
-      invoice_padding: s.invoicePadding || 10,
-      theme: s.theme || 'light',
-      budget_config: s.budgetConfig,
-      sound_config: s.soundConfig,
-      security_config: s.securityConfig,
-      print_config: s.printConfig,
-      production_doc: s.productionDoc,
-    })
-    .eq('id', 1);
-  if (error) console.warn('sbUpdateSettings error:', error.message);
+export const sbUpdateSettings = async (s: BusinessSettings): Promise<{ ok: boolean; error?: string }> => {
+  try {
+    if (!supabase || !(await isSignedIn())) {
+      return { ok: false, error: 'Sesión de Supabase no activa' };
+    }
+    const payload = sanitizeBusinessSettingsForSupabase(s);
+    const { error } = await supabase
+      .from('business_settings')
+      .upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn('sbUpdateSettings error:', error.message);
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    console.warn('sbUpdateSettings exception:', err?.message);
+    return { ok: false, error: err?.message || 'Error de red' };
+  }
 };
 
 // --- USERS, AUTH RECOVERY & ACTIVITY LOGS ---

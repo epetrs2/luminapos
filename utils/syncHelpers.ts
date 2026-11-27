@@ -147,6 +147,42 @@ export const sanitizeMigrationTicketNumber = (
 };
 
 /**
+ * Sanitizes BusinessSettings for Supabase PostgreSQL so NOT NULL JSONB columns
+ * and CHECK constraints (ticket_paper_width, theme, invoice_padding) NEVER reject the write.
+ */
+export const sanitizeBusinessSettingsForSupabase = (s: Partial<BusinessSettings>) => {
+  const validPaperWidth = s.ticketPaperWidth === '80mm' ? '80mm' : '58mm';
+  const validTheme = s.theme === 'dark' ? 'dark' : 'light';
+  const rawPadding = Number(s.invoicePadding);
+  const validPadding = Number.isFinite(rawPadding) && rawPadding >= 0 ? Math.round(rawPadding) : 10;
+
+  return {
+    id: 1,
+    name: (s.name || '').trim() || 'Mi Negocio',
+    address: s.address || '',
+    phone: s.phone || '',
+    email: s.email || '',
+    website: s.website || '',
+    tax_id: s.taxId || '',
+    currency: s.currency || 'MXN',
+    tax_rate: Number.isFinite(Number(s.taxRate)) ? Number(s.taxRate) : 0,
+    enable_tax: Boolean(s.enableTax),
+    logo_url: s.logo ?? null,
+    receipt_logo_url: s.receiptLogo ?? null,
+    receipt_header: s.receiptHeader || '',
+    receipt_footer: s.receiptFooter || 'Gracias por su preferencia',
+    ticket_paper_width: validPaperWidth,
+    invoice_padding: validPadding,
+    theme: validTheme,
+    budget_config: s.budgetConfig || { expensesPercentage: 50, investmentPercentage: 30, profitPercentage: 20 },
+    sound_config: s.soundConfig || { enabled: true, volume: 0.5, saleSound: 'SUCCESS', errorSound: 'ERROR', clickSound: 'POP', notificationSound: 'NOTE' },
+    security_config: s.securityConfig || { autoLockMinutes: 0, blurAppOnBackground: false },
+    print_config: s.printConfig || { customerCopyBehavior: 'ASK' },
+    production_doc: s.productionDoc || { title: 'Orden de Producción', showPrices: false, showCustomerContact: true, showDates: true, customFooter: '' },
+  };
+};
+
+/**
  * Deduplicates customer list for safe batch upsert into Supabase.
  */
 export const prepareCustomersForMigration = (customers: Customer[]) => {

@@ -14,6 +14,7 @@ import {
   normalizeId,
   prepareCustomersForMigration,
   resolveCustomerUuidFromMaps,
+  sanitizeBusinessSettingsForSupabase,
   sanitizeMigrationTicketNumber,
 } from '../utils/syncHelpers';
 
@@ -75,49 +76,24 @@ export const migrateLocalDataToSupabase = async (
   const customerNameByCode = new Map<string, string>();
   const supplierLegacyToUuid = new Map<string, string>();
 
-  // 0. Business Settings FIRST (including logo, receiptLogo, name, address, phone, etc.)
+  // 0. Business Settings FIRST (sanitized so NOT NULL / CHECK constraints NEVER reject logo or name!)
   if (data.settings) {
-    const s = data.settings;
+    const payload = sanitizeBusinessSettingsForSupabase(data.settings);
     const { error } = await supabase
       .from('business_settings')
-      .upsert(
-        {
-          id: 1,
-          name: s.name || 'Mi Negocio',
-          address: s.address || '',
-          phone: s.phone || '',
-          email: s.email || '',
-          website: s.website || '',
-          tax_id: s.taxId || '',
-          currency: s.currency || 'MXN',
-          tax_rate: s.taxRate || 0,
-          enable_tax: Boolean(s.enableTax),
-          logo_url: s.logo || null,
-          receipt_logo_url: s.receiptLogo || null,
-          receipt_header: s.receiptHeader || '',
-          receipt_footer: s.receiptFooter || '',
-          ticket_paper_width: s.ticketPaperWidth || '58mm',
-          invoice_padding: s.invoicePadding || 10,
-          theme: s.theme || 'light',
-          budget_config: s.budgetConfig,
-          sound_config: s.soundConfig,
-          security_config: s.securityConfig,
-          print_config: s.printConfig,
-          production_doc: s.productionDoc,
-        },
-        { onConflict: 'id' }
-      );
+      .upsert(payload, { onConflict: 'id' });
     if (error) report.errors.push(`Configuración: ${error.message}`);
   }
 
-  // Optional clean slate for transactional tables when restoring a full JSON backup
+  // Optional clean slate for transactional tables (children deleted BEFORE parents to respect FK constraints!)
   if (options?.replaceExisting) {
     const zeroUuid = '00000000-0000-0000-0000-000000000000';
+    await supabase.from('transaction_returns').delete().neq('id', zeroUuid);
+    await supabase.from('cash_movements').delete().neq('id', zeroUuid);
     await supabase.from('transaction_items').delete().neq('id', zeroUuid);
     await supabase.from('transactions').delete().neq('id', zeroUuid);
     await supabase.from('order_items').delete().neq('id', zeroUuid);
     await supabase.from('orders').delete().neq('id', zeroUuid);
-    await supabase.from('cash_movements').delete().neq('id', zeroUuid);
     await supabase.from('purchase_items').delete().neq('id', zeroUuid);
     await supabase.from('purchases').delete().neq('id', zeroUuid);
   }

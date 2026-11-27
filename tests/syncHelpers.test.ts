@@ -3,6 +3,7 @@ import {
   mergeRemoteSettings,
   mergeTransactionsSafely,
   resolveCustomerUuidFromMaps,
+  sanitizeBusinessSettingsForSupabase,
   sanitizeMigrationTicketNumber,
   prepareCustomersForMigration,
 } from '../utils/syncHelpers';
@@ -184,5 +185,34 @@ describe('customer & ticket migration helpers', () => {
     expect(prepared[0].code).toBe('C0001');
     expect(prepared[1].code).toBe('C0001-2');
     expect(prepared[2].code).toBe('C-LEG-3');
+  });
+
+  it('sanitizes business_settings so NOT NULL JSONB and CHECK constraints never fail in Supabase', () => {
+    const sanitized = sanitizeBusinessSettingsForSupabase({
+      name: 'Zajtain',
+      logo: 'data:image/png;base64,ZAJTAIN',
+      receiptLogo: 'data:image/png;base64,RECEIPT',
+      ticketPaperWidth: 'invalid' as any,
+      theme: 'system' as any,
+      invoicePadding: 12.7,
+      budgetConfig: undefined,
+      soundConfig: undefined,
+      securityConfig: undefined,
+      printConfig: undefined,
+      productionDoc: undefined,
+    });
+
+    expect(sanitized.id).toBe(1);
+    expect(sanitized.name).toBe('Zajtain');
+    expect(sanitized.logo_url).toBe('data:image/png;base64,ZAJTAIN');
+    expect(sanitized.receipt_logo_url).toBe('data:image/png;base64,RECEIPT');
+    expect(sanitized.ticket_paper_width).toBe('58mm');
+    expect(sanitized.theme).toBe('light');
+    expect(sanitized.invoice_padding).toBe(13);
+    expect(sanitized.budget_config).toBeTruthy();
+    expect(sanitized.sound_config).toBeTruthy();
+    expect(sanitized.security_config).toBeTruthy();
+    expect(sanitized.print_config).toBeTruthy();
+    expect(sanitized.production_doc).toBeTruthy();
   });
 });

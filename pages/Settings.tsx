@@ -330,21 +330,24 @@ export const Settings: React.FC = () => {
           notify('Supabase', 'Inicia sesión en Supabase arriba antes de migrar tus datos.', 'warning');
           return;
       }
-      if (!confirm('¿Migrar toda tu base de datos (productos, clientes, proveedores, ventas, caja, pedidos, compras y configuración) hacia Supabase PostgreSQL?')) return;
+      if (!confirm('¿Subir y reemplazar la nube Supabase con TODOS los datos actuales de este dispositivo (logo, negocio, productos, clientes, ventas, caja, pedidos y compras)?')) return;
       setMigratingSupabase(true);
       setSyncSuspended(true);
       try {
-          const report = await migrateLocalDataToSupabase({
-              categories,
-              products,
-              customers,
-              suppliers,
-              transactions,
-              cashMovements,
-              orders,
-              purchases,
-              settings: formData,
-          });
+          const report = await migrateLocalDataToSupabase(
+              {
+                  categories,
+                  products,
+                  customers,
+                  suppliers,
+                  transactions,
+                  cashMovements,
+                  orders,
+                  purchases,
+                  settings: formData,
+              },
+              { replaceExisting: true }
+          );
           clearPendingSyncQueues();
           const summary = `Migrados: ${report.products} prod, ${report.customers} clientes, ${report.transactions} ventas, ${report.cashMovements} mov. caja, ${report.orders} pedidos, ${report.purchases} compras.`;
           const errPreview = report.errors.length > 0 ? ` — Detalle: ${report.errors.slice(0, 2).join(' | ')}` : '';
