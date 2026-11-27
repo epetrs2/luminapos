@@ -979,7 +979,7 @@ export const SalesHistory: React.FC = () => {
 
   // New Filters
   const [filterType, setFilterType] = useState<'ALL' | 'PAID' | 'PENDING' | 'CANCELLED'>('ALL');
-  const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT' | 'ID'>('ID'); 
+  const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT' | 'ID'>('DATE'); 
   const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('DESC'); 
 
   // ... (rest of helper functions) ...
@@ -1158,7 +1158,7 @@ export const SalesHistory: React.FC = () => {
   const filteredTransactions = useMemo(() => {
         let result = transactions.filter(t => 
             t.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
-            getCustomerName(t.customerId).toLowerCase().includes(searchTerm.toLowerCase())
+            getCustomerName(t.customerId, (t as any).customerName).toLowerCase().includes(searchTerm.toLowerCase())
         );
 
         if (filterType === 'PAID') {
@@ -1173,12 +1173,12 @@ export const SalesHistory: React.FC = () => {
             let comparison = 0;
             
             if (sortBy === 'ID') {
-                const numA = parseInt(a.id);
-                const numB = parseInt(b.id);
-                if (!isNaN(numA) && !isNaN(numB)) {
-                    comparison = numA - numB;
+                const isNumA = /^\d+$/.test(a.id.trim());
+                const isNumB = /^\d+$/.test(b.id.trim());
+                if (isNumA && isNumB) {
+                    comparison = parseInt(a.id, 10) - parseInt(b.id, 10);
                 } else {
-                    comparison = a.id.localeCompare(b.id);
+                    comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
                 }
             } else if (sortBy === 'AMOUNT') {
                 comparison = a.total - b.total;
@@ -1190,7 +1190,7 @@ export const SalesHistory: React.FC = () => {
         });
 
         return result;
-  }, [transactions, searchTerm, filterType, sortBy, sortDirection]);
+  }, [transactions, customers, searchTerm, filterType, sortBy, sortDirection]);
 
   const toggleSortBy = () => {
       if (sortBy === 'ID') setSortBy('DATE');
