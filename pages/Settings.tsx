@@ -345,8 +345,9 @@ export const Settings: React.FC = () => {
               settings: formData,
           });
           const summary = `Migrados: ${report.products} prod, ${report.customers} clientes, ${report.transactions} ventas, ${report.cashMovements} mov. caja, ${report.orders} pedidos, ${report.purchases} compras.`;
-          setSupabaseStatus(report.errors.length > 0 ? `${summary} (${report.errors.length} avisos)` : summary);
-          notify('Migración Supabase', summary, report.errors.length > 0 ? 'warning' : 'success');
+          const errPreview = report.errors.length > 0 ? ` — Detalle: ${report.errors.slice(0, 2).join(' | ')}` : '';
+          setSupabaseStatus(report.errors.length > 0 ? `${summary} (${report.errors.length} avisos)${errPreview}` : summary);
+          notify('Migración Supabase', report.errors.length > 0 ? `${summary} (${report.errors[0]})` : summary, report.errors.length > 0 ? 'warning' : 'success');
       } catch (err: any) {
           notify('Error Migración', err?.message || 'No se pudo migrar a Supabase', 'error');
       } finally {

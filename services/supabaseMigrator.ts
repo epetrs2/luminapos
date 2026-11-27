@@ -129,20 +129,26 @@ export const migrateLocalDataToSupabase = async (data: {
     }
   }
 
-  // 3. Customers
+  // 3. Customers (deduplicated by code so a single duplicate never fails the batch)
   if (data.customers && data.customers.length > 0) {
-    const custRows = data.customers.map(c => ({
-      code: c.id,
-      name: c.name,
-      email: c.email || '',
-      phone: c.phone || '',
-      address: c.address || '',
-      notes: c.notes || '',
-      client_type: c.clientType || 'INDIVIDUAL',
-      credit_limit: roundCurrency(Number.isFinite(c.creditLimit) ? Math.max(0, c.creditLimit) : 0),
-      current_debt: roundCurrency(Number.isFinite(c.currentDebt) ? Math.max(0, c.currentDebt) : 0),
-      has_unlimited_credit: Boolean(c.hasUnlimitedCredit),
-    }));
+    const seenCustCodes = new Set<string>();
+    const custRows = data.customers.map((c, idx) => {
+      let code = (c.id || '').trim() || `C-LEG-${idx + 1}`;
+      if (seenCustCodes.has(code)) code = `${code}-${idx + 1}`;
+      seenCustCodes.add(code);
+      return {
+        code,
+        name: c.name || 'Cliente',
+        email: c.email || '',
+        phone: c.phone || '',
+        address: c.address || '',
+        notes: c.notes || '',
+        client_type: c.clientType || 'INDIVIDUAL',
+        credit_limit: roundCurrency(Number.isFinite(c.creditLimit) ? Math.max(0, c.creditLimit) : 0),
+        current_debt: roundCurrency(Number.isFinite(c.currentDebt) ? Math.max(0, c.currentDebt) : 0),
+        has_unlimited_credit: Boolean(c.hasUnlimitedCredit),
+      };
+    });
     const { data: insertedCusts, error } = await supabase
       .from('customers')
       .upsert(custRows, { onConflict: 'code' })
@@ -233,28 +239,28 @@ export const migrateLocalDataToSupabase = async (data: {
         ? tx.status || 'completed'
         : 'completed';
 
+      const txPayload: Record<string, any> = {
+        ticket_number: ticketNumber,
+        date: tx.date || new Date().toISOString(),
+        customer_id: tx.customerId ? customerCodeToUuid.get(tx.customerId) || null : null,
+        customer_name: (tx as any).customerName || null,
+        subtotal: roundCurrency(tx.subtotal || 0),
+        tax_amount: roundCurrency(tx.taxAmount || 0),
+        discount: roundCurrency(tx.discount || 0),
+        shipping: roundCurrency(tx.shipping || 0),
+        total: roundCurrency(tx.total || 0),
+        payment_method: paymentMethod,
+        payment_status: paymentStatus,
+        amount_paid: roundCurrency(tx.amountPaid || 0),
+        tendered_amount: tx.tenderedAmount != null ? roundCurrency(tx.tenderedAmount) : null,
+        split_details: tx.splitDetails || null,
+        status,
+      };
+      if (tx.deliverySignature) txPayload.delivery_signature = tx.deliverySignature;
+
       const { data: txRow, error } = await supabase
         .from('transactions')
-        .upsert(
-          {
-            ticket_number: ticketNumber,
-            date: tx.date || new Date().toISOString(),
-            customer_id: tx.customerId ? customerCodeToUuid.get(tx.customerId) || null : null,
-            customer_name: (tx as any).customerName || null,
-            subtotal: roundCurrency(tx.subtotal || 0),
-            tax_amount: roundCurrency(tx.taxAmount || 0),
-            discount: roundCurrency(tx.discount || 0),
-            shipping: roundCurrency(tx.shipping || 0),
-            total: roundCurrency(tx.total || 0),
-            payment_method: paymentMethod,
-            payment_status: paymentStatus,
-            amount_paid: roundCurrency(tx.amountPaid || 0),
-            tendered_amount: tx.tenderedAmount != null ? roundCurrency(tx.tenderedAmount) : null,
-            split_details: tx.splitDetails || null,
-            status,
-          },
-          { onConflict: 'ticket_number' }
-        )
+        .upsert(txPayload, { onConflict: 'ticket_number' })
         .select('id')
         .single();
 
@@ -329,6 +335,7 @@ export const migrateLocalDataToSupabase = async (data: {
             status: ['PENDING', 'IN_PROGRESS', 'READY', 'COMPLETED'].includes(o.status) ? o.status : 'PENDING',
             priority: o.priority === 'HIGH' ? 'HIGH' : 'NORMAL',
             notes: o.notes || null,
+            stock_added: Boolean(o.stockAdded),
           },
           { onConflict: 'order_number' }
         )
